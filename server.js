@@ -683,6 +683,9 @@ function metaForPath(pathname) {
     "/forecasts": ["Forecasts | LiquidityLens", "Demand forecasts with confidence bands and model comparison."],
     "/inventory": ["Inventory | LiquidityLens", "SKU-level buy, sell, hold, and transfer recommendations."],
     "/marketplace": ["Marketplace | LiquidityLens", "Find nearby retailers with matching inventory excess or shortage signals."],
+    "/pricing": ["Pricing | LiquidityLens", "Clear LiquidityLens pricing for CSV-based forecasting, growth integrations, and enterprise inventory operations."],
+    "/how-it-connects": ["How LiquidityLens Connects", "See how LiquidityLens imports CSV sales data today and stages Shopify and Square integrations honestly."],
+    "/why-liquiditylens": ["Why LiquidityLens", "Inventory forecasting and transfer recommendations that start faster than enterprise planning tools."],
     "/community": ["Community | LiquidityLens", "Coordinate markdowns, delivery routes, and bulk buys with retail peers."],
     "/reports": ["Reports | LiquidityLens", "Executive inventory health reports for finance and operations teams."],
     "/profile": ["Profile | LiquidityLens", "Manage your LiquidityLens account profile, password, and active session."],
@@ -710,13 +713,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=8" />
+    <link rel="stylesheet" href="/styles.css?v=9" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.replace(" | LiquidityLens", "")}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=8"></script>
+    <script src="/app.js?v=9"></script>
   </body>
 </html>`;
 }

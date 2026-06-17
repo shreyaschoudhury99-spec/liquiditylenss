@@ -9,11 +9,15 @@ const routes = {
   "/forecasts": "Forecasts",
   "/inventory": "Inventory",
   "/marketplace": "Marketplace",
+  "/pricing": "Pricing",
+  "/how-it-connects": "How It Connects",
+  "/why-liquiditylens": "Why LiquidityLens",
   "/community": "Community",
   "/reports": "Reports",
   "/profile": "Profile",
 };
 const authRoutes = new Set(["/login", "/reset-password"]);
+const publicRoutes = new Set(["/pricing", "/how-it-connects", "/why-liquiditylens"]);
 
 const navItems = [
   ["/", "Dashboard", "layout-dashboard"],
@@ -75,6 +79,14 @@ const providerFields = {
   netsuite: [{ label: "Account ID", type: "text", placeholder: "1234567" }, { label: "Consumer Key", type: "password", placeholder: "ns_key_..." }, { label: "Consumer Secret", type: "password", placeholder: "ns_sec_..." }],
   sap: [{ label: "System URL", type: "url", placeholder: "https://your-sap-system.com" }, { label: "Client ID", type: "text", placeholder: "client_id_..." }, { label: "Client Secret", type: "password", placeholder: "client_sec_..." }],
   csv: null,
+  salesRecords: loadStoredJson("ll_sales_records", []),
+  transferRecords: loadStoredJson("ll_transfer_records", []),
+  connectionStatus: loadStoredJson("ll_connection_status", {
+    csv: { status: "not connected", detail: "Upload a CSV with SKU, date, quantity sold, and location." },
+    shopify: { status: "needs setup", detail: "Shopify OAuth app credentials are not configured in this demo build." },
+    square: { status: "needs setup", detail: "Square OAuth app credentials are not configured in this demo build." },
+  }),
+  skuSettings: loadStoredJson("ll_sku_settings", {}),
 };
 
 const listings = [
@@ -194,6 +206,119 @@ function attr(value) {
 
 function fmt(value) {
   return Number(value).toLocaleString("en-US");
+}
+
+function loadStoredJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveStoredJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function activeSkuData() {
+  if (!state.salesRecords.length) return skuData;
+  const bySku = new Map();
+  state.salesRecords.forEach(row => {
+    const item = bySku.get(row.sku) || {
+      id: bySku.size + 1,
+      product: row.sku,
+      sku: row.sku,
+      current: 0,
+      forecast: 0,
+      stockout: 0,
+      overstock: 0,
+      action: "hold",
+      locations: {},
+      history: [],
+    };
+    item.history.push(row);
+    item.locations[row.location] = item.locations[row.location] || { sold: 0, current: 0 };
+    item.locations[row.location].sold += row.quantity;
+    bySku.set(row.sku, item);
+  });
+  return [...bySku.values()].map(item => {
+    const totalSold = item.history.reduce((sum, row) => sum + row.quantity, 0);
+    const days = Math.max(7, distinctDays(item.history).length);
+    const avgDaily = totalSold / days;
+    const forecast = Math.max(1, Math.round(avgDaily * 56));
+    const locationCount = Math.max(1, Object.keys(item.locations).length);
+    Object.entries(item.locations).forEach(([location, value], index) => {
+      const multiplier = index % 2 === 0 ? 0.45 : 2.1;
+      value.current = Math.max(0, Math.round((value.sold / days) * 18 * multiplier));
+    });
+    state.transferRecords.filter(t => t.status === "received" && t.sku === item.sku).forEach(t => {
+      item.locations[t.from] = item.locations[t.from] || { sold: 0, current: 0 };
+      item.locations[t.to] = item.locations[t.to] || { sold: 0, current: 0 };
+      item.locations[t.from].current = Math.max(0, item.locations[t.from].current - t.quantity);
+      item.locations[t.to].current += t.quantity;
+    });
+    const current = Math.max(1, Object.values(item.locations).reduce((sum, location) => sum + location.current, 0));
+    const stockout = Math.max(0, Math.min(99, Math.round(((forecast - current) / Math.max(forecast, 1)) * 100)));
+    const overstock = Math.max(0, Math.min(99, Math.round(((current - forecast) / Math.max(forecast, 1)) * 100)));
+    const action = stockout > 55 ? "buy" : overstock > 55 ? "sell" : transferSuggestionsForSku(item, forecast).length ? "transfer" : "hold";
+    return { ...item, current, forecast, stockout, overstock, action };
+  });
+}
+
+function distinctDays(rows) {
+  return [...new Set(rows.map(row => row.date))];
+}
+
+function skuSettings(sku) {
+  return { leadTime: 14, safetyStock: 7, ...(state.skuSettings[sku] || {}) };
+}
+
+function reorderSuggestion(sku) {
+  const settings = skuSettings(sku.sku);
+  const dailyDemand = Math.max(1, sku.forecast / 56);
+  const needed = Math.ceil(dailyDemand * (settings.leadTime + settings.safetyStock));
+  const quantity = Math.max(0, needed - sku.current);
+  const orderBy = new Date(Date.now() + Math.max(0, Math.round((sku.current / dailyDemand) - settings.leadTime)) * 86400000);
+  return {
+    quantity,
+    orderBy: orderBy.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    reason: `Lead time ${settings.leadTime} days, safety stock ${settings.safetyStock} days, forecast ${Math.round(dailyDemand)} units/day.`,
+  };
+}
+
+function transferSuggestions() {
+  return activeSkuData().flatMap(sku => transferSuggestionsForSku(sku, sku.forecast).map(s => ({ ...s, sku: sku.sku, product: sku.product }))).slice(0, 8);
+}
+
+function transferSuggestionsForSku(sku, forecast) {
+  const locations = Object.entries(sku.locations || {});
+  if (locations.length < 2) return [];
+  const daily = Math.max(1, forecast / 56 / locations.length);
+  const shortages = locations.filter(([, v]) => v.current < daily * 10);
+  const excess = locations.filter(([, v]) => v.current > daily * 28);
+  return shortages.flatMap(([to, short]) => excess.map(([from, rich]) => ({
+    from,
+    to,
+    quantity: Math.max(1, Math.min(Math.round(daily * 14 - short.current), Math.round(rich.current - daily * 21))),
+    reason: `${to} covers ${Math.round(short.current / daily)} days; ${from} has ${Math.round(rich.current / daily)} days on hand.`,
+  }))).filter(s => s.quantity > 0);
+}
+
+function forecastSeriesForSku(sku) {
+  const rows = [...(sku.history || [])].sort((a, b) => a.date.localeCompare(b.date));
+  if (!rows.length) return [];
+  const byDay = new Map();
+  rows.forEach(row => byDay.set(row.date, (byDay.get(row.date) || 0) + row.quantity));
+  const points = [...byDay.entries()].slice(-8).map(([date, sold], i) => ({ label: `D${i + 1}`, history: sold }));
+  const avg = points.reduce((sum, p) => sum + p.history, 0) / Math.max(1, points.length);
+  return [
+    ...points.map(p => ({ ...p, prediction: null, lower: null, upper: null })),
+    ...Array.from({ length: 6 }, (_, i) => {
+      const prediction = Math.max(1, Math.round(avg * (1 + i * 0.03)));
+      return { label: `F${i + 1}`, history: null, prediction, lower: Math.round(prediction * 0.78), upper: Math.round(prediction * 1.22) };
+    }),
+  ];
 }
 
 function auth() {
@@ -327,7 +452,7 @@ function layout(content) {
 function searchDropdown() {
   const q = state.search.toLowerCase().trim();
   if (!q) return "";
-  const matches = skuData.filter(s => s.product.toLowerCase().includes(q) || s.sku.toLowerCase().includes(q)).slice(0, 6);
+  const matches = activeSkuData().filter(s => s.product.toLowerCase().includes(q) || s.sku.toLowerCase().includes(q)).slice(0, 6);
   return `<div class="search-dropdown">${matches.length ? matches.map(s => `<button class="search-item" data-search-sku="${s.id}" type="button"><span>${esc(s.product)}<br><span class="muted mono">${s.sku}</span></span><span class="badge badge--${s.action}">${s.action}</span></button>`).join("") : `<div class="empty-state">No products match. Try a different name or SKU.</div>`}</div>`;
 }
 
@@ -380,6 +505,52 @@ function loginPage() {
         ${state.authMessage ? `<p class="auth-message">${esc(state.authMessage)}</p>` : ""}
       </section>
     </main>
+  </section>`;
+}
+
+function publicPage(kind) {
+  const pages = {
+    "/pricing": ["Pricing", "Start with CSV forecasting, then add managed integrations as your operations mature.", pricingContent()],
+    "/how-it-connects": ["How It Connects", "Upload CSV data today. Shopify and Square are staged as provider-backed integrations.", howItConnectsContent()],
+    "/why-liquiditylens": ["Why LiquidityLens", "Inventory intelligence you can start in an afternoon instead of a months-long enterprise rollout.", whyContent()],
+  };
+  const [title, copy, content] = pages[kind] || pages["/why-liquiditylens"];
+  return `<main class="public-site">
+    <header class="public-nav">${logo()}<nav><a href="/why-liquiditylens" data-route="/why-liquiditylens">Why</a><a href="/how-it-connects" data-route="/how-it-connects">Connections</a><a href="/pricing" data-route="/pricing">Pricing</a><a href="/login">Sign in</a></nav></header>
+    <section class="public-hero"><h1>${title}</h1><p>${copy}</p><a class="btn-primary" href="/login">Start with your data</a></section>
+    ${content}
+  </main>`;
+}
+
+function pricingContent() {
+  return `<section class="pricing-grid">
+    ${pricingCard("Starter", "$0", "CSV upload, forecast dashboard, reorder CSV export, and transfer suggestions for one workspace.")}
+    ${pricingCard("Growth", "$49/mo", "Scheduled imports, team roles, saved settings, and managed onboarding for Shopify or Square.")}
+    ${pricingCard("Enterprise", "Contact us", "Multi-brand deployments, SSO, custom integrations, audit exports, and dedicated support.")}
+  </section>`;
+}
+
+function pricingCard(name, price, copy) {
+  return `<article class="card pricing-card"><p class="eyebrow">${name}</p><h2>${price}</h2><p>${copy}</p></article>`;
+}
+
+function howItConnectsContent() {
+  return `<section class="public-band"><div class="connection-status-grid">
+    ${publicIntegration("CSV upload", "Built now", "Upload SKU, date, quantity sold, and location columns to populate forecasts.")}
+    ${publicIntegration("Shopify", "Provider setup required", "OAuth shell is planned; credentials and Admin API scopes still need production setup.")}
+    ${publicIntegration("Square", "Provider setup required", "Connection status is modeled; production OAuth wiring is the next backend step.")}
+  </div></section>`;
+}
+
+function publicIntegration(name, status, copy) {
+  return `<article class="card connection-card"><span class="badge badge--info">${status}</span><h2 class="text-lg">${name}</h2><p>${copy}</p></article>`;
+}
+
+function whyContent() {
+  return `<section class="public-band grid-3">
+    <article class="card"><h2 class="text-lg">Fast setup</h2><p>Start with CSV sales data instead of waiting months for an enterprise implementation.</p></article>
+    <article class="card"><h2 class="text-lg">Explainable decisions</h2><p>Every risk badge includes the math behind stockout, overstock, reorder, or transfer recommendations.</p></article>
+    <article class="card"><h2 class="text-lg">Transfer-first thinking</h2><p>LiquidityLens highlights when one location can solve another location's risk before you buy more inventory.</p></article>
   </section>`;
 }
 
@@ -497,20 +668,39 @@ function skeletonPage(kind = "cards") {
 
 function dashboard() {
   if (state.loading) return pageShell("Dashboard", "Inventory risk, transfer opportunity, and executive KPIs.", skeletonPage());
+  const skus = activeSkuData();
+  const stockout = skus.filter(s => s.stockout > 55);
+  const overstock = skus.filter(s => s.overstock > 55);
+  const transfers = transferSuggestions();
+  const chartSku = skus.find(s => s.history?.length) || skus[0];
+  const revenueRisk = stockout.reduce((sum, s) => sum + s.forecast * 42, 0) || state.revenueRisk;
+  const riskScore = Math.min(99, Math.round((stockout.length * 18 + overstock.length * 12 + transfers.length * 8) / Math.max(1, skus.length) * 5));
   const cards = [
-    ["Inventory Risk Score", state.riskScore, "HIGH RISK", "↑ 8pts vs last week", "3 transfers recommended to reduce to medium.", "bad", "accent"],
+    ["Inventory Risk Score", riskScore || state.riskScore, stockout.length ? "HIGH RISK" : "WATCH", "Live from imported demand", `${transfers.length} transfer matches can reduce avoidable buys.`, "bad", "accent"],
     ["Total Inventory Value", "$12.8M", "", "↑ 2.1%", "Across all connected stores.", "good", ""],
-    ["Revenue at Risk", `$${Math.round(state.revenueRisk / 1000)}K`, "9 SKUs", "↑ $48K", "Likely stockout loss this week.", "bad", ""],
-    ["Excess Cost", "$312K", "", "↓ $12K", "Markdown and carrying cost.", "good", ""],
+    ["Revenue at Risk", `$${Math.round(revenueRisk / 1000)}K`, `${stockout.length} SKUs`, "Stockout exposure", "Likely stockout loss this week.", "bad", ""],
+    ["Excess Cost", `$${Math.round(overstock.reduce((sum, s) => sum + s.current * 9, 0) / 1000)}K`, "", `${overstock.length} overstocked`, "Markdown and carrying cost.", "good", ""],
   ];
   return pageShell("Dashboard", state.lastUpdated, `
     <div class="toolbar-spread"><div></div><button class="btn-primary" data-refresh type="button" ${state.refreshing ? "disabled" : ""}>${state.refreshing ? spinner("Refreshing...") : `${icon("chart-line")}Refresh analysis`}</button></div>
     <section class="kpi-grid">${cards.map((c, i) => kpiCard(c, i)).join("")}</section>
+    <section class="triage-grid">
+      ${triageCard("Stockout risk", stockout.length, "high", stockout.slice(0, 3).map(s => `${s.sku}: ${s.stockout}%`).join(", ") || "No urgent stockouts")}
+      ${triageCard("Overstock risk", overstock.length, "medium", overstock.slice(0, 3).map(s => `${s.sku}: ${s.overstock}%`).join(", ") || "No urgent overstock")}
+      ${triageCard("Transfer matches", transfers.length, "info", transfers[0] ? `${transfers[0].from} → ${transfers[0].to}, ${transfers[0].quantity} units` : "Upload multi-location CSV data")}
+    </section>
     <section class="grid-2">
-      <article class="card"><div class="toolbar-spread"><div><p class="eyebrow">Forecast</p><h2 class="text-lg">8-week demand outlook</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>XGBoost</span><span><i style="background:var(--text-muted)"></i>ARIMA</span></div></div><div class="chart">${lineChart(forecastData, 820, 280)}</div></article>
-      <article class="card"><p class="eyebrow">Recommendations</p><h2 class="text-lg">Action queue</h2><div class="report-list">${skuData.slice(0, 5).map(s => `<div class="report-row"><span>${esc(s.product)}</span><span class="badge badge--${s.action}">${s.action}</span></div>`).join("")}</div></article>
+      <article class="card"><div class="toolbar-spread"><div><p class="eyebrow">Forecast</p><h2 class="text-lg">${esc(chartSku.product)} demand outlook</h2></div><div class="legend"><span><i style="background:var(--text-muted)"></i>History</span><span><i style="background:var(--accent)"></i>Prediction</span><span><i style="background:var(--accent)"></i>Confidence</span></div></div><div class="chart">${chartSku.history?.length ? skuForecastChart(forecastSeriesForSku(chartSku), 820, 280) : lineChart(forecastData, 820, 280)}</div></article>
+      <article class="card"><p class="eyebrow">Recommendations</p><h2 class="text-lg">Action queue</h2><div class="report-list">${skus.slice(0, 5).map(s => {
+        const reorder = reorderSuggestion(s);
+        return `<div class="report-row"><span>${esc(s.product)}<br><span class="muted">${reorder.quantity ? `${reorder.quantity} units by ${reorder.orderBy}` : "No reorder needed"}</span></span><span class="badge badge--${s.action}">${s.action}</span></div>`;
+      }).join("")}</div></article>
     </section>
   `);
+}
+
+function triageCard(title, count, tone, detail) {
+  return `<article class="card triage-card"><span class="badge badge--${tone}">${count}</span><div><strong>${title}</strong><p class="muted">${esc(detail)}</p></div></article>`;
 }
 
 function kpiCard([label, value, badge, trend, subtext, trendClass, accent], index) {
@@ -535,12 +725,23 @@ function pageShell(title, sub, content, eyebrow = "") {
 function connectPage() {
   const complete = Object.values(state.checklist).every(Boolean);
   return pageShell("Connect Store", "Link systems, import data, and run the first analysis.", `
+    <section class="connection-status-grid">
+      ${connectionStatusCard("CSV Upload", "csv")}
+      ${connectionStatusCard("Shopify", "shopify")}
+      ${connectionStatusCard("Square POS", "square")}
+    </section>
     <section class="grid-2">
       <article class="card"><p class="eyebrow">Selected integration</p><h2 class="text-lg">${providerName(state.selectedProvider)}</h2>${integrationPanel()}</article>
       <article class="card"><p class="eyebrow">Providers</p><div class="connector-grid">${Object.keys(providerFields).map(p => `<button class="btn-ghost connector-card ${state.selectedProvider === p ? "selected" : ""}" data-provider="${p}" type="button">${providerName(p)}</button>`).join("")}</div></article>
     </section>
     <article class="card">${complete ? `<div class="card card--accent" style="margin-bottom:var(--space-4)">Setup complete. Your first analysis is ready. <a data-route="/" href="/">View Dashboard →</a></div>` : ""}<p class="eyebrow">Setup checklist</p><div class="checklist">${checkRows()}</div></article>
   `);
+}
+
+function connectionStatusCard(label, key) {
+  const status = state.connectionStatus[key] || { status: "not connected", detail: "No status yet." };
+  const tone = status.status === "connected" ? "success" : status.status === "error" ? "high" : "warning";
+  return `<article class="card connection-card"><div class="toolbar-spread"><strong>${label}</strong><span class="badge badge--${tone}">${esc(status.status)}</span></div><p class="muted">${esc(status.detail)}</p><button class="btn-ghost" data-sync-source="${key}" type="button">${state.providerBusy === key ? spinner("Syncing...") : "Sync now"}</button></article>`;
 }
 
 function providerName(key) {
@@ -552,8 +753,12 @@ function integrationPanel() {
     return `<div class="form-stack">
       <label class="drop-zone" data-drop><input class="hidden" data-csv type="file" accept=".csv" />${icon("upload")}<span>Drop a .csv file here, or click to browse</span></label>
       ${state.csv?.loading ? `<div class="progress"><span></span></div>` : ""}
-      ${state.csv?.rows ? `<p class="muted">File loaded: ${esc(state.csv.name)}. ${state.csv.rows.length} rows detected</p>${previewTable(state.csv.rows)}<button class="btn-primary" data-import-csv type="button">${state.providerBusy ? spinner("Importing...") : "Import CSV"}</button>` : ""}
+      ${state.csv?.errors?.length ? `<div class="auth-message auth-message--warning"><strong>${state.csv.errors.length} row issues found</strong><ul>${state.csv.errors.slice(0, 5).map(e => `<li>${esc(e)}</li>`).join("")}</ul></div>` : ""}
+      ${state.csv?.records ? `<p class="muted">File loaded: ${esc(state.csv.name)}. ${state.csv.records.length} valid rows detected</p>${previewTable([["SKU", "date", "quantity sold", "location"], ...state.csv.records.map(r => [r.sku, r.date, r.quantity, r.location])])}<button class="btn-primary" data-import-csv type="button">${state.providerBusy ? spinner("Importing...") : "Import CSV"}</button>` : ""}
     </div>`;
+  }
+  if (["shopify", "square"].includes(state.selectedProvider)) {
+    return `<div class="form-stack"><p class="muted">${providerName(state.selectedProvider)} OAuth needs production app credentials before it can pull live orders. This screen keeps the integration honest instead of pretending a token exists.</p><button class="btn-primary" data-connect-form-disabled type="button">Request ${providerName(state.selectedProvider)} app setup</button></div>`;
   }
   const fields = providerFields[state.selectedProvider];
   return `<form class="form-stack" data-connect-form>${fields.map((f, i) => `<div class="field"><label>${f.label}</label><input class="input" name="field${i}" type="${f.type}" placeholder="${f.placeholder}" /></div>`).join("")}<button class="btn-primary" type="submit" ${state.providerBusy ? "disabled" : ""}>${state.providerBusy ? spinner("Connecting...") : `Connect ${providerName(state.selectedProvider)}`}</button></form>`;
@@ -593,16 +798,24 @@ function accordion(title, sub, bullets, input, output) {
 
 function inventoryPage() {
   if (state.loading) return pageShell("Inventory", "SKU-level recommendations and risk signals.", skeletonPage("table"), "SKU RECOMMENDATIONS");
+  const skus = activeSkuData();
   const q = state.inventoryFilter.toLowerCase();
-  const rows = skuData.filter(s => (state.actionFilter === "all" || s.action === state.actionFilter) && (s.product.toLowerCase().includes(q) || s.sku.toLowerCase().includes(q)));
-  return pageShell("Inventory", `Showing ${rows.length} of ${skuData.length} products`, `
+  const rows = skus.filter(s => (state.actionFilter === "all" || s.action === state.actionFilter) && (s.product.toLowerCase().includes(q) || s.sku.toLowerCase().includes(q)));
+  return pageShell("Inventory", `Showing ${rows.length} of ${skus.length} products`, `
     <div class="toolbar"><input class="input" data-inventory-search style="max-width:240px" value="${esc(state.inventoryFilter)}" placeholder="Search name or SKU" />${["all", "buy", "sell", "hold", "transfer"].map(a => `<button class="btn-ghost ${state.actionFilter === a ? "active" : ""}" data-action-filter="${a}" type="button">${a[0].toUpperCase() + a.slice(1)}</button>`).join("")}</div>
-    <div class="table-wrap"><table class="data-table"><thead><tr><th>Product + SKU</th><th>Current Stock</th><th>Forecasted Demand</th><th>Stockout %</th><th>Overstock %</th><th>Action</th></tr></thead><tbody>${rows.length ? rows.map(skuRow).join("") : `<tr><td colspan="6"><div class="empty-state">${icon("search")}No products match. Try a different name or SKU.</div></td></tr>`}</tbody></table></div>
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Product + SKU</th><th>Current Stock</th><th>Forecasted Demand</th><th>Risk reason</th><th>Reorder suggestion</th><th>Action</th></tr></thead><tbody>${rows.length ? rows.map(skuRow).join("") : `<tr><td colspan="6"><div class="empty-state">${icon("search")}No products match. Try a different name or SKU.</div></td></tr>`}</tbody></table></div>
+    <section class="card"><div class="toolbar-spread"><div><p class="eyebrow">Reorder export</p><h2 class="text-lg">Actionable purchase list</h2></div><button class="btn-primary" data-export-reorders type="button">${icon("file-text")}Export reorder CSV</button></div><p class="muted">Includes only SKUs where forecasted lead-time demand plus safety stock exceeds current stock.</p></section>
   `, "SKU RECOMMENDATIONS");
 }
 
 function skuRow(s) {
-  return `<tr id="sku-${s.id}" class="${state.highlightedSku === s.id ? "highlight-row" : ""}"><td><strong>${esc(s.product)}</strong><br><span class="mono muted">${s.sku}</span></td><td class="mono">${s.current}</td><td class="mono">${s.forecast}</td><td class="mono ${severity(s.stockout)}">${s.stockout}%</td><td class="mono ${severity(s.overstock)}">${s.overstock}%</td><td><span class="badge badge--${s.action}">${s.action}</span></td></tr>`;
+  const reorder = reorderSuggestion(s);
+  const daily = Math.max(1, Math.round(s.forecast / 56));
+  const daysOnHand = Math.round(s.current / daily);
+  const reason = s.stockout > s.overstock
+    ? `Current stock covers ${daysOnHand} days; lead time is ${skuSettings(s.sku).leadTime} days.`
+    : `Forecast is ${s.forecast}; current stock is ${s.current}.`;
+  return `<tr id="sku-${s.id}" class="${state.highlightedSku === s.id ? "highlight-row" : ""}"><td><strong>${esc(s.product)}</strong><br><span class="mono muted">${s.sku}</span></td><td class="mono">${s.current}</td><td class="mono">${s.forecast}</td><td><span class="risk-badge ${severity(s.stockout || s.overstock)}" title="${attr(reason)}">${s.stockout > s.overstock ? `${s.stockout}% stockout` : `${s.overstock}% overstock`}</span><br><span class="muted">${esc(reason)}</span></td><td>${reorder.quantity ? `<strong>${reorder.quantity} units</strong><br><span class="muted">Order by ${reorder.orderBy}. ${esc(reorder.reason)}</span>` : `<span class="muted">No reorder needed</span>`}</td><td><span class="badge badge--${s.action}">${s.action}</span></td></tr>`;
 }
 
 function severity(n) {
@@ -612,13 +825,25 @@ function severity(n) {
 function marketplacePage() {
   const filtered = listings.filter(l => (state.typeFilter === "all" || l.type === state.typeFilter) && (state.catFilter === "all" || l.cat === state.catFilter) && l.dist <= state.distFilter);
   const msg = state.selectedRetailer ? `Hi ${state.selectedRetailer.retailer}, we're interested in discussing a transfer of ${state.selectedRetailer.product}. Can you confirm availability and pricing for ${state.selectedRetailer.qty} units?` : "";
+  const suggestions = transferSuggestions();
   return pageShell("Marketplace", `Showing ${filtered.length} of ${listings.length} partners`, `
     <p class="eyebrow">PARTNER NETWORK</p>
+    <section class="card"><div class="toolbar-spread"><div><p class="eyebrow">Inter-store transfer engine</p><h2 class="text-lg">Suggested transfers</h2></div><span class="badge badge--info">${suggestions.length} matches</span></div><div class="transfer-list">${suggestions.length ? suggestions.map((s, i) => transferSuggestionCard(s, i)).join("") : `<div class="empty-state">Upload a CSV with at least two locations carrying the same SKU to surface transfer matches.</div>`}</div></section>
+    <section class="card"><p class="eyebrow">Transfer records</p><div class="transfer-list">${state.transferRecords.length ? state.transferRecords.map(transferRecordCard).join("") : `<p class="muted">Approved transfers will appear here with pending, in transit, and received states.</p>`}</div></section>
     <article class="card map-panel">${mapSvg()}</article>
     <div class="toolbar"><select class="select" data-market-filter="typeFilter" style="max-width:160px"><option value="all">All types</option><option value="excess">Excess</option><option value="shortage">Shortage</option></select><select class="select" data-market-filter="catFilter" style="max-width:180px"><option value="all">All categories</option><option value="footwear">Footwear</option><option value="outdoor">Outdoor</option><option value="home">Home</option></select><select class="select" data-market-filter="distFilter" style="max-width:160px"><option value="25">25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select></div>
     <section class="listing-grid">${filtered.length ? filtered.map(l => listingCard(l)).join("") : `<article class="card empty-state">No partners match your filters. Try expanding the distance or category.</article>`}</section>
     <section class="card message-layout"><div>${listings.map(l => `<button class="btn-ghost retailer-row ${state.selectedRetailer?.id === l.id ? "selected" : ""}" data-retailer="${l.id}" type="button"><span>${esc(l.retailer)}</span><span class="mono">${l.dist} mi</span></button>`).join("")}</div><form class="form-stack" data-message><textarea class="textarea" name="message">${esc(msg)}</textarea><button class="btn-primary" type="submit" ${state.marketplaceBusy ? "disabled" : ""}>${state.marketplaceBusy ? spinner("Sending...") : "Send request"}</button>${state.messageSent ? `<p class="severity-low">${esc(state.messageSent)}</p>` : ""}</form></section>
   `);
+}
+
+function transferSuggestionCard(s, index) {
+  return `<article class="transfer-row"><div><strong>${esc(s.product)}</strong><p class="muted">${esc(s.from)} → ${esc(s.to)} · ${s.quantity} units · ${esc(s.reason)}</p></div><button class="btn-primary" data-approve-transfer="${index}" type="button">Approve transfer</button></article>`;
+}
+
+function transferRecordCard(record) {
+  const next = record.status === "pending" ? "Mark in transit" : record.status === "in transit" ? "Mark received" : "";
+  return `<article class="transfer-row"><div><strong>${esc(record.product)}</strong><p class="muted">${esc(record.from)} → ${esc(record.to)} · ${record.quantity} units</p></div><div class="transfer-actions"><span class="badge badge--info">${esc(record.status)}</span>${next ? `<button class="btn-ghost" data-advance-transfer="${record.id}" type="button">${next}</button>` : ""}</div></article>`;
 }
 
 function listingCard(l) {
@@ -735,12 +960,17 @@ function render() {
     app.innerHTML = `<main class="auth-loading"><span class="spinner" aria-hidden="true"></span><span>Checking your session...</span></main>`;
     return;
   }
+  if (publicRoutes.has(location.pathname) && !auth()) {
+    app.innerHTML = publicPage(location.pathname);
+    bind();
+    return;
+  }
   if (authRoutes.has(location.pathname) || !auth()) {
     app.innerHTML = loginPage();
     bind();
     return;
   }
-  const views = { "/": dashboard, "/dashboard": dashboard, "/connect": connectPage, "/forecasts": forecastsPage, "/inventory": inventoryPage, "/marketplace": marketplacePage, "/community": communityPage, "/reports": reportsPage, "/profile": profilePage };
+  const views = { "/": dashboard, "/dashboard": dashboard, "/connect": connectPage, "/forecasts": forecastsPage, "/inventory": inventoryPage, "/marketplace": marketplacePage, "/pricing": () => publicPage("/pricing"), "/how-it-connects": () => publicPage("/how-it-connects"), "/why-liquiditylens": () => publicPage("/why-liquiditylens"), "/community": communityPage, "/reports": reportsPage, "/profile": profilePage };
   app.innerHTML = layout((views[state.path] || dashboard)());
   bind();
 }
@@ -775,6 +1005,8 @@ function bind() {
   document.querySelector("[data-mark-read]")?.addEventListener("click", () => { state.notifications = state.notifications.map(n => ({ ...n, read: true })); render(); });
   document.querySelectorAll("[data-provider]").forEach(el => el.addEventListener("click", () => { state.selectedProvider = el.dataset.provider; render(); }));
   document.querySelector("[data-connect-form]")?.addEventListener("submit", connectProvider);
+  document.querySelector("[data-connect-form-disabled]")?.addEventListener("click", () => showToast("Add provider OAuth credentials on the backend before enabling live sync.", "info"));
+  document.querySelectorAll("[data-sync-source]").forEach(el => el.addEventListener("click", () => syncSource(el.dataset.syncSource)));
   document.querySelector("[data-csv]")?.addEventListener("change", handleCsvFile);
   document.querySelector("[data-drop]")?.addEventListener("dragover", e => e.preventDefault());
   document.querySelector("[data-drop]")?.addEventListener("drop", e => {
@@ -785,7 +1017,10 @@ function bind() {
   document.querySelectorAll("[data-check]").forEach(el => el.addEventListener("click", () => runChecklist(el.dataset.check)));
   document.querySelector("[data-inventory-search]")?.addEventListener("input", e => { state.inventoryFilter = e.target.value; render(); });
   document.querySelectorAll("[data-action-filter]").forEach(el => el.addEventListener("click", () => { state.actionFilter = el.dataset.actionFilter; render(); }));
+  document.querySelector("[data-export-reorders]")?.addEventListener("click", exportReorders);
   document.querySelectorAll("[data-market-filter]").forEach(el => { el.value = state[el.dataset.marketFilter]; el.addEventListener("change", () => { state[el.dataset.marketFilter] = el.dataset.marketFilter === "distFilter" ? Number(el.value) : el.value; render(); }); });
+  document.querySelectorAll("[data-approve-transfer]").forEach(el => el.addEventListener("click", () => approveTransfer(Number(el.dataset.approveTransfer))));
+  document.querySelectorAll("[data-advance-transfer]").forEach(el => el.addEventListener("click", () => advanceTransfer(Number(el.dataset.advanceTransfer))));
   document.querySelectorAll("[data-contact], [data-retailer]").forEach(el => el.addEventListener("click", () => { const id = Number(el.dataset.contact || el.dataset.retailer); state.selectedRetailer = listings.find(l => l.id === id); state.messageSent = ""; render(); }));
   document.querySelector("[data-message]")?.addEventListener("submit", sendMessage);
   document.querySelectorAll("[data-topic]").forEach(el => el.addEventListener("click", () => { state.selectedTopic = el.dataset.topic; render(); }));
@@ -1053,6 +1288,26 @@ function connectProvider(e) {
   }, 1800);
 }
 
+function syncSource(source) {
+  state.providerBusy = source;
+  render();
+  setTimeout(() => {
+    if (source === "csv" && state.salesRecords.length) {
+      state.connectionStatus.csv = { status: "connected", detail: `${state.salesRecords.length} rows available. No duplicate records created on sync.` };
+      showToast("CSV source re-synced without duplicates.", "success");
+    } else if (source === "csv") {
+      state.connectionStatus.csv = { status: "not connected", detail: "Upload a sales CSV before syncing." };
+      showToast("Upload a CSV first.", "error");
+    } else {
+      state.connectionStatus[source] = { status: "needs re-auth", detail: `${providerName(source)} OAuth credentials are not configured yet.` };
+      showToast(`${providerName(source)} needs provider credentials before sync.`, "error");
+    }
+    saveStoredJson("ll_connection_status", state.connectionStatus);
+    state.providerBusy = false;
+    render();
+  }, 900);
+}
+
 function handleCsvFile(e) {
   loadCsvFile(e.target.files[0]);
 }
@@ -1060,17 +1315,21 @@ function handleCsvFile(e) {
 function loadCsvFile(file) {
   if (!file) return;
   if (!/\.csv$/i.test(file.name)) return showToast("Choose a CSV file.", "error");
-  state.csv = { name: file.name, loading: true, rows: null };
+  state.csv = { name: file.name, loading: true, records: null, errors: [] };
   render();
   file.text().then(text => setTimeout(() => {
-    const rows = text.trim().split(/\r?\n/).filter(Boolean).map(r => r.split(","));
-    if (!rows.length) {
+    const parsed = parseSalesCsv(text);
+    if (!parsed.records.length && !parsed.errors.length) {
       state.csv = null;
       render();
       showToast("CSV file is empty.", "error");
       return;
     }
-    state.csv = { name: file.name, rows };
+    state.csv = { name: file.name, records: parsed.records, errors: parsed.errors };
+    state.connectionStatus.csv = parsed.errors.length
+      ? { status: "error", detail: `${parsed.records.length} valid rows, ${parsed.errors.length} rows need cleanup.` }
+      : { status: "ready", detail: `${parsed.records.length} valid sales rows ready to import.` };
+    saveStoredJson("ll_connection_status", state.connectionStatus);
     render();
   }, 1200)).catch(() => {
     state.csv = null;
@@ -1079,15 +1338,91 @@ function loadCsvFile(file) {
   });
 }
 
+function parseSalesCsv(text) {
+  const lines = text.trim().split(/\r?\n/).filter(Boolean).map(parseCsvLine);
+  if (!lines.length) return { records: [], errors: [] };
+  const header = lines[0].map(h => h.trim().toLowerCase());
+  const find = names => names.map(n => header.indexOf(n)).find(i => i >= 0);
+  const idx = {
+    sku: find(["sku"]),
+    date: find(["date"]),
+    quantity: find(["quantity sold", "quantity", "qty", "units sold"]),
+    location: find(["location", "store", "warehouse"]),
+  };
+  const missing = Object.entries(idx).filter(([, i]) => i === undefined).map(([k]) => k);
+  if (missing.length) return { records: [], errors: [`Missing required column(s): ${missing.join(", ")}. Expected SKU, date, quantity sold, location.`] };
+  const records = [];
+  const errors = [];
+  lines.slice(1).forEach((row, offset) => {
+    const line = offset + 2;
+    const sku = String(row[idx.sku] || "").trim();
+    const date = String(row[idx.date] || "").trim();
+    const quantity = Number(row[idx.quantity]);
+    const location = String(row[idx.location] || "").trim();
+    if (!sku) errors.push(`Line ${line}: SKU is required.`);
+    if (!date || Number.isNaN(Date.parse(date))) errors.push(`Line ${line}: date must be valid.`);
+    if (!Number.isFinite(quantity) || quantity < 0) errors.push(`Line ${line}: quantity sold must be a positive number.`);
+    if (!location) errors.push(`Line ${line}: location is required.`);
+    if (sku && date && Number.isFinite(quantity) && quantity >= 0 && location) {
+      records.push({ sku, date: new Date(date).toISOString().slice(0, 10), quantity, location });
+    }
+  });
+  return { records, errors };
+}
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"' && line[i + 1] === '"') {
+      current += '"';
+      i += 1;
+    } else if (char === '"') {
+      quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      values.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  values.push(current);
+  return values;
+}
+
 function importCsv() {
   state.providerBusy = true; render();
   setTimeout(() => {
     state.providerBusy = false;
+    const incoming = state.csv?.records || [];
+    const key = row => `${row.sku}|${row.date}|${row.location}`;
+    const existing = new Map(state.salesRecords.map(row => [key(row), row]));
+    incoming.forEach(row => existing.set(key(row), row));
+    state.salesRecords = [...existing.values()];
+    saveStoredJson("ll_sales_records", state.salesRecords);
+    state.connectionStatus.csv = { status: "connected", detail: `${state.salesRecords.length} historical sales rows imported. Last sync just now.` };
+    saveStoredJson("ll_connection_status", state.connectionStatus);
     state.checklist.sales = true;
     state.checklist.inventory = true;
+    state.checklist.analysis = true;
     render();
-    showToast("CSV inventory imported", "success");
+    showToast("CSV sales imported and forecast dashboard updated", "success");
   }, 2000);
+}
+
+function exportReorders() {
+  const rows = activeSkuData()
+    .map(sku => ({ sku, reorder: reorderSuggestion(sku) }))
+    .filter(item => item.reorder.quantity > 0);
+  if (!rows.length) return showToast("No reorder rows to export.", "info");
+  const csv = [
+    ["SKU", "Product", "Suggested Quantity", "Order By", "Reason"],
+    ...rows.map(({ sku, reorder }) => [sku.sku, sku.product, reorder.quantity, reorder.orderBy, reorder.reason]),
+  ].map(row => row.map(cell => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
+  downloadText(`liquiditylens-reorders-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+  showToast("Reorder CSV exported.", "success");
 }
 
 function runChecklist(key) {
@@ -1115,6 +1450,28 @@ function sendMessage(e) {
     showToast(`Transaction request sent to ${retailer}.`, "success");
     setTimeout(() => { state.selectedRetailer = listings[0]; state.messageSent = ""; render(); }, 3000);
   }, 1800);
+}
+
+function approveTransfer(index) {
+  const suggestion = transferSuggestions()[index];
+  if (!suggestion) return showToast("Transfer suggestion is no longer available.", "error");
+  const record = { id: Date.now(), status: "pending", createdAt: new Date().toISOString(), ...suggestion };
+  state.transferRecords.unshift(record);
+  saveStoredJson("ll_transfer_records", state.transferRecords);
+  showToast("Transfer approved and queued.", "success");
+  render();
+}
+
+function advanceTransfer(id) {
+  state.transferRecords = state.transferRecords.map(record => {
+    if (record.id !== id) return record;
+    if (record.status === "pending") return { ...record, status: "in transit" };
+    if (record.status === "in transit") return { ...record, status: "received", receivedAt: new Date().toISOString() };
+    return record;
+  });
+  saveStoredJson("ll_transfer_records", state.transferRecords);
+  showToast("Transfer status updated.", "success");
+  render();
 }
 
 function postCommunity(e) {
@@ -1292,15 +1649,19 @@ function downloadReport() {
       ["SKU Action Summary", "Buy: 3 SKUs (2,170 units)", "Sell: 3 SKUs (1,126 units)", "Transfer: 2 SKUs (672 units)", "Hold: 4 SKUs"],
       ["Generated by LiquidityLens", "Confidential"],
     ].map(r => r.map(c => `"${String(c).replaceAll('"', '""')}"`).join(",")).join("\n");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    a.download = `LiquidityLens-Report-${iso}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadText(`LiquidityLens-Report-${iso}.csv`, csv);
     state.reportBusy = false;
     render();
     showToast("Report downloaded.", "success");
   }, 1200);
+}
+
+function downloadText(filename, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 function scrollHighlighted() {
@@ -1324,6 +1685,25 @@ function lineChart(data, w, h) {
       <span>ARIMA: ${fmt(d.arima)} units</span>
       <span>Confidence: ${fmt(d.lower)}-${fmt(d.upper)} units (${variance}% band)</span>`;
     return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}"><line x1="${x(i)}" x2="${x(i)}" y1="${pad.t}" y2="${h - pad.b}" class="chart-hit-line"/><circle cx="${x(i)}" cy="${y(d.ensemble)}" r="12" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x(i)}" cy="${y(d.ensemble)}" r="4" fill="var(--accent)"/></g><text x="${x(i)}" y="${h - 10}" text-anchor="middle">${d.week}</text>`;
+  }).join("")}</svg>`;
+}
+
+function skuForecastChart(data, w, h) {
+  const pad = { l: 46, r: 18, t: 18, b: 34 };
+  const vals = data.flatMap(d => [d.history, d.prediction, d.lower, d.upper]).filter(v => Number.isFinite(v));
+  const max = Math.max(10, ...vals) * 1.25;
+  const x = i => pad.l + i * ((w - pad.l - pad.r) / Math.max(1, data.length - 1));
+  const y = v => h - pad.b - (v / max) * (h - pad.t - pad.b);
+  const pathFor = key => data.filter(d => Number.isFinite(d[key])).map((d, i, arr) => {
+    const originalIndex = data.indexOf(d);
+    return `${i ? "L" : "M"}${x(originalIndex)},${y(d[key])}`;
+  }).join(" ");
+  const future = data.filter(d => Number.isFinite(d.prediction));
+  const area = future.length ? `${future.map((d, i) => `${i ? "L" : "M"}${x(data.indexOf(d))},${y(d.upper)}`).join(" ")} ${[...future].reverse().map(d => `L${x(data.indexOf(d))},${y(d.lower)}`).join(" ")} Z` : "";
+  return `<svg viewBox="0 0 ${w} ${h}">${[0, 1, 2, 3].map(i => `<line class="chart-grid" x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + i * 55}" y2="${pad.t + i * 55}"/>`).join("")}${area ? `<path d="${area}" fill="var(--accent-dim)"/>` : ""}<path d="${pathFor("history")}" fill="none" stroke="var(--text-muted)" stroke-width="2"/><path d="${pathFor("prediction")}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>${data.map((d, i) => {
+    const value = Number.isFinite(d.history) ? d.history : d.prediction;
+    const tip = `<strong>${d.label}</strong><span>${Number.isFinite(d.history) ? `Historical sales: ${fmt(d.history)}` : `Predicted demand: ${fmt(d.prediction)}`}</span>${Number.isFinite(d.lower) ? `<span>Confidence: ${fmt(d.lower)}-${fmt(d.upper)}</span>` : ""}`;
+    return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}"><circle cx="${x(i)}" cy="${y(value)}" r="12" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x(i)}" cy="${y(value)}" r="4" fill="${Number.isFinite(d.history) ? "var(--text-muted)" : "var(--accent)"}"/></g><text x="${x(i)}" y="${h - 10}" text-anchor="middle">${d.label}</text>`;
   }).join("")}</svg>`;
 }
 
@@ -1443,8 +1823,10 @@ async function bootAuth() {
   }
   state.authReady = true;
   if (!auth() && !authRoutes.has(location.pathname)) {
-    sessionStorage.setItem("ll_redirect_after_login", location.pathname in routes ? location.pathname : "/dashboard");
-    replacePath("/login");
+    if (!publicRoutes.has(location.pathname)) {
+      sessionStorage.setItem("ll_redirect_after_login", location.pathname in routes ? location.pathname : "/dashboard");
+      replacePath("/login");
+    }
   }
   if (auth() && authRoutes.has(location.pathname)) {
     const next = sessionStorage.getItem("ll_redirect_after_login") || "/dashboard";
