@@ -1,0 +1,24 @@
+name = "LiquidityLens"
+client_id = "b56cbb51dac7c5101410dc4950c82708"
+application_url = "https://liquiditylens-f536.onrender.com"
+embedded = false
+handle = "liquiditylens"
+
+[build]
+automatically_update_urls_on_dev = false
+
+[webhooks]
+api_version = "2026-04"
+
+[access_scopes]
+scopes = "read_inventory,read_locations,read_orders,read_products"
+use_legacy_install_flow = true
+
+[auth]
+redirect_urls = [
+  "https://liquiditylens-f536.onrender.com/api/integrations/shopify/callback",
+  "http://localhost:4174/api/integrations/shopify/callback"
+]
+
+[pos]
+embedded = false
