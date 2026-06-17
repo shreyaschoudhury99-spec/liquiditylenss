@@ -516,7 +516,7 @@ function publicPage(kind) {
   };
   const [title, copy, content] = pages[kind] || pages["/why-liquiditylens"];
   return `<main class="public-site">
-    <header class="public-nav">${logo()}<nav><a href="/why-liquiditylens">Why</a><a href="/how-it-connects">Connections</a><a href="/pricing">Pricing</a><a href="/login">Sign in</a></nav></header>
+    <header class="public-nav">${logo()}<nav><a href="/why-liquiditylens" data-route="/why-liquiditylens">Why</a><a href="/how-it-connects" data-route="/how-it-connects">Connections</a><a href="/pricing" data-route="/pricing">Pricing</a><a href="/login">Sign in</a></nav></header>
     <section class="public-hero"><h1>${title}</h1><p>${copy}</p><a class="btn-primary" href="/login">Start with your data</a></section>
     ${content}
   </main>`;
