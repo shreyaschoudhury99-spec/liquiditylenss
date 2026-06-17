@@ -846,7 +846,8 @@ app.post("/api/integrations/shopify/start", authUser, oauthLimiter, asyncRoute(a
 }));
 
 app.get("/api/integrations/shopify/callback", oauthLimiter, asyncRoute(async (req, res) => {
-  const redirectWithMessage = message => res.redirect(`/connect?integrationMessage=${encodeURIComponent(message)}`);
+  const redirectToApp = path => res.redirect(`${appBaseUrl}${safeRedirectPath(path)}`);
+  const redirectWithMessage = message => res.redirect(`${appBaseUrl}/connect?integrationMessage=${encodeURIComponent(message)}`);
   if (req.query.error) return redirectWithMessage(req.query.error_description || "Shopify connection was cancelled.");
   const cookie = req.signedCookies[integrationCookieName];
   if (!cookie) return redirectWithMessage("Shopify connection expired. Please try again.");
@@ -880,24 +881,9 @@ app.get("/api/integrations/shopify/callback", oauthLimiter, asyncRoute(async (re
     accessToken: tokenSet.access_token,
     scopes,
     externalAccount: shop,
-    detail: `Connected to ${shop}. Sync orders to populate forecasts.`,
+    detail: `Connected to ${shop}. Press Sync now to import Shopify orders.`,
   });
-  try {
-    const synced = await syncShopifyOrders(stored.userId, shop, tokenSet.access_token);
-    await upsertIntegration(stored.userId, "shopify", {
-      status: "connected",
-      detail: `Connected to ${shop}. Synced ${synced.rows} sales rows from ${synced.orders} orders.`,
-      externalAccount: shop,
-      synced: true,
-    });
-  } catch (err) {
-    await upsertIntegration(stored.userId, "shopify", {
-      status: err.code === "SHOPIFY_REAUTH_REQUIRED" ? "needs_reauth" : "error",
-      detail: err.message,
-      externalAccount: shop,
-    });
-  }
-  res.redirect(safeRedirectPath(stored.redirectTo));
+  redirectToApp(stored.redirectTo);
 }));
 
 app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, res) => {
