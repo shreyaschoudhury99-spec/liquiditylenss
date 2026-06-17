@@ -483,9 +483,19 @@ async function shopifyApi(shop, accessToken, resource, params = {}) {
   });
   const text = await response.text();
   const data = text ? JSON.parse(text) : {};
-  if (response.status === 401 || response.status === 403) {
+  const shopifyMessage = typeof data.errors === "string"
+    ? data.errors
+    : Array.isArray(data.errors)
+      ? data.errors.join(" ")
+      : data.error || data.message || "Shopify request failed.";
+  if (response.status === 401) {
     const err = new Error("Shopify needs to be reconnected. Please reconnect this store.");
     err.code = "SHOPIFY_REAUTH_REQUIRED";
+    throw err;
+  }
+  if (response.status === 403) {
+    const err = new Error(`Shopify denied access to ${resource}. Check app scopes and protected customer data access, then reconnect. Shopify said: ${shopifyMessage}`);
+    err.code = "SHOPIFY_PERMISSION_DENIED";
     throw err;
   }
   if (response.status === 429) {
@@ -494,7 +504,7 @@ async function shopifyApi(shop, accessToken, resource, params = {}) {
     throw err;
   }
   if (!response.ok) {
-    const err = new Error(data.errors || data.error || "Shopify request failed.");
+    const err = new Error(shopifyMessage);
     err.code = "SHOPIFY_API_ERROR";
     throw err;
   }
@@ -936,7 +946,8 @@ app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, re
         detail: err.message,
         externalAccount: connection.external_account,
       });
-      return res.status(err.code === "SHOPIFY_RATE_LIMITED" ? 429 : 502).json({ error: err.message, code: err.code || "SHOPIFY_SYNC_FAILED", status });
+      const httpStatus = err.code === "SHOPIFY_RATE_LIMITED" ? 429 : err.code === "SHOPIFY_PERMISSION_DENIED" ? 403 : 502;
+      return res.status(httpStatus).json({ error: err.message, code: err.code || "SHOPIFY_SYNC_FAILED", status });
     }
   }
 
