@@ -27,7 +27,7 @@ const bcryptCost = 12;
 if (process.env.SENDGRID_API_KEY) sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 app.set("trust proxy", 1);
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "5mb" }));
 app.use(cookieParser(cookieSecret));
 
 async function ensureSchema() {
@@ -75,6 +75,31 @@ async function ensureSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS refresh_tokens_lookup_idx
     ON refresh_tokens (token_hash, expires_at)
     WHERE revoked_at IS NULL`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS sales_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sku TEXT NOT NULL,
+    sale_date DATE NOT NULL,
+    quantity NUMERIC NOT NULL CHECK (quantity >= 0),
+    location TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'csv',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, source, sku, sale_date, location)
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS sales_records_user_lookup_idx ON sales_records (user_id, sale_date DESC)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS integration_connections (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL CHECK (provider IN ('csv', 'shopify', 'square')),
+    status TEXT NOT NULL CHECK (status IN ('connected', 'error', 'needs_reauth', 'not_connected')),
+    detail TEXT NOT NULL,
+    external_account TEXT,
+    last_synced_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, provider)
+  )`);
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_method TEXT");
@@ -288,6 +313,88 @@ function authUser(req, res, next) {
   } catch {
     return error(res, 401, "Session expired. Sign in again.", "SESSION_EXPIRED");
   }
+}
+
+const integrationProviders = {
+  csv: {
+    label: "CSV upload",
+    defaultStatus: "not_connected",
+    defaultDetail: "Upload a sales CSV to populate forecasts.",
+  },
+  shopify: {
+    label: "Shopify",
+    defaultStatus: "not_connected",
+    defaultDetail: "Shopify OAuth is not configured yet. Add Shopify app credentials before connecting.",
+  },
+  square: {
+    label: "Square",
+    defaultStatus: "not_connected",
+    defaultDetail: "Square OAuth is not configured yet. Add Square app credentials before connecting.",
+  },
+};
+
+function normalizedSaleRecord(raw) {
+  const sku = String(raw?.sku || "").trim();
+  const location = String(raw?.location || "").trim();
+  const quantity = Number(raw?.quantity);
+  const dateValue = String(raw?.date || "").trim();
+  const saleDate = /^\d{4}-\d{2}-\d{2}$/.test(dateValue) ? dateValue : "";
+  const errors = [];
+
+  if (!sku) errors.push("SKU is required.");
+  if (!saleDate || Number.isNaN(Date.parse(`${saleDate}T00:00:00Z`))) errors.push("Date must be YYYY-MM-DD.");
+  if (!Number.isFinite(quantity) || quantity < 0) errors.push("Quantity sold must be a non-negative number.");
+  if (!location) errors.push("Location is required.");
+
+  return { sku, date: saleDate, quantity, location, errors };
+}
+
+function connectionStatus(provider, row, csvCount = 0) {
+  const defaults = integrationProviders[provider];
+  if (provider === "csv" && !row && csvCount > 0) {
+    return {
+      provider,
+      label: defaults.label,
+      status: "connected",
+      detail: `${csvCount} sales rows imported.`,
+      lastSyncedAt: null,
+      externalAccount: null,
+    };
+  }
+  return {
+    provider,
+    label: defaults.label,
+    status: row?.status || defaults.defaultStatus,
+    detail: row?.detail || defaults.defaultDetail,
+    lastSyncedAt: row?.last_synced_at || null,
+    externalAccount: row?.external_account || null,
+  };
+}
+
+async function integrationStatuses(userId) {
+  const [connections, salesCount] = await Promise.all([
+    pool.query("SELECT provider, status, detail, external_account, last_synced_at FROM integration_connections WHERE user_id = $1", [userId]),
+    pool.query("SELECT count(*)::int AS count FROM sales_records WHERE user_id = $1", [userId]),
+  ]);
+  const rows = new Map(connections.rows.map(row => [row.provider, row]));
+  const count = salesCount.rows[0]?.count || 0;
+  return Object.keys(integrationProviders).map(provider => connectionStatus(provider, rows.get(provider), count));
+}
+
+async function upsertIntegration(userId, provider, { status, detail, externalAccount = null, synced = false }) {
+  const result = await pool.query(
+    `INSERT INTO integration_connections (user_id, provider, status, detail, external_account, last_synced_at)
+     VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN now() ELSE NULL END)
+     ON CONFLICT (user_id, provider) DO UPDATE
+     SET status = EXCLUDED.status,
+         detail = EXCLUDED.detail,
+         external_account = COALESCE(EXCLUDED.external_account, integration_connections.external_account),
+         last_synced_at = CASE WHEN $6 THEN now() ELSE integration_connections.last_synced_at END,
+         updated_at = now()
+     RETURNING provider, status, detail, external_account, last_synced_at`,
+    [userId, provider, status, detail, externalAccount, synced]
+  );
+  return connectionStatus(provider, result.rows[0]);
 }
 
 app.post("/api/auth/signup", authLimiter, asyncRoute(async (req, res) => {
@@ -510,6 +617,99 @@ app.post("/api/auth/reset-password", authLimiter, asyncRoute(async (req, res) =>
     throw err;
   }
   res.json({ ok: true });
+}));
+
+app.get("/api/integrations/status", authUser, asyncRoute(async (req, res) => {
+  res.json({ providers: await integrationStatuses(req.user.sub) });
+}));
+
+app.get("/api/integrations/sales", authUser, asyncRoute(async (req, res) => {
+  const result = await pool.query(
+    `SELECT id, sku, sale_date AS date, quantity::float AS quantity, location, source, updated_at
+     FROM sales_records
+     WHERE user_id = $1
+     ORDER BY sale_date DESC, sku ASC
+     LIMIT 5000`,
+    [req.user.sub]
+  );
+  res.json({ records: result.rows });
+}));
+
+app.post("/api/integrations/csv", authUser, asyncRoute(async (req, res) => {
+  const rawRecords = Array.isArray(req.body.records) ? req.body.records : [];
+  if (!rawRecords.length) return error(res, 400, "Upload a CSV with at least one valid sales row.", "NO_RECORDS");
+  if (rawRecords.length > 10000) return error(res, 413, "Upload 10,000 rows or fewer at a time.", "CSV_TOO_LARGE");
+
+  const records = rawRecords.map((record, index) => ({ ...normalizedSaleRecord(record), row: index + 2 }));
+  const invalid = records.filter(record => record.errors.length);
+  if (invalid.length) {
+    return res.status(400).json({
+      error: "Some CSV rows are malformed. Fix them and upload again.",
+      code: "CSV_VALIDATION_FAILED",
+      rows: invalid.slice(0, 25).map(({ row, errors }) => ({ row, errors })),
+    });
+  }
+
+  await pool.query("BEGIN");
+  try {
+    for (const record of records) {
+      await pool.query(
+        `INSERT INTO sales_records (user_id, sku, sale_date, quantity, location, source)
+         VALUES ($1, $2, $3, $4, $5, 'csv')
+         ON CONFLICT (user_id, source, sku, sale_date, location) DO UPDATE
+         SET quantity = EXCLUDED.quantity,
+             updated_at = now()`,
+        [req.user.sub, record.sku, record.date, record.quantity, record.location]
+      );
+    }
+    await pool.query("COMMIT");
+  } catch (err) {
+    await pool.query("ROLLBACK");
+    throw err;
+  }
+
+  const countResult = await pool.query("SELECT count(*)::int AS count FROM sales_records WHERE user_id = $1", [req.user.sub]);
+  const total = countResult.rows[0]?.count || records.length;
+  const status = await upsertIntegration(req.user.sub, "csv", {
+    status: "connected",
+    detail: `${total} sales rows imported. Last upload processed ${records.length} rows without duplicates.`,
+    synced: true,
+  });
+  res.json({ ok: true, imported: records.length, total, status });
+}));
+
+app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, res) => {
+  const provider = String(req.params.provider || "");
+  if (!integrationProviders[provider]) return error(res, 404, "Unknown integration provider.", "UNKNOWN_PROVIDER");
+
+  if (provider === "csv") {
+    const countResult = await pool.query("SELECT count(*)::int AS count FROM sales_records WHERE user_id = $1", [req.user.sub]);
+    const count = countResult.rows[0]?.count || 0;
+    if (!count) {
+      const status = await upsertIntegration(req.user.sub, "csv", {
+        status: "not_connected",
+        detail: "Upload a sales CSV before syncing CSV data.",
+      });
+      return res.status(409).json({ error: status.detail, code: "CSV_NOT_IMPORTED", status });
+    }
+    const status = await upsertIntegration(req.user.sub, "csv", {
+      status: "connected",
+      detail: `${count} sales rows are available for forecasting.`,
+      synced: true,
+    });
+    return res.json({ ok: true, status });
+  }
+
+  const envPrefix = provider.toUpperCase();
+  const configured = Boolean(process.env[`${envPrefix}_CLIENT_ID`] && process.env[`${envPrefix}_CLIENT_SECRET`]);
+  const detail = configured
+    ? `${integrationProviders[provider].label} OAuth credentials are present, but the live Admin API sync worker has not been enabled in this build yet.`
+    : `${integrationProviders[provider].label} OAuth is not configured yet. Add ${envPrefix}_CLIENT_ID and ${envPrefix}_CLIENT_SECRET, then deploy again.`;
+  const status = await upsertIntegration(req.user.sub, provider, {
+    status: configured ? "needs_reauth" : "error",
+    detail,
+  });
+  res.status(501).json({ error: detail, code: configured ? "SYNC_NOT_ENABLED" : "PROVIDER_NOT_CONFIGURED", status });
 }));
 
 async function upsertOAuthUser({ provider, providerId, email, firstName, lastName, emailVerified }) {

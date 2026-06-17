@@ -117,6 +117,13 @@ let state = {
   checklist: { pos: true, categories: true, sales: false, inventory: false, analysis: false },
   providerBusy: false,
   checklistBusy: "",
+  salesRecords: [],
+  connectionStatus: {
+    csv: { status: "not_connected", detail: "Upload a sales CSV to populate forecasts." },
+    shopify: { status: "not_connected", detail: "Shopify OAuth is not configured yet." },
+    square: { status: "not_connected", detail: "Square OAuth is not configured yet." },
+  },
+  connectionsBusy: "",
   csv: null,
   inventoryFilter: "",
   actionFilter: "all",
@@ -194,6 +201,30 @@ function attr(value) {
 
 function fmt(value) {
   return Number(value).toLocaleString("en-US");
+}
+
+function activeSkuData() {
+  if (!state.salesRecords.length) return skuData;
+  const bySku = new Map();
+  for (const record of state.salesRecords) {
+    const sku = String(record.sku || "").trim();
+    if (!sku) continue;
+    const current = bySku.get(sku) || { sku, product: sku, quantity: 0, dates: new Set(), locations: new Set() };
+    current.quantity += Number(record.quantity) || 0;
+    if (record.date) current.dates.add(String(record.date).slice(0, 10));
+    if (record.location) current.locations.add(record.location);
+    bySku.set(sku, current);
+  }
+  return [...bySku.values()].map((item, index) => {
+    const activeDays = Math.max(1, item.dates.size || 1);
+    const avgDaily = item.quantity / activeDays;
+    const forecast = Math.max(1, Math.round(avgDaily * 56));
+    const current = Math.max(0, Math.round(avgDaily * 21));
+    const stockout = Math.max(0, Math.min(99, Math.round((forecast / Math.max(1, current + forecast)) * 100)));
+    const overstock = Math.max(0, Math.min(99, Math.round((current / Math.max(1, current + forecast)) * 60)));
+    const action = stockout > 70 ? "buy" : overstock > 70 ? "sell" : item.locations.size > 1 ? "transfer" : "hold";
+    return { id: index + 1, product: item.product, sku: item.sku, current, forecast, stockout, overstock, action };
+  });
 }
 
 function auth() {
@@ -327,7 +358,7 @@ function layout(content) {
 function searchDropdown() {
   const q = state.search.toLowerCase().trim();
   if (!q) return "";
-  const matches = skuData.filter(s => s.product.toLowerCase().includes(q) || s.sku.toLowerCase().includes(q)).slice(0, 6);
+  const matches = activeSkuData().filter(s => s.product.toLowerCase().includes(q) || s.sku.toLowerCase().includes(q)).slice(0, 6);
   return `<div class="search-dropdown">${matches.length ? matches.map(s => `<button class="search-item" data-search-sku="${s.id}" type="button"><span>${esc(s.product)}<br><span class="muted mono">${s.sku}</span></span><span class="badge badge--${s.action}">${s.action}</span></button>`).join("") : `<div class="empty-state">No products match. Try a different name or SKU.</div>`}</div>`;
 }
 
@@ -496,6 +527,8 @@ function skeletonPage(kind = "cards") {
 
 function dashboard() {
   if (state.loading) return pageShell("Dashboard", "Inventory risk, transfer opportunity, and executive KPIs.", skeletonPage());
+  const products = activeSkuData();
+  const dataSourceCopy = state.salesRecords.length ? `${state.salesRecords.length} imported sales rows powering this view.` : "Import CSV sales data to replace the starter sample.";
   const cards = [
     ["Inventory Risk Score", state.riskScore, "HIGH RISK", "↑ 8pts vs last week", "3 transfers recommended to reduce to medium.", "bad", "accent"],
     ["Total Inventory Value", "$12.8M", "", "↑ 2.1%", "Across all connected stores.", "good", ""],
@@ -503,11 +536,11 @@ function dashboard() {
     ["Excess Cost", "$312K", "", "↓ $12K", "Markdown and carrying cost.", "good", ""],
   ];
   return pageShell("Dashboard", state.lastUpdated, `
-    <div class="toolbar-spread"><div></div><button class="btn-primary" data-refresh type="button" ${state.refreshing ? "disabled" : ""}>${state.refreshing ? spinner("Refreshing...") : `${icon("chart-line")}Refresh analysis`}</button></div>
+    <div class="toolbar-spread"><p class="muted">${esc(dataSourceCopy)}</p><button class="btn-primary" data-refresh type="button" ${state.refreshing ? "disabled" : ""}>${state.refreshing ? spinner("Refreshing...") : `${icon("chart-line")}Refresh analysis`}</button></div>
     <section class="kpi-grid">${cards.map((c, i) => kpiCard(c, i)).join("")}</section>
     <section class="grid-2">
       <article class="card"><div class="toolbar-spread"><div><p class="eyebrow">Forecast</p><h2 class="text-lg">8-week demand outlook</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>XGBoost</span><span><i style="background:var(--text-muted)"></i>ARIMA</span></div></div><div class="chart">${lineChart(forecastData, 820, 280)}</div></article>
-      <article class="card"><p class="eyebrow">Recommendations</p><h2 class="text-lg">Action queue</h2><div class="report-list">${skuData.slice(0, 5).map(s => `<div class="report-row"><span>${esc(s.product)}</span><span class="badge badge--${s.action}">${s.action}</span></div>`).join("")}</div></article>
+      <article class="card"><p class="eyebrow">Recommendations</p><h2 class="text-lg">Action queue</h2><div class="report-list">${products.slice(0, 5).map(s => `<div class="report-row"><span>${esc(s.product)}</span><span class="badge badge--${s.action}">${s.action}</span></div>`).join("")}</div></article>
     </section>
   `);
 }
@@ -533,13 +566,29 @@ function pageShell(title, sub, content, eyebrow = "") {
 
 function connectPage() {
   const complete = Object.values(state.checklist).every(Boolean);
+  const sources = ["csv", "shopify", "square"];
   return pageShell("Connect Store", "Link systems, import data, and run the first analysis.", `
+    <section class="connection-status-grid">${sources.map(connectionCard).join("")}</section>
     <section class="grid-2">
       <article class="card"><p class="eyebrow">Selected integration</p><h2 class="text-lg">${providerName(state.selectedProvider)}</h2>${integrationPanel()}</article>
-      <article class="card"><p class="eyebrow">Providers</p><div class="connector-grid">${Object.keys(providerFields).map(p => `<button class="btn-ghost connector-card ${state.selectedProvider === p ? "selected" : ""}" data-provider="${p}" type="button">${providerName(p)}</button>`).join("")}</div></article>
+      <article class="card"><p class="eyebrow">Providers</p><div class="connector-grid">${sources.map(p => `<button class="btn-ghost connector-card ${state.selectedProvider === p ? "selected" : ""}" data-provider="${p}" type="button">${providerName(p)}</button>`).join("")}</div></article>
     </section>
     <article class="card">${complete ? `<div class="card card--accent" style="margin-bottom:var(--space-4)">Setup complete. Your first analysis is ready. <a data-route="/" href="/">View Dashboard →</a></div>` : ""}<p class="eyebrow">Setup checklist</p><div class="checklist">${checkRows()}</div></article>
   `);
+}
+
+function connectionCard(provider) {
+  const status = state.connectionStatus[provider] || {};
+  const label = providerName(provider);
+  const tone = ({ connected: "success", error: "high", needs_reauth: "warning", not_connected: "info" })[status.status] || "info";
+  const statusLabel = String(status.status || "not_connected").replace("_", " ");
+  const lastSync = status.lastSyncedAt ? `Last sync ${new Date(status.lastSyncedAt).toLocaleString()}` : "No sync yet";
+  return `<article class="card connection-card">
+    <div class="toolbar-spread"><div><p class="eyebrow">${label}</p><h2 class="text-md">${esc(statusLabel)}</h2></div><span class="badge badge--${tone}">${esc(statusLabel)}</span></div>
+    <p>${esc(status.detail || "")}</p>
+    <p class="muted mono">${esc(lastSync)}</p>
+    <div class="toolbar-spread"><button class="btn-ghost" data-provider="${provider}" type="button">Manage</button><button class="btn-primary" data-sync-source="${provider}" type="button" ${state.connectionsBusy === provider ? "disabled" : ""}>${state.connectionsBusy === provider ? spinner("Syncing...") : "Sync now"}</button></div>
+  </article>`;
 }
 
 function providerName(key) {
@@ -548,18 +597,30 @@ function providerName(key) {
 
 function integrationPanel() {
   if (state.selectedProvider === "csv") {
+    const errors = state.csv?.errors || [];
+    const validCount = state.csv?.records?.length || 0;
     return `<div class="form-stack">
       <label class="drop-zone" data-drop><input class="hidden" data-csv type="file" accept=".csv" />${icon("upload")}<span>Drop a .csv file here, or click to browse</span></label>
       ${state.csv?.loading ? `<div class="progress"><span></span></div>` : ""}
-      ${state.csv?.rows ? `<p class="muted">File loaded: ${esc(state.csv.name)}. ${state.csv.rows.length} rows detected</p>${previewTable(state.csv.rows)}<button class="btn-primary" data-import-csv type="button">${state.providerBusy ? spinner("Importing...") : "Import CSV"}</button>` : ""}
+      ${state.csv?.name && !state.csv.loading ? `<p class="muted">File loaded: ${esc(state.csv.name)}. ${validCount} valid rows ready${errors.length ? `, ${errors.length} rows need fixes` : ""}.</p>` : ""}
+      ${state.csv?.rows ? previewTable(state.csv.rows) : ""}
+      ${errors.length ? `<div class="error-list"><strong>Rows to fix</strong>${errors.slice(0, 8).map(e => `<p>Row ${e.row}: ${esc(e.errors.join(" "))}</p>`).join("")}${errors.length > 8 ? `<p>And ${errors.length - 8} more...</p>` : ""}</div>` : ""}
+      ${state.csv?.records?.length ? `<button class="btn-primary" data-import-csv type="button" ${state.providerBusy ? "disabled" : ""}>${state.providerBusy ? spinner("Importing...") : "Import CSV"}</button>` : ""}
     </div>`;
   }
-  const fields = providerFields[state.selectedProvider];
-  return `<form class="form-stack" data-connect-form>${fields.map((f, i) => `<div class="field"><label>${f.label}</label><input class="input" name="field${i}" type="${f.type}" placeholder="${f.placeholder}" /></div>`).join("")}<button class="btn-primary" type="submit" ${state.providerBusy ? "disabled" : ""}>${state.providerBusy ? spinner("Connecting...") : `Connect ${providerName(state.selectedProvider)}`}</button></form>`;
+  const status = state.connectionStatus[state.selectedProvider] || {};
+  return `<div class="form-stack">
+    <p>${esc(status.detail || `${providerName(state.selectedProvider)} is not connected yet.`)}</p>
+    <div class="card connection-help">
+      <p class="eyebrow">OAuth setup required</p>
+      <p>To enable live ${providerName(state.selectedProvider)} imports, create a developer app for this provider, add the client ID and secret to Render environment variables, then deploy again.</p>
+    </div>
+    <button class="btn-primary" data-sync-source="${state.selectedProvider}" type="button" ${state.connectionsBusy === state.selectedProvider ? "disabled" : ""}>${state.connectionsBusy === state.selectedProvider ? spinner("Checking...") : `Check ${providerName(state.selectedProvider)} connection`}</button>
+  </div>`;
 }
 
 function previewTable(rows) {
-  return `<div class="table-wrap"><table class="data-table"><tbody>${rows.slice(0, 5).map(r => `<tr>${r.slice(0, 5).map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  return `<div class="table-wrap"><table class="data-table"><tbody>${rows.slice(0, 6).map(r => `<tr>${r.slice(0, 5).map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
 function checkRows() {
@@ -593,8 +654,9 @@ function accordion(title, sub, bullets, input, output) {
 function inventoryPage() {
   if (state.loading) return pageShell("Inventory", "SKU-level recommendations and risk signals.", skeletonPage("table"), "SKU RECOMMENDATIONS");
   const q = state.inventoryFilter.toLowerCase();
-  const rows = skuData.filter(s => (state.actionFilter === "all" || s.action === state.actionFilter) && (s.product.toLowerCase().includes(q) || s.sku.toLowerCase().includes(q)));
-  return pageShell("Inventory", `Showing ${rows.length} of ${skuData.length} products`, `
+  const products = activeSkuData();
+  const rows = products.filter(s => (state.actionFilter === "all" || s.action === state.actionFilter) && (s.product.toLowerCase().includes(q) || s.sku.toLowerCase().includes(q)));
+  return pageShell("Inventory", `Showing ${rows.length} of ${products.length} products`, `
     <div class="toolbar"><input class="input" data-inventory-search style="max-width:240px" value="${esc(state.inventoryFilter)}" placeholder="Search name or SKU" />${["all", "buy", "sell", "hold", "transfer"].map(a => `<button class="btn-ghost ${state.actionFilter === a ? "active" : ""}" data-action-filter="${a}" type="button">${a[0].toUpperCase() + a.slice(1)}</button>`).join("")}</div>
     <div class="table-wrap"><table class="data-table"><thead><tr><th>Product + SKU</th><th>Current Stock</th><th>Forecasted Demand</th><th>Stockout %</th><th>Overstock %</th><th>Action</th></tr></thead><tbody>${rows.length ? rows.map(skuRow).join("") : `<tr><td colspan="6"><div class="empty-state">${icon("search")}No products match. Try a different name or SKU.</div></td></tr>`}</tbody></table></div>
   `, "SKU RECOMMENDATIONS");
@@ -774,6 +836,7 @@ function bind() {
   document.querySelector("[data-mark-read]")?.addEventListener("click", () => { state.notifications = state.notifications.map(n => ({ ...n, read: true })); render(); });
   document.querySelectorAll("[data-provider]").forEach(el => el.addEventListener("click", () => { state.selectedProvider = el.dataset.provider; render(); }));
   document.querySelector("[data-connect-form]")?.addEventListener("submit", connectProvider);
+  document.querySelectorAll("[data-sync-source]").forEach(el => el.addEventListener("click", () => syncSource(el.dataset.syncSource)));
   document.querySelector("[data-csv]")?.addEventListener("change", handleCsvFile);
   document.querySelector("[data-drop]")?.addEventListener("dragover", e => e.preventDefault());
   document.querySelector("[data-drop]")?.addEventListener("drop", e => {
@@ -886,7 +949,12 @@ async function apiPatch(path, body) {
     body: JSON.stringify(body || {}),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "Request failed. Please try again.");
+  if (!response.ok) {
+    const err = new Error(data.error || "Request failed. Please try again.");
+    err.code = data.code;
+    err.status = data.status;
+    throw err;
+  }
   return data;
 }
 
@@ -899,8 +967,48 @@ async function apiAuthedPost(path, body) {
     body: JSON.stringify(body || {}),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "Request failed. Please try again.");
+  if (!response.ok) {
+    const err = new Error(data.error || "Request failed. Please try again.");
+    err.code = data.code;
+    err.status = data.status;
+    throw err;
+  }
   return data;
+}
+
+async function apiAuthedGet(path) {
+  if (!state.accessToken) throw new Error("Sign in required.");
+  const response = await fetch(path, {
+    headers: { Authorization: `Bearer ${state.accessToken}` },
+    credentials: "same-origin",
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const err = new Error(data.error || "Request failed. Please try again.");
+    err.code = data.code;
+    err.status = data.status;
+    throw err;
+  }
+  return data;
+}
+
+async function loadConnectionData() {
+  if (!state.accessToken) return;
+  try {
+    const [statusData, salesData] = await Promise.all([
+      apiAuthedGet("/api/integrations/status"),
+      apiAuthedGet("/api/integrations/sales"),
+    ]);
+    for (const provider of statusData.providers || []) state.connectionStatus[provider.provider] = provider;
+    state.salesRecords = salesData.records || [];
+    if (state.salesRecords.length) {
+      state.checklist.sales = true;
+      state.checklist.inventory = true;
+      state.checklist.analysis = true;
+    }
+  } catch (err) {
+    console.warn("Could not load connection data:", err);
+  }
 }
 
 function validateAuthForm(form, mode) {
@@ -956,6 +1064,7 @@ async function handleAuthSubmit(e) {
       state.authUser = data.user;
       state.authReady = true;
       state.authBusy = false;
+      await loadConnectionData();
       const next = state.mfaRedirectTo || sessionStorage.getItem("ll_redirect_after_login") || "/dashboard";
       clearMfaState();
       sessionStorage.removeItem("ll_redirect_after_login");
@@ -978,6 +1087,7 @@ async function handleAuthSubmit(e) {
     state.authUser = data.user;
     state.authReady = true;
     state.authBusy = false;
+    await loadConnectionData();
     const next = sessionStorage.getItem("ll_redirect_after_login") || "/dashboard";
     sessionStorage.removeItem("ll_redirect_after_login");
     replacePath(next);
@@ -1006,6 +1116,7 @@ async function signOut() {
   }
   state.accessToken = null;
   state.authUser = null;
+  state.salesRecords = [];
   state.authBusy = false;
   sessionStorage.removeItem("ll_redirect_after_login");
   showToast("Signed out.", "info");
@@ -1028,28 +1139,9 @@ function refreshAnalysis() {
   }, 1600);
 }
 
-function connectProvider(e) {
+async function connectProvider(e) {
   e.preventDefault();
-  const inputs = [...e.target.querySelectorAll("input")];
-  let ok = true;
-  e.target.querySelectorAll(".input-error-msg").forEach(n => n.remove());
-  inputs.forEach(i => {
-    i.classList.remove("input--error");
-    if (!i.value.trim()) {
-      errorAfter(i, `${i.closest(".field")?.querySelector("label")?.textContent || "This field"} is required`);
-      ok = false;
-    }
-  });
-  if (!ok) return;
-  state.providerBusy = true; render();
-  setTimeout(() => {
-    state.providerBusy = false;
-    state.checklist.pos = true;
-    state.syncing = true;
-    render();
-    showToast(`Connected to ${providerName(state.selectedProvider)}`, "success");
-    setTimeout(() => { state.syncing = false; render(); }, 500);
-  }, 1800);
+  await syncSource(state.selectedProvider);
 }
 
 function handleCsvFile(e) {
@@ -1059,18 +1151,19 @@ function handleCsvFile(e) {
 function loadCsvFile(file) {
   if (!file) return;
   if (!/\.csv$/i.test(file.name)) return showToast("Choose a CSV file.", "error");
-  state.csv = { name: file.name, loading: true, rows: null };
+  state.csv = { name: file.name, loading: true, rows: null, records: [], errors: [] };
   render();
   file.text().then(text => setTimeout(() => {
-    const rows = text.trim().split(/\r?\n/).filter(Boolean).map(r => r.split(","));
-    if (!rows.length) {
+    const parsed = parseSalesCsv(text);
+    if (!parsed.rows.length) {
       state.csv = null;
       render();
       showToast("CSV file is empty.", "error");
       return;
     }
-    state.csv = { name: file.name, rows };
+    state.csv = { name: file.name, ...parsed };
     render();
+    if (parsed.errors.length) showToast(`Found ${parsed.errors.length} CSV row issue${parsed.errors.length === 1 ? "" : "s"}.`, "error");
   }, 1200)).catch(() => {
     state.csv = null;
     render();
@@ -1078,15 +1171,118 @@ function loadCsvFile(file) {
   });
 }
 
-function importCsv() {
-  state.providerBusy = true; render();
-  setTimeout(() => {
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+    if (char === '"' && quoted && next === '"') {
+      field += '"';
+      i++;
+    } else if (char === '"') {
+      quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      row.push(field.trim());
+      field = "";
+    } else if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && next === "\n") i++;
+      row.push(field.trim());
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += char;
+    }
+  }
+  row.push(field.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+
+function normalizeHeader(value) {
+  return String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+}
+
+function parseSalesCsv(text) {
+  const rows = parseCsvRows(text);
+  if (!rows.length) return { rows: [], records: [], errors: [] };
+  const headers = rows[0].map(normalizeHeader);
+  const findHeader = names => headers.findIndex(header => names.includes(header));
+  const indexes = {
+    sku: findHeader(["sku", "product sku", "item sku"]),
+    date: findHeader(["date", "sale date", "sold date", "order date"]),
+    quantity: findHeader(["quantity sold", "quantity", "qty", "units sold"]),
+    location: findHeader(["location", "store", "warehouse", "site"]),
+  };
+  const missing = Object.entries(indexes).filter(([, index]) => index < 0).map(([key]) => key === "quantity" ? "quantity sold" : key);
+  if (missing.length) {
+    return {
+      rows,
+      records: [],
+      errors: [{ row: 1, errors: [`Missing required column${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}.`] }],
+    };
+  }
+  const records = [];
+  const errors = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const sku = String(row[indexes.sku] || "").trim();
+    const rawDate = String(row[indexes.date] || "").trim();
+    const parsedDate = new Date(rawDate);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : Number.isNaN(parsedDate.getTime()) ? "" : parsedDate.toISOString().slice(0, 10);
+    const quantity = Number(String(row[indexes.quantity] || "").replace(/,/g, ""));
+    const location = String(row[indexes.location] || "").trim();
+    const rowErrors = [];
+    if (!sku) rowErrors.push("SKU is required.");
+    if (!date) rowErrors.push("Date must be a valid date.");
+    if (!Number.isFinite(quantity) || quantity < 0) rowErrors.push("Quantity sold must be a non-negative number.");
+    if (!location) rowErrors.push("Location is required.");
+    if (rowErrors.length) errors.push({ row: i + 1, errors: rowErrors });
+    else records.push({ sku, date, quantity, location });
+  }
+  return { rows, records, errors };
+}
+
+async function importCsv() {
+  if (!state.csv?.records?.length) return showToast("Choose a CSV with valid sales rows first.", "error");
+  state.providerBusy = true;
+  render();
+  try {
+    const data = await apiAuthedPost("/api/integrations/csv", { records: state.csv.records });
+    if (data.status) state.connectionStatus.csv = data.status;
+    await loadConnectionData();
     state.providerBusy = false;
     state.checklist.sales = true;
     state.checklist.inventory = true;
+    state.checklist.analysis = true;
+    state.csv = null;
     render();
-    showToast("CSV inventory imported", "success");
-  }, 2000);
+    showToast(`Imported ${data.imported} rows. Forecasts are using CSV data now.`, "success");
+  } catch (err) {
+    state.providerBusy = false;
+    render();
+    showToast(err.message, "error");
+  }
+}
+
+async function syncSource(provider) {
+  state.connectionsBusy = provider;
+  render();
+  try {
+    const data = await apiAuthedPost(`/api/integrations/${provider}/sync`, {});
+    if (data.status) state.connectionStatus[provider] = data.status;
+    await loadConnectionData();
+    showToast(`${providerName(provider)} synced.`, "success");
+  } catch (err) {
+    if (err.status) state.connectionStatus[provider] = err.status;
+    showToast(err.message, "error");
+  } finally {
+    state.connectionsBusy = "";
+    render();
+  }
 }
 
 function runChecklist(key) {
@@ -1432,6 +1628,7 @@ async function bootAuth() {
       const data = await apiAuth("/api/auth/refresh", {});
       state.accessToken = data.token;
       state.authUser = data.user;
+      await loadConnectionData();
     } catch {
       state.accessToken = null;
       state.authUser = null;

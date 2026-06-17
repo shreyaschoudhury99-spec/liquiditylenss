@@ -68,3 +68,32 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 CREATE INDEX IF NOT EXISTS refresh_tokens_lookup_idx
   ON refresh_tokens (token_hash, expires_at)
   WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS sales_records (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sku TEXT NOT NULL,
+  sale_date DATE NOT NULL,
+  quantity NUMERIC NOT NULL CHECK (quantity >= 0),
+  location TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'csv',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, source, sku, sale_date, location)
+);
+
+CREATE INDEX IF NOT EXISTS sales_records_user_lookup_idx
+  ON sales_records (user_id, sale_date DESC);
+
+CREATE TABLE IF NOT EXISTS integration_connections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL CHECK (provider IN ('csv', 'shopify', 'square')),
+  status TEXT NOT NULL CHECK (status IN ('connected', 'error', 'needs_reauth', 'not_connected')),
+  detail TEXT NOT NULL,
+  external_account TEXT,
+  last_synced_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, provider)
+);
