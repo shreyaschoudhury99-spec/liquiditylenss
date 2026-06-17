@@ -95,11 +95,19 @@ async function ensureSchema() {
     status TEXT NOT NULL CHECK (status IN ('connected', 'error', 'needs_reauth', 'not_connected')),
     detail TEXT NOT NULL,
     external_account TEXT,
+    access_token_enc TEXT,
+    refresh_token_enc TEXT,
+    scopes TEXT,
+    token_expires_at TIMESTAMPTZ,
     last_synced_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (user_id, provider)
   )`);
+  await pool.query("ALTER TABLE integration_connections ADD COLUMN IF NOT EXISTS access_token_enc TEXT");
+  await pool.query("ALTER TABLE integration_connections ADD COLUMN IF NOT EXISTS refresh_token_enc TEXT");
+  await pool.query("ALTER TABLE integration_connections ADD COLUMN IF NOT EXISTS scopes TEXT");
+  await pool.query("ALTER TABLE integration_connections ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_method TEXT");
@@ -154,7 +162,9 @@ const normalizePhone = phone => {
 };
 const hashToken = token => crypto.createHash("sha256").update(token).digest("hex");
 const oauthCookieName = "ll_oauth";
+const integrationCookieName = "ll_integration_oauth";
 const oauthCookieMs = 10 * 60 * 1000;
+const encryptionKey = crypto.createHash("sha256").update(`${cookieSecret}:${jwtSecret}`).digest();
 const safeRedirectPath = value => {
   const pathValue = String(value || "/dashboard");
   if (!pathValue.startsWith("/") || pathValue.startsWith("//") || pathValue.startsWith("/api/")) return "/dashboard";
@@ -168,6 +178,26 @@ const cookieOptions = maxAge => ({
   maxAge,
   path: "/",
 });
+
+function encryptSecret(value) {
+  if (!value) return null;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", encryptionKey, iv);
+  const encrypted = Buffer.concat([cipher.update(String(value), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString("base64url")}.${tag.toString("base64url")}.${encrypted.toString("base64url")}`;
+}
+
+function decryptSecret(value) {
+  if (!value) return "";
+  const [ivRaw, tagRaw, encryptedRaw] = String(value).split(".");
+  const decipher = crypto.createDecipheriv("aes-256-gcm", encryptionKey, Buffer.from(ivRaw, "base64url"));
+  decipher.setAuthTag(Buffer.from(tagRaw, "base64url"));
+  return Buffer.concat([
+    decipher.update(Buffer.from(encryptedRaw, "base64url")),
+    decipher.final(),
+  ]).toString("utf8");
+}
 
 function publicUser(row) {
   return {
@@ -395,6 +425,122 @@ async function upsertIntegration(userId, provider, { status, detail, externalAcc
     [userId, provider, status, detail, externalAccount, synced]
   );
   return connectionStatus(provider, result.rows[0]);
+}
+
+async function saveIntegrationToken(userId, provider, { accessToken, refreshToken = null, scopes = "", expiresAt = null, externalAccount, detail }) {
+  const result = await pool.query(
+    `INSERT INTO integration_connections
+       (user_id, provider, status, detail, external_account, access_token_enc, refresh_token_enc, scopes, token_expires_at, last_synced_at)
+     VALUES ($1, $2, 'connected', $3, $4, $5, $6, $7, $8, now())
+     ON CONFLICT (user_id, provider) DO UPDATE
+     SET status = 'connected',
+         detail = EXCLUDED.detail,
+         external_account = EXCLUDED.external_account,
+         access_token_enc = EXCLUDED.access_token_enc,
+         refresh_token_enc = EXCLUDED.refresh_token_enc,
+         scopes = EXCLUDED.scopes,
+         token_expires_at = EXCLUDED.token_expires_at,
+         last_synced_at = now(),
+         updated_at = now()
+     RETURNING provider, status, detail, external_account, last_synced_at`,
+    [userId, provider, detail, externalAccount, encryptSecret(accessToken), encryptSecret(refreshToken), scopes, expiresAt]
+  );
+  return connectionStatus(provider, result.rows[0]);
+}
+
+function normalizeShopDomain(value) {
+  let shop = String(value || "").trim().toLowerCase();
+  shop = shop.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  if (shop && !shop.endsWith(".myshopify.com")) shop = `${shop}.myshopify.com`;
+  return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop) ? shop : "";
+}
+
+function verifyShopifyHmac(query, secret) {
+  const hmac = String(query.hmac || "");
+  if (!hmac || !secret) return false;
+  const pairs = Object.entries(query)
+    .filter(([key]) => !["hmac", "signature"].includes(key))
+    .flatMap(([key, value]) => Array.isArray(value) ? value.map(v => [key, v]) : [[key, value]])
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") : value}`);
+  const digest = crypto.createHmac("sha256", secret).update(pairs.join("&")).digest("hex");
+  try {
+    return crypto.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(hmac, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+async function shopifyApi(shop, accessToken, resource, params = {}) {
+  const apiVersion = process.env.SHOPIFY_API_VERSION || "2026-04";
+  const url = new URL(`https://${shop}/admin/api/${apiVersion}/${resource}.json`);
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+  const response = await fetch(url, {
+    headers: {
+      "X-Shopify-Access-Token": accessToken,
+      Accept: "application/json",
+    },
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
+  if (response.status === 401 || response.status === 403) {
+    const err = new Error("Shopify needs to be reconnected. Please reconnect this store.");
+    err.code = "SHOPIFY_REAUTH_REQUIRED";
+    throw err;
+  }
+  if (response.status === 429) {
+    const err = new Error("Shopify rate limit reached. Wait a minute and try Sync again.");
+    err.code = "SHOPIFY_RATE_LIMITED";
+    throw err;
+  }
+  if (!response.ok) {
+    const err = new Error(data.errors || data.error || "Shopify request failed.");
+    err.code = "SHOPIFY_API_ERROR";
+    throw err;
+  }
+  return data;
+}
+
+async function syncShopifyOrders(userId, shop, accessToken) {
+  const locations = await shopifyApi(shop, accessToken, "locations", { limit: "250" }).catch(() => ({ locations: [] }));
+  const locationById = new Map((locations.locations || []).map(location => [String(location.id), location.name || shop]));
+  const ordersData = await shopifyApi(shop, accessToken, "orders", {
+    status: "any",
+    limit: "250",
+    fields: "id,created_at,line_items,location_id",
+  });
+  const orders = ordersData.orders || [];
+  const totals = new Map();
+  await pool.query("BEGIN");
+  try {
+    for (const order of orders) {
+      const saleDate = String(order.created_at || "").slice(0, 10);
+      const location = locationById.get(String(order.location_id)) || shop;
+      for (const item of order.line_items || []) {
+        const sku = String(item.sku || item.name || `shopify-line-item-${item.id}`).trim();
+        const quantity = Number(item.quantity || 0);
+        if (!saleDate || !sku || !Number.isFinite(quantity) || quantity < 0) continue;
+        const key = `${sku}\u0000${saleDate}\u0000${location}`;
+        totals.set(key, (totals.get(key) || 0) + quantity);
+      }
+    }
+    for (const [key, quantity] of totals) {
+      const [sku, saleDate, location] = key.split("\u0000");
+      await pool.query(
+        `INSERT INTO sales_records (user_id, sku, sale_date, quantity, location, source)
+         VALUES ($1, $2, $3, $4, $5, 'shopify')
+         ON CONFLICT (user_id, source, sku, sale_date, location) DO UPDATE
+         SET quantity = EXCLUDED.quantity,
+             updated_at = now()`,
+        [userId, sku, saleDate, quantity, location]
+      );
+    }
+    await pool.query("COMMIT");
+  } catch (err) {
+    await pool.query("ROLLBACK");
+    throw err;
+  }
+  return { orders: orders.length, rows: totals.size };
 }
 
 app.post("/api/auth/signup", authLimiter, asyncRoute(async (req, res) => {
@@ -678,6 +824,82 @@ app.post("/api/integrations/csv", authUser, asyncRoute(async (req, res) => {
   res.json({ ok: true, imported: records.length, total, status });
 }));
 
+app.post("/api/integrations/shopify/start", authUser, oauthLimiter, asyncRoute(async (req, res) => {
+  if (!process.env.SHOPIFY_CLIENT_ID || !process.env.SHOPIFY_CLIENT_SECRET) {
+    return error(res, 503, "Shopify OAuth is not configured. Add SHOPIFY_CLIENT_ID and SHOPIFY_CLIENT_SECRET.", "SHOPIFY_NOT_CONFIGURED");
+  }
+  const shop = normalizeShopDomain(req.body.shop);
+  if (!shop) return error(res, 400, "Enter a valid Shopify store domain, like your-store.myshopify.com.", "INVALID_SHOPIFY_SHOP");
+
+  const state = crypto.randomBytes(24).toString("base64url");
+  const redirectTo = safeRedirectPath(req.body.redirectTo || "/connect");
+  const scopes = process.env.SHOPIFY_SCOPES || "read_orders,read_products,read_inventory,read_locations";
+  const redirectUri = `${appBaseUrl}/api/integrations/shopify/callback`;
+  res.cookie(integrationCookieName, JSON.stringify({ provider: "shopify", state, userId: req.user.sub, shop, redirectTo }), cookieOptions(oauthCookieMs));
+
+  const url = new URL(`https://${shop}/admin/oauth/authorize`);
+  url.searchParams.set("client_id", process.env.SHOPIFY_CLIENT_ID);
+  url.searchParams.set("scope", scopes);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("state", state);
+  res.json({ url: url.toString() });
+}));
+
+app.get("/api/integrations/shopify/callback", oauthLimiter, asyncRoute(async (req, res) => {
+  const redirectWithMessage = message => res.redirect(`/connect?integrationMessage=${encodeURIComponent(message)}`);
+  if (req.query.error) return redirectWithMessage(req.query.error_description || "Shopify connection was cancelled.");
+  const cookie = req.signedCookies[integrationCookieName];
+  if (!cookie) return redirectWithMessage("Shopify connection expired. Please try again.");
+
+  let stored;
+  try {
+    stored = JSON.parse(cookie);
+  } catch {
+    return redirectWithMessage("Shopify connection state was invalid. Please try again.");
+  }
+  res.clearCookie(integrationCookieName, { path: "/", signed: true });
+  const shop = normalizeShopDomain(req.query.shop);
+  if (stored.provider !== "shopify" || stored.state !== req.query.state || stored.shop !== shop) {
+    return redirectWithMessage("Shopify security check failed. Please try again.");
+  }
+  if (!verifyShopifyHmac(req.query, process.env.SHOPIFY_CLIENT_SECRET)) {
+    return redirectWithMessage("Shopify could not verify this connection. Please try again.");
+  }
+
+  const tokenSet = await fetchJson(`https://${shop}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      client_id: process.env.SHOPIFY_CLIENT_ID,
+      client_secret: process.env.SHOPIFY_CLIENT_SECRET,
+      code: String(req.query.code || ""),
+    }),
+  });
+  const scopes = tokenSet.scope || process.env.SHOPIFY_SCOPES || "";
+  await saveIntegrationToken(stored.userId, "shopify", {
+    accessToken: tokenSet.access_token,
+    scopes,
+    externalAccount: shop,
+    detail: `Connected to ${shop}. Sync orders to populate forecasts.`,
+  });
+  try {
+    const synced = await syncShopifyOrders(stored.userId, shop, tokenSet.access_token);
+    await upsertIntegration(stored.userId, "shopify", {
+      status: "connected",
+      detail: `Connected to ${shop}. Synced ${synced.rows} sales rows from ${synced.orders} orders.`,
+      externalAccount: shop,
+      synced: true,
+    });
+  } catch (err) {
+    await upsertIntegration(stored.userId, "shopify", {
+      status: err.code === "SHOPIFY_REAUTH_REQUIRED" ? "needs_reauth" : "error",
+      detail: err.message,
+      externalAccount: shop,
+    });
+  }
+  res.redirect(safeRedirectPath(stored.redirectTo));
+}));
+
 app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, res) => {
   const provider = String(req.params.provider || "");
   if (!integrationProviders[provider]) return error(res, 404, "Unknown integration provider.", "UNKNOWN_PROVIDER");
@@ -698,6 +920,38 @@ app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, re
       synced: true,
     });
     return res.json({ ok: true, status });
+  }
+
+  if (provider === "shopify") {
+    const result = await pool.query(
+      "SELECT external_account, access_token_enc FROM integration_connections WHERE user_id = $1 AND provider = 'shopify'",
+      [req.user.sub]
+    );
+    const connection = result.rows[0];
+    if (!connection?.access_token_enc || !connection.external_account) {
+      const status = await upsertIntegration(req.user.sub, "shopify", {
+        status: "needs_reauth",
+        detail: "Connect Shopify before syncing orders.",
+      });
+      return res.status(409).json({ error: status.detail, code: "SHOPIFY_NOT_CONNECTED", status });
+    }
+    try {
+      const synced = await syncShopifyOrders(req.user.sub, connection.external_account, decryptSecret(connection.access_token_enc));
+      const status = await upsertIntegration(req.user.sub, "shopify", {
+        status: "connected",
+        detail: `Synced ${synced.rows} sales rows from ${synced.orders} Shopify orders.`,
+        externalAccount: connection.external_account,
+        synced: true,
+      });
+      return res.json({ ok: true, status, synced });
+    } catch (err) {
+      const status = await upsertIntegration(req.user.sub, "shopify", {
+        status: err.code === "SHOPIFY_REAUTH_REQUIRED" ? "needs_reauth" : "error",
+        detail: err.message,
+        externalAccount: connection.external_account,
+      });
+      return res.status(err.code === "SHOPIFY_RATE_LIMITED" ? 429 : 502).json({ error: err.message, code: err.code || "SHOPIFY_SYNC_FAILED", status });
+    }
   }
 
   const envPrefix = provider.toUpperCase();

@@ -123,6 +123,7 @@ let state = {
     shopify: { status: "not_connected", detail: "Shopify OAuth is not configured yet." },
     square: { status: "not_connected", detail: "Square OAuth is not configured yet." },
   },
+  shopifyShop: "",
   connectionsBusy: "",
   csv: null,
   inventoryFilter: "",
@@ -609,6 +610,23 @@ function integrationPanel() {
     </div>`;
   }
   const status = state.connectionStatus[state.selectedProvider] || {};
+  if (state.selectedProvider === "shopify") {
+    return `<form class="form-stack" data-shopify-connect>
+      <p>${esc(status.detail || "Connect a Shopify store to sync orders into forecasts.")}</p>
+      <div class="field">
+        <label for="shopifyShop">Shopify store domain</label>
+        <input id="shopifyShop" class="input" name="shop" value="${esc(state.shopifyShop || status.externalAccount || "")}" placeholder="your-store.myshopify.com" autocomplete="off" />
+      </div>
+      <div class="card connection-help">
+        <p class="eyebrow">Required Shopify scopes</p>
+        <p>Use read_orders, read_products, read_inventory, and read_locations in the Shopify developer dashboard.</p>
+      </div>
+      <div class="toolbar">
+        <button class="btn-primary" type="submit" ${state.connectionsBusy === "shopify" ? "disabled" : ""}>${state.connectionsBusy === "shopify" ? spinner("Opening Shopify...") : "Connect Shopify"}</button>
+        <button class="btn-ghost" data-sync-source="shopify" type="button" ${state.connectionsBusy === "shopify" ? "disabled" : ""}>Sync now</button>
+      </div>
+    </form>`;
+  }
   return `<div class="form-stack">
     <p>${esc(status.detail || `${providerName(state.selectedProvider)} is not connected yet.`)}</p>
     <div class="card connection-help">
@@ -836,6 +854,7 @@ function bind() {
   document.querySelector("[data-mark-read]")?.addEventListener("click", () => { state.notifications = state.notifications.map(n => ({ ...n, read: true })); render(); });
   document.querySelectorAll("[data-provider]").forEach(el => el.addEventListener("click", () => { state.selectedProvider = el.dataset.provider; render(); }));
   document.querySelector("[data-connect-form]")?.addEventListener("submit", connectProvider);
+  document.querySelector("[data-shopify-connect]")?.addEventListener("submit", startShopifyConnect);
   document.querySelectorAll("[data-sync-source]").forEach(el => el.addEventListener("click", () => syncSource(el.dataset.syncSource)));
   document.querySelector("[data-csv]")?.addEventListener("change", handleCsvFile);
   document.querySelector("[data-drop]")?.addEventListener("dragover", e => e.preventDefault());
@@ -1285,6 +1304,29 @@ async function syncSource(provider) {
   }
 }
 
+async function startShopifyConnect(e) {
+  e.preventDefault();
+  const form = e.currentTarget;
+  const shop = String(new FormData(form).get("shop") || "").trim();
+  form.querySelectorAll(".input-error-msg").forEach(n => n.remove());
+  form.querySelectorAll(".input--error").forEach(n => n.classList.remove("input--error"));
+  if (!shop) {
+    errorAfter(form.shop, "Enter your Shopify store domain");
+    return;
+  }
+  state.shopifyShop = shop;
+  state.connectionsBusy = "shopify";
+  render();
+  try {
+    const data = await apiAuthedPost("/api/integrations/shopify/start", { shop, redirectTo: "/connect" });
+    location.href = data.url;
+  } catch (err) {
+    state.connectionsBusy = "";
+    render();
+    showToast(err.message, "error");
+  }
+}
+
 function runChecklist(key) {
   if (key === "inventory" && !state.checklist.sales) return showToast("Import sales first", "error");
   if (key === "analysis" && (!state.checklist.sales || !state.checklist.inventory)) return showToast("Import sales and inventory first", "error");
@@ -1608,11 +1650,16 @@ document.documentElement.dataset.theme = localStorage.getItem("ll_theme") === "l
 async function bootAuth() {
   const params = new URLSearchParams(location.search);
   const oauthError = params.get("error");
+  const integrationMessage = params.get("integrationMessage");
   const mfaChallenge = params.get("mfa");
   if (location.pathname === "/reset-password") state.authMode = "reset";
   if (oauthError) {
     state.authMessage = oauthError;
     replacePath("/login");
+  }
+  if (integrationMessage) {
+    replacePath("/connect");
+    setTimeout(() => showToast(integrationMessage, "error"), 300);
   }
   if (mfaChallenge) {
     state.mfaChallengeId = mfaChallenge;
