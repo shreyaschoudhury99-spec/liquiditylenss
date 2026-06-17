@@ -455,10 +455,6 @@ function normalizeShopDomain(value) {
   return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop) ? shop : "";
 }
 
-function shopHandleFromDomain(shop) {
-  return String(shop || "").replace(/\.myshopify\.com$/i, "");
-}
-
 function verifyShopifyHmac(query, secret) {
   const hmac = String(query.hmac || "");
   if (!hmac || !secret) return false;
@@ -841,7 +837,7 @@ app.post("/api/integrations/shopify/start", authUser, oauthLimiter, asyncRoute(a
   const redirectUri = `${appBaseUrl}/api/integrations/shopify/callback`;
   res.cookie(integrationCookieName, JSON.stringify({ provider: "shopify", state, userId: req.user.sub, shop, redirectTo }), cookieOptions(oauthCookieMs));
 
-  const url = new URL(`https://admin.shopify.com/store/${shopHandleFromDomain(shop)}/oauth/authorize`);
+  const url = new URL(`https://${shop}/admin/oauth/authorize`);
   url.searchParams.set("client_id", process.env.SHOPIFY_CLIENT_ID);
   url.searchParams.set("scope", scopes);
   url.searchParams.set("redirect_uri", redirectUri);
