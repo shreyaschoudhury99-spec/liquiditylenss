@@ -111,7 +111,7 @@ const oauthLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => {
-    const message = "Too many Google/Microsoft sign-in attempts. Wait a minute, then try again.";
+    const message = "Too many social sign-in attempts. Wait a minute, then try again.";
     if (req.path.includes("/callback")) return res.redirect(`/login?error=${encodeURIComponent(message)}`);
     return error(res, 429, message, "RATE_LIMITED");
   },
@@ -326,7 +326,7 @@ app.post("/api/auth/signin", authLimiter, asyncRoute(async (req, res) => {
   );
   const user = result.rows[0];
   if (!user) return error(res, 404, "No account exists for that email.", "EMAIL_NOT_FOUND");
-  if (!user.password_hash) return error(res, 409, "This account uses social sign-in. Continue with Google or Microsoft.", "SOCIAL_ACCOUNT");
+  if (!user.password_hash) return error(res, 409, "This account uses social sign-in. Continue with Google.", "SOCIAL_ACCOUNT");
   if (!(await bcrypt.compare(password, user.password_hash))) return error(res, 401, "The password is incorrect.", "WRONG_PASSWORD");
   await completeLogin(res, user);
 }));

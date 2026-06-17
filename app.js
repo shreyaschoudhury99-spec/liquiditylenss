@@ -205,7 +205,7 @@ function canUseAppRoutes() {
 }
 
 function authUnavailableMessage() {
-  return "Auth is not running yet. Do not open index.html directly; start the Express backend, open http://localhost:4174, add a .env file, connect Postgres, and add Google/Microsoft OAuth credentials.";
+  return "Auth is not running yet. Do not open index.html directly; start the Express backend, open http://localhost:4174, add a .env file, connect Postgres, and add Google OAuth credentials.";
 }
 
 function replacePath(path) {
@@ -372,7 +372,6 @@ function loginPage() {
         </div>
         <div class="social-grid">
           ${socialButton("google", "Google")}
-          ${socialButton("microsoft", "Microsoft")}
         </div>
         <div class="auth-divider"><span>or use email</span></div>` : ""}
         ${authForm(mode)}
@@ -833,7 +832,7 @@ async function startSocialAuth(provider) {
   try {
     const status = await authStatus();
     if (!status.providers?.[provider]) {
-      throw new Error(`${provider === "google" ? "Google" : "Microsoft"} sign-in is not configured yet. Add the client ID and secret to .env, then restart the backend.`);
+      throw new Error("Google sign-in is not configured yet. Add the client ID and secret to .env, then restart the backend.");
     }
     const redirectTo = encodeURIComponent(sessionStorage.getItem("ll_redirect_after_login") || "/dashboard");
     location.href = `/api/auth/oauth/${provider}?redirectTo=${redirectTo}`;
