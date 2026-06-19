@@ -106,7 +106,7 @@ CREATE INDEX IF NOT EXISTS inventory_items_user_lookup_idx
 CREATE TABLE IF NOT EXISTS integration_connections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  provider TEXT NOT NULL CHECK (provider IN ('csv', 'shopify', 'square')),
+  provider TEXT NOT NULL CHECK (provider IN ('csv', 'shopify', 'square', 'clover')),
   status TEXT NOT NULL CHECK (status IN ('connected', 'error', 'needs_reauth', 'not_connected')),
   detail TEXT NOT NULL,
   external_account TEXT,

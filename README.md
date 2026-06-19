@@ -47,3 +47,14 @@ To check setup status:
 ```sh
 npm run check:auth
 ```
+
+## Clover Setup
+
+Add the Clover callback URL to your Clover developer app:
+
+```text
+http://localhost:4174/api/integrations/clover/callback
+https://liquiditylens-f536.onrender.com/api/integrations/clover/callback
+```
+
+Then add `CLOVER_CLIENT_ID`, `CLOVER_CLIENT_SECRET`, and `CLOVER_ENV` to `.env` locally and to Render environment variables for production.

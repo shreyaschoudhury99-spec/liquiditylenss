@@ -106,7 +106,7 @@ async function ensureSchema() {
   await pool.query(`CREATE TABLE IF NOT EXISTS integration_connections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    provider TEXT NOT NULL CHECK (provider IN ('csv', 'shopify', 'square')),
+    provider TEXT NOT NULL CHECK (provider IN ('csv', 'shopify', 'square', 'clover')),
     status TEXT NOT NULL CHECK (status IN ('connected', 'error', 'needs_reauth', 'not_connected')),
     detail TEXT NOT NULL,
     external_account TEXT,
@@ -123,6 +123,8 @@ async function ensureSchema() {
   await pool.query("ALTER TABLE integration_connections ADD COLUMN IF NOT EXISTS refresh_token_enc TEXT");
   await pool.query("ALTER TABLE integration_connections ADD COLUMN IF NOT EXISTS scopes TEXT");
   await pool.query("ALTER TABLE integration_connections ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMPTZ");
+  await pool.query("ALTER TABLE integration_connections DROP CONSTRAINT IF EXISTS integration_connections_provider_check");
+  await pool.query("ALTER TABLE integration_connections ADD CONSTRAINT integration_connections_provider_check CHECK (provider IN ('csv', 'shopify', 'square', 'clover'))");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_method TEXT");
@@ -376,6 +378,11 @@ const integrationProviders = {
     defaultStatus: "not_connected",
     defaultDetail: "Square OAuth is not configured yet. Add Square app credentials before connecting.",
   },
+  clover: {
+    label: "Clover",
+    defaultStatus: "not_connected",
+    defaultDetail: "Clover OAuth is not configured yet. Add Clover app credentials before connecting.",
+  },
 };
 
 function normalizedSaleRecord(raw) {
@@ -616,6 +623,216 @@ async function syncShopifyOrders(userId, shop, accessToken) {
       await pool.query(
         `INSERT INTO sales_records (user_id, sku, sale_date, quantity, location, source)
          VALUES ($1, $2, $3, $4, $5, 'shopify')
+         ON CONFLICT (user_id, source, sku, sale_date, location) DO UPDATE
+         SET quantity = EXCLUDED.quantity,
+             updated_at = now()`,
+        [userId, sku, saleDate, quantity, location]
+      );
+    }
+    await pool.query("COMMIT");
+  } catch (err) {
+    await pool.query("ROLLBACK");
+    throw err;
+  }
+  return { orders: orders.length, rows: totals.size, inventoryItems: inventoryRows.length };
+}
+
+function normalizeCloverMerchantId(value) {
+  const merchantId = String(value || "").trim();
+  return /^[A-Za-z0-9_-]{3,100}$/.test(merchantId) ? merchantId : "";
+}
+
+function cloverConfig() {
+  const production = String(process.env.CLOVER_ENV || "sandbox").toLowerCase() === "production";
+  return {
+    authorizeUrl: process.env.CLOVER_AUTHORIZE_URL || (production ? "https://www.clover.com/oauth/v2/authorize" : "https://sandbox.dev.clover.com/oauth/v2/authorize"),
+    tokenUrl: process.env.CLOVER_TOKEN_URL || (production ? "https://www.clover.com/oauth/v2/token" : "https://apisandbox.dev.clover.com/oauth/v2/token"),
+    apiBaseUrl: (process.env.CLOVER_API_BASE_URL || (production ? "https://api.clover.com/v3" : "https://apisandbox.dev.clover.com/v3")).replace(/\/$/, ""),
+  };
+}
+
+function pkceChallenge(verifier) {
+  return crypto.createHash("sha256").update(verifier).digest("base64url");
+}
+
+async function exchangeCloverCode(code, redirectUri, codeVerifier) {
+  const cfg = cloverConfig();
+  const payload = {
+    client_id: process.env.CLOVER_CLIENT_ID,
+    client_secret: process.env.CLOVER_CLIENT_SECRET,
+    code,
+    code_verifier: codeVerifier,
+    grant_type: "authorization_code",
+    redirect_uri: redirectUri,
+  };
+  const attempts = [
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+    },
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: new URLSearchParams(Object.entries(payload).filter(([, value]) => value)).toString(),
+    },
+  ];
+
+  let lastError;
+  for (const options of attempts) {
+    try {
+      return await fetchJson(cfg.tokenUrl, options);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error("Clover token exchange failed.");
+}
+
+async function cloverApi(merchantId, accessToken, resource, params = {}) {
+  const cfg = cloverConfig();
+  const url = new URL(`${cfg.apiBaseUrl}/merchants/${encodeURIComponent(merchantId)}/${resource.replace(/^\/+/, "")}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, value);
+  }
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+    },
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
+  const message = data.message || data.error_description || data.error || "Clover request failed.";
+  if (response.status === 401) {
+    const err = new Error("Clover needs to be reconnected. Please reconnect this merchant.");
+    err.code = "CLOVER_REAUTH_REQUIRED";
+    throw err;
+  }
+  if (response.status === 403) {
+    const err = new Error(`Clover denied access to ${resource}. Check app permissions, then reconnect. Clover said: ${message}`);
+    err.code = "CLOVER_PERMISSION_DENIED";
+    throw err;
+  }
+  if (response.status === 429) {
+    const err = new Error("Clover rate limit reached. Wait a minute and try Sync again.");
+    err.code = "CLOVER_RATE_LIMITED";
+    throw err;
+  }
+  if (!response.ok) {
+    const err = new Error(message);
+    err.code = "CLOVER_API_ERROR";
+    throw err;
+  }
+  return data;
+}
+
+async function fetchCloverCollection(merchantId, accessToken, resource, params = {}) {
+  const rows = [];
+  const limit = Number(params.limit || 100);
+  for (let offset = 0; offset < 1000; offset += limit) {
+    const data = await cloverApi(merchantId, accessToken, resource, { ...params, limit, offset });
+    const elements = Array.isArray(data.elements) ? data.elements : Array.isArray(data) ? data : [];
+    rows.push(...elements);
+    if (elements.length < limit) break;
+  }
+  return rows;
+}
+
+function moneyFromCents(value) {
+  const cents = Number(value);
+  return Number.isFinite(cents) && cents > 0 ? cents / 100 : 0;
+}
+
+function cloverItemSku(item) {
+  return String(item?.sku || item?.code || item?.itemCode || item?.id && `clover-item-${item.id}` || "").trim();
+}
+
+function cloverLineQuantity(line) {
+  const unitQty = Number(line?.unitQty);
+  if (Number.isFinite(unitQty) && unitQty > 0) return unitQty >= 1000 ? unitQty / 1000 : unitQty;
+  const quantity = Number(line?.quantity);
+  if (Number.isFinite(quantity) && quantity > 0) return quantity;
+  return 1;
+}
+
+function cloverSaleDate(order) {
+  const raw = Number(order?.createdTime || order?.clientCreatedTime || order?.modifiedTime);
+  return Number.isFinite(raw) ? new Date(raw).toISOString().slice(0, 10) : "";
+}
+
+async function syncCloverData(userId, merchantId, accessToken) {
+  const items = await fetchCloverCollection(merchantId, accessToken, "items", { expand: "itemStock" });
+  const itemById = new Map(items.map(item => [String(item.id || ""), item]));
+  let stocks = [];
+  try {
+    stocks = await fetchCloverCollection(merchantId, accessToken, "item_stocks");
+  } catch {
+    stocks = [];
+  }
+  const stockByItemId = new Map();
+  for (const stock of stocks) {
+    const itemId = String(stock.item?.id || stock.itemId || stock.id || "");
+    const quantity = Number(stock.quantity ?? stock.stockCount ?? stock.available ?? 0);
+    if (itemId && Number.isFinite(quantity)) stockByItemId.set(itemId, quantity);
+  }
+
+  const inventoryRows = [];
+  for (const item of items) {
+    const sku = cloverItemSku(item);
+    if (!sku) continue;
+    const stockQuantity = Number(item.itemStock?.quantity ?? item.stockCount ?? stockByItemId.get(String(item.id || "")) ?? 0);
+    inventoryRows.push({
+      sku,
+      product: String(item.name || sku).trim(),
+      current: Math.max(0, Number.isFinite(stockQuantity) ? stockQuantity : 0),
+      price: moneyFromCents(item.price),
+      externalId: String(item.id || ""),
+      location: merchantId,
+    });
+  }
+
+  const orders = await fetchCloverCollection(merchantId, accessToken, "orders", { expand: "lineItems" });
+  const totals = new Map();
+  for (const order of orders) {
+    const saleDate = cloverSaleDate(order);
+    const lineItems = Array.isArray(order.lineItems?.elements)
+      ? order.lineItems.elements
+      : Array.isArray(order.lineItems)
+        ? order.lineItems
+        : [];
+    for (const line of lineItems) {
+      const item = line.item?.id ? itemById.get(String(line.item.id)) || line.item : line.item;
+      const sku = cloverItemSku(item) || String(line.itemCode || line.name || line.id && `clover-line-${line.id}` || "").trim();
+      const quantity = cloverLineQuantity(line);
+      if (!saleDate || !sku || !Number.isFinite(quantity) || quantity < 0) continue;
+      const key = `${sku}\u0000${saleDate}\u0000${merchantId}`;
+      totals.set(key, (totals.get(key) || 0) + quantity);
+    }
+  }
+
+  await pool.query("BEGIN");
+  try {
+    await pool.query("DELETE FROM inventory_items WHERE user_id = $1 AND source = 'clover'", [userId]);
+    await pool.query("DELETE FROM sales_records WHERE user_id = $1 AND source = 'clover'", [userId]);
+    for (const item of inventoryRows) {
+      await pool.query(
+        `INSERT INTO inventory_items (user_id, sku, product, current_quantity, unit_price, source, external_id, location)
+         VALUES ($1, $2, $3, $4, $5, 'clover', $6, $7)
+         ON CONFLICT (user_id, source, sku, location) DO UPDATE
+         SET product = EXCLUDED.product,
+             current_quantity = EXCLUDED.current_quantity,
+             unit_price = EXCLUDED.unit_price,
+             external_id = EXCLUDED.external_id,
+             updated_at = now()`,
+        [userId, item.sku, item.product, item.current, item.price, item.externalId, item.location]
+      );
+    }
+    for (const [key, quantity] of totals) {
+      const [sku, saleDate, location] = key.split("\u0000");
+      await pool.query(
+        `INSERT INTO sales_records (user_id, sku, sale_date, quantity, location, source)
+         VALUES ($1, $2, $3, $4, $5, 'clover')
          ON CONFLICT (user_id, source, sku, sale_date, location) DO UPDATE
          SET quantity = EXCLUDED.quantity,
              updated_at = now()`,
@@ -981,6 +1198,77 @@ app.get("/api/integrations/shopify/callback", oauthLimiter, asyncRoute(async (re
   redirectToApp(stored.redirectTo);
 }));
 
+app.post("/api/integrations/clover/start", authUser, oauthLimiter, asyncRoute(async (req, res) => {
+  if (!process.env.CLOVER_CLIENT_ID || !process.env.CLOVER_CLIENT_SECRET) {
+    return error(res, 503, "Clover OAuth is not configured. Add CLOVER_CLIENT_ID and CLOVER_CLIENT_SECRET.", "CLOVER_NOT_CONFIGURED");
+  }
+  const merchantId = normalizeCloverMerchantId(req.body.merchantId);
+  if (req.body.merchantId && !merchantId) return error(res, 400, "Enter a valid Clover merchant ID, or leave it blank and choose the merchant in Clover.", "INVALID_CLOVER_MERCHANT");
+
+  const cfg = cloverConfig();
+  const state = crypto.randomBytes(24).toString("base64url");
+  const codeVerifier = crypto.randomBytes(48).toString("base64url");
+  const redirectTo = safeRedirectPath(req.body.redirectTo || "/connect");
+  const redirectUri = `${appBaseUrl}/api/integrations/clover/callback`;
+  res.cookie(integrationCookieName, JSON.stringify({
+    provider: "clover",
+    state,
+    userId: req.user.sub,
+    merchantId,
+    codeVerifier,
+    redirectTo,
+  }), cookieOptions(oauthCookieMs));
+
+  const url = new URL(cfg.authorizeUrl);
+  url.searchParams.set("client_id", process.env.CLOVER_CLIENT_ID);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("state", state);
+  url.searchParams.set("code_challenge", pkceChallenge(codeVerifier));
+  url.searchParams.set("code_challenge_method", "S256");
+  if (merchantId) url.searchParams.set("merchant_id", merchantId);
+  if (process.env.CLOVER_SCOPES) url.searchParams.set("scope", process.env.CLOVER_SCOPES);
+  res.json({ url: url.toString() });
+}));
+
+app.get("/api/integrations/clover/callback", oauthLimiter, asyncRoute(async (req, res) => {
+  const redirectToApp = path => res.redirect(`${appBaseUrl}${safeRedirectPath(path)}`);
+  const redirectWithMessage = message => res.redirect(`${appBaseUrl}/connect?integrationMessage=${encodeURIComponent(message)}`);
+  if (req.query.error) return redirectWithMessage(req.query.error_description || "Clover connection was cancelled.");
+  const cookie = req.signedCookies[integrationCookieName];
+  if (!cookie) return redirectWithMessage("Clover connection expired. Please try again.");
+
+  let stored;
+  try {
+    stored = JSON.parse(cookie);
+  } catch {
+    return redirectWithMessage("Clover connection state was invalid. Please try again.");
+  }
+  res.clearCookie(integrationCookieName, { path: "/", signed: true });
+  if (stored.provider !== "clover" || stored.state !== req.query.state) {
+    return redirectWithMessage("Clover security check failed. Please try again.");
+  }
+
+  const merchantId = normalizeCloverMerchantId(req.query.merchant_id || req.query.merchantId || stored.merchantId);
+  if (!merchantId) return redirectWithMessage("Clover did not return a merchant ID. Open the merchant in Clover and try connecting again.");
+  const code = String(req.query.code || "");
+  if (!code) return redirectWithMessage("Clover did not return an authorization code. Please try again.");
+
+  const redirectUri = `${appBaseUrl}/api/integrations/clover/callback`;
+  const tokenSet = await exchangeCloverCode(code, redirectUri, stored.codeVerifier);
+  const accessToken = tokenSet.access_token || tokenSet.accessToken || tokenSet.token;
+  if (!accessToken) return redirectWithMessage("Clover did not return an access token. Please check the app credentials and try again.");
+  await saveIntegrationToken(stored.userId, "clover", {
+    accessToken,
+    refreshToken: tokenSet.refresh_token || tokenSet.refreshToken,
+    scopes: tokenSet.scope || process.env.CLOVER_SCOPES || "",
+    expiresAt: tokenSet.expires_in ? new Date(Date.now() + Number(tokenSet.expires_in) * 1000) : null,
+    externalAccount: merchantId,
+    detail: `Connected to Clover merchant ${merchantId}. Press Sync now to import Clover orders and inventory.`,
+  });
+  redirectToApp(stored.redirectTo);
+}));
+
 app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, res) => {
   const provider = String(req.params.provider || "");
   if (!integrationProviders[provider]) return error(res, 404, "Unknown integration provider.", "UNKNOWN_PROVIDER");
@@ -1033,6 +1321,39 @@ app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, re
       });
       const httpStatus = err.code === "SHOPIFY_RATE_LIMITED" ? 429 : err.code === "SHOPIFY_PERMISSION_DENIED" ? 403 : 502;
       return res.status(httpStatus).json({ error: err.message, code: err.code || "SHOPIFY_SYNC_FAILED", status });
+    }
+  }
+
+  if (provider === "clover") {
+    const result = await pool.query(
+      "SELECT external_account, access_token_enc FROM integration_connections WHERE user_id = $1 AND provider = 'clover'",
+      [req.user.sub]
+    );
+    const connection = result.rows[0];
+    if (!connection?.access_token_enc || !connection.external_account) {
+      const status = await upsertIntegration(req.user.sub, "clover", {
+        status: "needs_reauth",
+        detail: "Connect Clover before syncing orders and inventory.",
+      });
+      return res.status(409).json({ error: status.detail, code: "CLOVER_NOT_CONNECTED", status });
+    }
+    try {
+      const synced = await syncCloverData(req.user.sub, connection.external_account, decryptSecret(connection.access_token_enc));
+      const status = await upsertIntegration(req.user.sub, "clover", {
+        status: "connected",
+        detail: `Synced ${synced.rows} sales rows from ${synced.orders} Clover orders and ${synced.inventoryItems} inventory items.`,
+        externalAccount: connection.external_account,
+        synced: true,
+      });
+      return res.json({ ok: true, status, synced });
+    } catch (err) {
+      const status = await upsertIntegration(req.user.sub, "clover", {
+        status: err.code === "CLOVER_REAUTH_REQUIRED" ? "needs_reauth" : "error",
+        detail: err.message,
+        externalAccount: connection.external_account,
+      });
+      const httpStatus = err.code === "CLOVER_RATE_LIMITED" ? 429 : err.code === "CLOVER_PERMISSION_DENIED" ? 403 : 502;
+      return res.status(httpStatus).json({ error: err.message, code: err.code || "CLOVER_SYNC_FAILED", status });
     }
   }
 

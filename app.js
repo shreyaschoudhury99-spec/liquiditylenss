@@ -71,7 +71,7 @@ const providerFields = {
   shopify: [{ label: "Storefront URL", type: "text", placeholder: "yourstore.myshopify.com" }, { label: "Admin API Key", type: "password", placeholder: "shpat_..." }],
   square: [{ label: "Location ID", type: "text", placeholder: "LXXXXXXXXXXXXXXXXX" }, { label: "Access Token", type: "password", placeholder: "EAAAl..." }],
   lightspeed: [{ label: "Account ID", type: "text", placeholder: "12345" }, { label: "API Key", type: "password", placeholder: "ls_key_..." }],
-  clover: [{ label: "Merchant ID", type: "text", placeholder: "MXXXXXXXXXX" }, { label: "Auth Token", type: "password", placeholder: "clv_..." }],
+  clover: [{ label: "Merchant ID", type: "text", placeholder: "Optional: MXXXXXXXXXX" }],
   netsuite: [{ label: "Account ID", type: "text", placeholder: "1234567" }, { label: "Consumer Key", type: "password", placeholder: "ns_key_..." }, { label: "Consumer Secret", type: "password", placeholder: "ns_sec_..." }],
   sap: [{ label: "System URL", type: "url", placeholder: "https://your-sap-system.com" }, { label: "Client ID", type: "text", placeholder: "client_id_..." }, { label: "Client Secret", type: "password", placeholder: "client_sec_..." }],
   csv: null,
@@ -122,9 +122,11 @@ let state = {
   connectionStatus: {
     csv: { status: "not_connected", detail: "Upload a sales CSV to populate forecasts." },
     shopify: { status: "not_connected", detail: "Shopify OAuth is not configured yet." },
+    clover: { status: "not_connected", detail: "Clover OAuth is not configured yet." },
     square: { status: "not_connected", detail: "Square OAuth is not configured yet." },
   },
   shopifyShop: "",
+  cloverMerchantId: "",
   connectionsBusy: "",
   csv: null,
   inventoryFilter: "",
@@ -779,7 +781,7 @@ function pageShell(title, sub, content, eyebrow = "") {
 
 function connectPage() {
   const complete = Object.values(state.checklist).every(Boolean);
-  const sources = ["csv", "shopify", "square"];
+  const sources = ["csv", "shopify", "clover", "square"];
   return pageShell("Connect Store", "Link systems, import data, and run the first analysis.", `
     <section class="connection-status-grid">${sources.map(connectionCard).join("")}</section>
     <section class="grid-2">
@@ -846,6 +848,33 @@ function integrationPanel() {
       <div class="toolbar">
         <button class="btn-primary" type="submit" ${state.connectionsBusy === "shopify" ? "disabled" : ""}>${state.connectionsBusy === "shopify" ? spinner("Opening Shopify...") : "Connect Shopify"}</button>
         <button class="btn-ghost" data-sync-source="shopify" type="button" ${state.connectionsBusy === "shopify" ? "disabled" : ""}>Sync now</button>
+      </div>
+    </form>`;
+  }
+  if (state.selectedProvider === "clover") {
+    return `<form class="form-stack" data-clover-connect>
+      <p>${esc(status.detail || "Connect a Clover merchant to sync orders and inventory into forecasts.")}</p>
+      <div class="field">
+        <label for="cloverMerchantId">Clover merchant ID</label>
+        <input id="cloverMerchantId" class="input" name="merchantId" value="${esc(state.cloverMerchantId || status.externalAccount || "")}" placeholder="Optional: leave blank to choose in Clover" autocomplete="off" />
+      </div>
+      <details class="connection-instructions">
+        <summary>${icon("help")}<span>How do I connect Clover?</span></summary>
+        <ol class="instruction-list">
+          <li>Create a Clover developer app and add the redirect URL <code>${location.origin}/api/integrations/clover/callback</code>.</li>
+          <li>Add <code>CLOVER_CLIENT_ID</code>, <code>CLOVER_CLIENT_SECRET</code>, and <code>CLOVER_ENV</code> to Render environment variables.</li>
+          <li>Paste your Clover merchant ID if you have it, or leave the field blank and choose the merchant on Clover's authorization screen.</li>
+          <li>Press <strong>Connect Clover</strong>, approve the app, then return here and press <strong>Sync now</strong>.</li>
+          <li>The Clover app needs permission to read inventory/items and orders.</li>
+        </ol>
+      </details>
+      <div class="card connection-help">
+        <p class="eyebrow">Clover data imported</p>
+        <p>LiquidityLens imports Clover items as inventory and Clover order line items as sales history.</p>
+      </div>
+      <div class="toolbar">
+        <button class="btn-primary" type="submit" ${state.connectionsBusy === "clover" ? "disabled" : ""}>${state.connectionsBusy === "clover" ? spinner("Opening Clover...") : "Connect Clover"}</button>
+        <button class="btn-ghost" data-sync-source="clover" type="button" ${state.connectionsBusy === "clover" ? "disabled" : ""}>Sync now</button>
       </div>
     </form>`;
   }
@@ -1095,6 +1124,7 @@ function bind() {
   document.querySelectorAll("[data-provider]").forEach(el => el.addEventListener("click", () => { state.selectedProvider = el.dataset.provider; render(); }));
   document.querySelector("[data-connect-form]")?.addEventListener("submit", connectProvider);
   document.querySelector("[data-shopify-connect]")?.addEventListener("submit", startShopifyConnect);
+  document.querySelector("[data-clover-connect]")?.addEventListener("submit", startCloverConnect);
   document.querySelectorAll("[data-sync-source]").forEach(el => el.addEventListener("click", () => syncSource(el.dataset.syncSource)));
   document.querySelector("[data-csv]")?.addEventListener("change", handleCsvFile);
   document.querySelector("[data-drop]")?.addEventListener("dragover", e => e.preventDefault());
@@ -1568,6 +1598,23 @@ async function startShopifyConnect(e) {
   render();
   try {
     const data = await apiAuthedPost("/api/integrations/shopify/start", { shop, redirectTo: "/connect" });
+    location.href = data.url;
+  } catch (err) {
+    state.connectionsBusy = "";
+    render();
+    showToast(err.message, "error");
+  }
+}
+
+async function startCloverConnect(e) {
+  e.preventDefault();
+  const form = e.currentTarget;
+  const merchantId = String(new FormData(form).get("merchantId") || "").trim();
+  state.cloverMerchantId = merchantId;
+  state.connectionsBusy = "clover";
+  render();
+  try {
+    const data = await apiAuthedPost("/api/integrations/clover/start", { merchantId, redirectTo: "/connect" });
     location.href = data.url;
   } catch (err) {
     state.connectionsBusy = "";
