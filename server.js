@@ -657,9 +657,15 @@ function pkceChallenge(verifier) {
 
 async function exchangeCloverCode(code, redirectUri, codeVerifier) {
   const cfg = cloverConfig();
-  const payload = {
+  const highTrustPayload = {
     client_id: process.env.CLOVER_CLIENT_ID,
     client_secret: process.env.CLOVER_CLIENT_SECRET,
+    code,
+    grant_type: "authorization_code",
+    redirect_uri: redirectUri,
+  };
+  const pkcePayload = {
+    client_id: process.env.CLOVER_CLIENT_ID,
     code,
     code_verifier: codeVerifier,
     grant_type: "authorization_code",
@@ -669,13 +675,25 @@ async function exchangeCloverCode(code, redirectUri, codeVerifier) {
     {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(highTrustPayload),
     },
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-      body: new URLSearchParams(Object.entries(payload).filter(([, value]) => value)).toString(),
+      body: new URLSearchParams(Object.entries(highTrustPayload).filter(([, value]) => value)).toString(),
     },
+    ...(codeVerifier ? [
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(pkcePayload),
+      },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+        body: new URLSearchParams(Object.entries(pkcePayload).filter(([, value]) => value)).toString(),
+      },
+    ] : []),
   ];
 
   let lastError;
@@ -1207,7 +1225,8 @@ app.post("/api/integrations/clover/start", authUser, oauthLimiter, asyncRoute(as
 
   const cfg = cloverConfig();
   const state = crypto.randomBytes(24).toString("base64url");
-  const codeVerifier = crypto.randomBytes(48).toString("base64url");
+  const usePkce = String(process.env.CLOVER_USE_PKCE || "").toLowerCase() === "true";
+  const codeVerifier = usePkce ? crypto.randomBytes(48).toString("base64url") : "";
   const redirectTo = safeRedirectPath(req.body.redirectTo || "/connect");
   const redirectUri = `${appBaseUrl}/api/integrations/clover/callback`;
   res.cookie(integrationCookieName, JSON.stringify({
@@ -1224,8 +1243,10 @@ app.post("/api/integrations/clover/start", authUser, oauthLimiter, asyncRoute(as
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("state", state);
-  url.searchParams.set("code_challenge", pkceChallenge(codeVerifier));
-  url.searchParams.set("code_challenge_method", "S256");
+  if (usePkce) {
+    url.searchParams.set("code_challenge", pkceChallenge(codeVerifier));
+    url.searchParams.set("code_challenge_method", "S256");
+  }
   if (merchantId) url.searchParams.set("merchant_id", merchantId);
   if (process.env.CLOVER_SCOPES) url.searchParams.set("scope", process.env.CLOVER_SCOPES);
   res.json({ url: url.toString() });
@@ -1255,7 +1276,12 @@ app.get("/api/integrations/clover/callback", oauthLimiter, asyncRoute(async (req
   if (!code) return redirectWithMessage("Clover did not return an authorization code. Please try again.");
 
   const redirectUri = `${appBaseUrl}/api/integrations/clover/callback`;
-  const tokenSet = await exchangeCloverCode(code, redirectUri, stored.codeVerifier);
+  let tokenSet;
+  try {
+    tokenSet = await exchangeCloverCode(code, redirectUri, stored.codeVerifier);
+  } catch (err) {
+    return redirectWithMessage(`Clover token exchange failed: ${err.message}`);
+  }
   const accessToken = tokenSet.access_token || tokenSet.accessToken || tokenSet.token;
   if (!accessToken) return redirectWithMessage("Clover did not return an access token. Please check the app credentials and try again.");
   await saveIntegrationToken(stored.userId, "clover", {

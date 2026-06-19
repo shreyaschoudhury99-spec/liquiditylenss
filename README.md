@@ -58,3 +58,5 @@ https://liquiditylens-f536.onrender.com/api/integrations/clover/callback
 ```
 
 Then add `CLOVER_CLIENT_ID`, `CLOVER_CLIENT_SECRET`, and `CLOVER_ENV` to `.env` locally and to Render environment variables for production.
+
+For the Clover private REST app flow, leave `CLOVER_USE_PKCE` unset or set it to `false`. Only set it to `true` for a Clover app that explicitly requires PKCE.
