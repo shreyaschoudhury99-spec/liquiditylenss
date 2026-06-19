@@ -794,19 +794,14 @@ async function cloverApi(merchantId, accessToken, resource, params = {}) {
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, value);
   }
-  let response = await fetch(url, {
+  const response = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
   });
-  if (response.status === 401) {
-    const retryUrl = new URL(url);
-    retryUrl.searchParams.set("access_token", accessToken);
-    response = await fetch(retryUrl, { headers: { Accept: "application/json" } });
-  }
   const text = await response.text();
   const data = text ? JSON.parse(text) : {};
   const message = data.message || data.error_description || data.error || "Clover request failed.";
   if (response.status === 401) {
-    const err = new Error(`Clover needs to be reconnected. Please reconnect this merchant. Clover said: ${message}`);
+    const err = new Error(`Clover returned 401 Unauthorized. Check that the Clover app has Read inventory, Read orders, and Read merchant permissions, then uninstall and reinstall the app for this test merchant before reconnecting. Clover said: ${message}`);
     err.code = "CLOVER_REAUTH_REQUIRED";
     throw err;
   }
