@@ -646,7 +646,8 @@ function cloverConfig() {
   const production = String(process.env.CLOVER_ENV || "sandbox").toLowerCase() === "production";
   return {
     authorizeUrl: process.env.CLOVER_AUTHORIZE_URL || (production ? "https://www.clover.com/oauth/v2/authorize" : "https://sandbox.dev.clover.com/oauth/v2/authorize"),
-    tokenUrl: process.env.CLOVER_TOKEN_URL || (production ? "https://www.clover.com/oauth/v2/token" : "https://sandbox.dev.clover.com/oauth/v2/token"),
+    tokenUrl: process.env.CLOVER_TOKEN_URL || (production ? "https://api.clover.com/oauth/v2/token" : "https://apisandbox.dev.clover.com/oauth/v2/token"),
+    refreshUrl: process.env.CLOVER_REFRESH_URL || (production ? "https://api.clover.com/oauth/v2/refresh" : "https://apisandbox.dev.clover.com/oauth/v2/refresh"),
     apiBaseUrl: (process.env.CLOVER_API_BASE_URL || (production ? "https://api.clover.com/v3" : "https://apisandbox.dev.clover.com/v3")).replace(/\/$/, ""),
   };
 }
@@ -707,6 +708,57 @@ async function exchangeCloverCode(code, redirectUri, codeVerifier) {
   throw lastError || new Error("Clover token exchange failed.");
 }
 
+async function refreshCloverToken(refreshToken) {
+  const cfg = cloverConfig();
+  const payload = {
+    client_id: process.env.CLOVER_CLIENT_ID,
+    refresh_token: refreshToken,
+  };
+  const attempts = [
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+    },
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: new URLSearchParams(Object.entries(payload).filter(([, value]) => value)).toString(),
+    },
+  ];
+
+  let lastError;
+  for (const options of attempts) {
+    try {
+      return await fetchJson(cfg.refreshUrl, options);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error("Clover token refresh failed.");
+}
+
+async function updateCloverToken(userId, tokenSet) {
+  const accessToken = tokenSet.access_token || tokenSet.accessToken || tokenSet.token;
+  if (!accessToken) return null;
+  const refreshToken = tokenSet.refresh_token || tokenSet.refreshToken || null;
+  const expiresAt = tokenSet.access_token_expiration
+    ? new Date(Number(tokenSet.access_token_expiration) * 1000)
+    : tokenSet.expires_in
+      ? new Date(Date.now() + Number(tokenSet.expires_in) * 1000)
+      : null;
+  await pool.query(
+    `UPDATE integration_connections
+     SET access_token_enc = $2,
+         refresh_token_enc = COALESCE($3, refresh_token_enc),
+         token_expires_at = $4,
+         updated_at = now()
+     WHERE user_id = $1 AND provider = 'clover'`,
+    [userId, encryptSecret(accessToken), refreshToken ? encryptSecret(refreshToken) : null, expiresAt]
+  );
+  return accessToken;
+}
+
 async function cloverApi(merchantId, accessToken, resource, params = {}) {
   const cfg = cloverConfig();
   const url = new URL(`${cfg.apiBaseUrl}/merchants/${encodeURIComponent(merchantId)}/${resource.replace(/^\/+/, "")}`);
@@ -723,7 +775,7 @@ async function cloverApi(merchantId, accessToken, resource, params = {}) {
   const data = text ? JSON.parse(text) : {};
   const message = data.message || data.error_description || data.error || "Clover request failed.";
   if (response.status === 401) {
-    const err = new Error("Clover needs to be reconnected. Please reconnect this merchant.");
+    const err = new Error(`Clover needs to be reconnected. Please reconnect this merchant. Clover said: ${message}`);
     err.code = "CLOVER_REAUTH_REQUIRED";
     throw err;
   }
@@ -1356,7 +1408,7 @@ app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, re
 
   if (provider === "clover") {
     const result = await pool.query(
-      "SELECT external_account, access_token_enc FROM integration_connections WHERE user_id = $1 AND provider = 'clover'",
+      "SELECT external_account, access_token_enc, refresh_token_enc FROM integration_connections WHERE user_id = $1 AND provider = 'clover'",
       [req.user.sub]
     );
     const connection = result.rows[0];
@@ -1368,7 +1420,17 @@ app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, re
       return res.status(409).json({ error: status.detail, code: "CLOVER_NOT_CONNECTED", status });
     }
     try {
-      const synced = await syncCloverData(req.user.sub, connection.external_account, decryptSecret(connection.access_token_enc));
+      let accessToken = decryptSecret(connection.access_token_enc);
+      let synced;
+      try {
+        synced = await syncCloverData(req.user.sub, connection.external_account, accessToken);
+      } catch (err) {
+        if (err.code !== "CLOVER_REAUTH_REQUIRED" || !connection.refresh_token_enc) throw err;
+        const refreshed = await refreshCloverToken(decryptSecret(connection.refresh_token_enc));
+        accessToken = await updateCloverToken(req.user.sub, refreshed);
+        if (!accessToken) throw err;
+        synced = await syncCloverData(req.user.sub, connection.external_account, accessToken);
+      }
       const status = await upsertIntegration(req.user.sub, "clover", {
         status: "connected",
         detail: `Synced ${synced.rows} sales rows from ${synced.orders} Clover orders and ${synced.inventoryItems} inventory items.`,

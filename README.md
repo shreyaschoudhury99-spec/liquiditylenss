@@ -61,4 +61,4 @@ Then add `CLOVER_CLIENT_ID`, `CLOVER_CLIENT_SECRET`, and `CLOVER_ENV` to `.env` 
 
 For the Clover private REST app flow, leave `CLOVER_USE_PKCE` unset or set it to `false`. Only set it to `true` for a Clover app that explicitly requires PKCE.
 
-For sandbox, do not override the Clover URLs unless you need to debug a Clover environment issue. The default sandbox OAuth token host is `https://sandbox.dev.clover.com/oauth/v2/token`, while API calls go to `https://apisandbox.dev.clover.com/v3`.
+For sandbox, do not override the Clover URLs unless you need to debug a Clover environment issue. The default sandbox authorize host is `https://sandbox.dev.clover.com/oauth/v2/authorize`; token, refresh, and API calls use `https://apisandbox.dev.clover.com`.
