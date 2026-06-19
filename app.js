@@ -118,6 +118,7 @@ let state = {
   providerBusy: false,
   checklistBusy: "",
   salesRecords: [],
+  inventoryItems: [],
   connectionStatus: {
     csv: { status: "not_connected", detail: "Upload a sales CSV to populate forecasts." },
     shopify: { status: "not_connected", detail: "Shopify OAuth is not configured yet." },
@@ -207,24 +208,59 @@ function fmt(value) {
 function activeSkuData() {
   if (!state.salesRecords.length) return skuData;
   const bySku = new Map();
+  const inventoryBySku = new Map();
+  for (const item of state.inventoryItems) {
+    const sku = String(item.sku || "").trim();
+    if (!sku) continue;
+    const current = inventoryBySku.get(sku) || { sku, product: item.product || sku, current: 0, price: 0, locations: new Set() };
+    current.current += Number(item.current) || 0;
+    current.price = Number(item.price) || current.price || 0;
+    if (item.product) current.product = item.product;
+    if (item.location) current.locations.add(item.location);
+    inventoryBySku.set(sku, current);
+  }
   for (const record of state.salesRecords) {
     const sku = String(record.sku || "").trim();
     if (!sku) continue;
-    const current = bySku.get(sku) || { sku, product: sku, quantity: 0, dates: new Set(), locations: new Set() };
+    const inventory = inventoryBySku.get(sku);
+    const current = bySku.get(sku) || {
+      sku,
+      product: inventory?.product || sku,
+      quantity: 0,
+      dates: new Set(),
+      locations: new Set(),
+      current: inventory?.current ?? null,
+      price: inventory?.price || 0,
+    };
     current.quantity += Number(record.quantity) || 0;
     if (record.date) current.dates.add(String(record.date).slice(0, 10));
     if (record.location) current.locations.add(record.location);
     bySku.set(sku, current);
   }
+  for (const [sku, inventory] of inventoryBySku) {
+    if (!bySku.has(sku)) {
+      bySku.set(sku, {
+        sku,
+        product: inventory.product || sku,
+        quantity: 0,
+        dates: new Set(),
+        locations: inventory.locations,
+        current: inventory.current,
+        price: inventory.price || 0,
+      });
+    }
+  }
   return [...bySku.values()].map((item, index) => {
     const activeDays = Math.max(1, item.dates.size || 1);
     const avgDaily = item.quantity / activeDays;
     const forecast = Math.max(1, Math.round(avgDaily * 56));
-    const current = Math.max(0, Math.round(avgDaily * 21));
-    const stockout = Math.max(0, Math.min(99, Math.round((forecast / Math.max(1, current + forecast)) * 100)));
-    const overstock = Math.max(0, Math.min(99, Math.round((current / Math.max(1, current + forecast)) * 60)));
+    const current = Math.max(0, Math.round(item.current ?? avgDaily * 21));
+    const deficit = Math.max(0, forecast - current);
+    const surplus = Math.max(0, current - forecast);
+    const stockout = Math.max(0, Math.min(99, Math.round((deficit / Math.max(1, forecast)) * 100)));
+    const overstock = Math.max(0, Math.min(99, Math.round((surplus / Math.max(1, current)) * 100)));
     const action = stockout > 70 ? "buy" : overstock > 70 ? "sell" : item.locations.size > 1 ? "transfer" : "hold";
-    return { id: index + 1, product: item.product, sku: item.sku, current, forecast, stockout, overstock, action };
+    return { id: index + 1, product: item.product, sku: item.sku, current, forecast, stockout, overstock, action, price: item.price || 0 };
   });
 }
 
@@ -253,18 +289,18 @@ function importedDashboardMetrics(products) {
     products.reduce((sum, product) => sum + product.stockout * Math.max(1, product.forecast), 0) / Math.max(1, forecastUnits)
   )));
   const estimatedRevenueRisk = products.reduce((sum, product) => (
-    sum + Math.max(0, product.forecast - product.current) * 45
+    sum + Math.max(0, product.forecast - product.current) * (product.price || 45)
   ), 0);
   const estimatedExcessCost = products.reduce((sum, product) => (
-    sum + Math.max(0, product.current - product.forecast) * 18
+    sum + Math.max(0, product.current - product.forecast) * ((product.price || 45) * 0.25)
   ), 0);
   return {
     riskScore,
     cards: [
       ["Inventory Risk Score", riskScore, `${riskLabel(riskScore)} RISK`, `${highRiskSkus} high-risk ${highRiskSkus === 1 ? "SKU" : "SKUs"}`, `${buyActions} buy ${buyActions === 1 ? "action" : "actions"} recommended from imported data.`, riskScore >= 70 ? "bad" : riskScore >= 40 ? "warning" : "good", "accent", riskScore >= 70 ? "high" : riskScore >= 40 ? "warning" : "success"],
       ["Imported Units", fmt(importedUnits), `${skuCount} ${skuCount === 1 ? "SKU" : "SKUs"}`, "Live data", "Synced sales quantity from connected sources.", "good", "", "success"],
-      ["8-Week Demand", fmt(forecastUnits), `${currentUnits} on hand est.`, `${buyActions} buy / ${holdActions} hold`, "Demand projection from imported sales velocity.", buyActions ? "bad" : "good", "", buyActions ? "warning" : "success"],
-      ["Revenue at Risk", moneyShort(estimatedRevenueRisk), "", estimatedExcessCost ? `${moneyShort(estimatedExcessCost)} excess` : "No excess", "Estimated from demand gap until product prices sync.", estimatedRevenueRisk ? "bad" : "good", "", estimatedRevenueRisk ? "warning" : "success"],
+      ["8-Week Demand", fmt(forecastUnits), `${currentUnits} on hand`, `${buyActions} buy / ${holdActions} hold`, "Demand projection from synced order history.", buyActions ? "bad" : "good", "", buyActions ? "warning" : "success"],
+      ["Revenue at Risk", moneyShort(estimatedRevenueRisk), "", estimatedExcessCost ? `${moneyShort(estimatedExcessCost)} excess` : "No excess", "Estimated from demand gap and Shopify variant prices.", estimatedRevenueRisk ? "bad" : "good", "", estimatedRevenueRisk ? "warning" : "success"],
     ],
   };
 }
@@ -588,7 +624,9 @@ function skeletonPage(kind = "cards") {
 function dashboard() {
   if (state.loading) return pageShell("Dashboard", "Inventory risk, transfer opportunity, and executive KPIs.", skeletonPage());
   const products = activeSkuData();
-  const dataSourceCopy = state.salesRecords.length ? `${state.salesRecords.length} imported sales rows powering this view.` : "Import CSV sales data to replace the starter sample.";
+  const dataSourceCopy = state.salesRecords.length
+    ? `${state.salesRecords.length} imported sales rows and ${state.inventoryItems.length} inventory items powering this view.`
+    : "Import CSV sales data or sync Shopify to replace the starter sample.";
   const importedMetrics = state.salesRecords.length ? importedDashboardMetrics(products) : null;
   const cards = importedMetrics?.cards || [
     ["Inventory Risk Score", state.riskScore, "HIGH RISK", "↑ 8pts vs last week", "3 transfers recommended to reduce to medium.", "bad", "accent", "high"],
@@ -1082,6 +1120,7 @@ async function loadConnectionData() {
     ]);
     for (const provider of statusData.providers || []) state.connectionStatus[provider.provider] = provider;
     state.salesRecords = salesData.records || [];
+    state.inventoryItems = salesData.inventory || [];
     if (state.salesRecords.length) {
       state.checklist.sales = true;
       state.checklist.inventory = true;
@@ -1198,6 +1237,7 @@ async function signOut() {
   state.accessToken = null;
   state.authUser = null;
   state.salesRecords = [];
+  state.inventoryItems = [];
   state.authBusy = false;
   sessionStorage.removeItem("ll_redirect_after_login");
   showToast("Signed out.", "info");
@@ -1209,14 +1249,21 @@ function refreshAnalysis() {
   state.refreshing = true;
   state.syncing = true;
   render();
-  setTimeout(() => {
-    state.riskScore = Math.max(0, Math.min(100, 76 + Math.round(Math.random() * 6 - 3)));
-    state.revenueRisk = 684000 + Math.round(Math.random() * 24000 - 12000);
+  const finish = () => {
     state.lastUpdated = "Updated just now";
     state.refreshing = false;
     state.syncing = false;
     render();
     showToast("Analysis refreshed", "success");
+  };
+  if (state.accessToken && state.salesRecords.length) {
+    loadConnectionData().finally(finish);
+    return;
+  }
+  setTimeout(() => {
+    state.riskScore = Math.max(0, Math.min(100, 76 + Math.round(Math.random() * 6 - 3)));
+    state.revenueRisk = 684000 + Math.round(Math.random() * 24000 - 12000);
+    finish();
   }, 1600);
 }
 

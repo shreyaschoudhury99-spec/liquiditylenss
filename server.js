@@ -88,6 +88,21 @@ async function ensureSchema() {
     UNIQUE (user_id, source, sku, sale_date, location)
   )`);
   await pool.query("CREATE INDEX IF NOT EXISTS sales_records_user_lookup_idx ON sales_records (user_id, sale_date DESC)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS inventory_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sku TEXT NOT NULL,
+    product TEXT NOT NULL,
+    current_quantity NUMERIC NOT NULL DEFAULT 0 CHECK (current_quantity >= 0),
+    unit_price NUMERIC NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
+    source TEXT NOT NULL DEFAULT 'shopify',
+    external_id TEXT,
+    location TEXT NOT NULL DEFAULT 'all locations',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, source, sku, location)
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS inventory_items_user_lookup_idx ON inventory_items (user_id, source, sku)");
   await pool.query(`CREATE TABLE IF NOT EXISTS integration_connections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -514,6 +529,25 @@ async function shopifyApi(shop, accessToken, resource, params = {}) {
 async function syncShopifyOrders(userId, shop, accessToken) {
   const locations = await shopifyApi(shop, accessToken, "locations", { limit: "250" }).catch(() => ({ locations: [] }));
   const locationById = new Map((locations.locations || []).map(location => [String(location.id), location.name || shop]));
+  const productsData = await shopifyApi(shop, accessToken, "products", {
+    limit: "250",
+    fields: "id,title,variants",
+  });
+  const variants = [];
+  for (const product of productsData.products || []) {
+    for (const variant of product.variants || []) {
+      const sku = String(variant.sku || variant.title || product.title || `shopify-variant-${variant.id}`).trim();
+      if (!sku) continue;
+      const productName = [product.title, variant.title && variant.title !== "Default Title" ? variant.title : ""].filter(Boolean).join(" - ");
+      variants.push({
+        sku,
+        product: productName || sku,
+        current: Math.max(0, Number(variant.inventory_quantity || 0)),
+        price: Math.max(0, Number(variant.price || 0)),
+        externalId: String(variant.id || ""),
+      });
+    }
+  }
   const ordersData = await shopifyApi(shop, accessToken, "orders", {
     status: "any",
     limit: "250",
@@ -523,6 +557,19 @@ async function syncShopifyOrders(userId, shop, accessToken) {
   const totals = new Map();
   await pool.query("BEGIN");
   try {
+    for (const item of variants) {
+      await pool.query(
+        `INSERT INTO inventory_items (user_id, sku, product, current_quantity, unit_price, source, external_id, location)
+         VALUES ($1, $2, $3, $4, $5, 'shopify', $6, $7)
+         ON CONFLICT (user_id, source, sku, location) DO UPDATE
+         SET product = EXCLUDED.product,
+             current_quantity = EXCLUDED.current_quantity,
+             unit_price = EXCLUDED.unit_price,
+             external_id = EXCLUDED.external_id,
+             updated_at = now()`,
+        [userId, item.sku, item.product, item.current, item.price, item.externalId, shop]
+      );
+    }
     for (const order of orders) {
       const saleDate = String(order.created_at || "").slice(0, 10);
       const location = locationById.get(String(order.location_id)) || shop;
@@ -550,7 +597,7 @@ async function syncShopifyOrders(userId, shop, accessToken) {
     await pool.query("ROLLBACK");
     throw err;
   }
-  return { orders: orders.length, rows: totals.size };
+  return { orders: orders.length, rows: totals.size, inventoryItems: variants.length };
 }
 
 app.post("/api/auth/signup", authLimiter, asyncRoute(async (req, res) => {
@@ -780,7 +827,7 @@ app.get("/api/integrations/status", authUser, asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/integrations/sales", authUser, asyncRoute(async (req, res) => {
-  const result = await pool.query(
+  const salesResult = await pool.query(
     `SELECT id, sku, sale_date AS date, quantity::float AS quantity, location, source, updated_at
      FROM sales_records
      WHERE user_id = $1
@@ -788,7 +835,15 @@ app.get("/api/integrations/sales", authUser, asyncRoute(async (req, res) => {
      LIMIT 5000`,
     [req.user.sub]
   );
-  res.json({ records: result.rows });
+  const inventoryResult = await pool.query(
+    `SELECT id, sku, product, current_quantity::float AS current, unit_price::float AS price, location, source, updated_at
+     FROM inventory_items
+     WHERE user_id = $1
+     ORDER BY product ASC, sku ASC
+     LIMIT 5000`,
+    [req.user.sub]
+  );
+  res.json({ records: salesResult.rows, inventory: inventoryResult.rows });
 }));
 
 app.post("/api/integrations/csv", authUser, asyncRoute(async (req, res) => {
@@ -935,7 +990,7 @@ app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, re
       const synced = await syncShopifyOrders(req.user.sub, connection.external_account, decryptSecret(connection.access_token_enc));
       const status = await upsertIntegration(req.user.sub, "shopify", {
         status: "connected",
-        detail: `Synced ${synced.rows} sales rows from ${synced.orders} Shopify orders.`,
+        detail: `Synced ${synced.rows} sales rows from ${synced.orders} Shopify orders and ${synced.inventoryItems} inventory items.`,
         externalAccount: connection.external_account,
         synced: true,
       });
