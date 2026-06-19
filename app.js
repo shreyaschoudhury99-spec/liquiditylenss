@@ -201,6 +201,40 @@ function attr(value) {
   return esc(value).replaceAll("\n", "&#10;");
 }
 
+function displayNameFromShopifyAccount(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw.startsWith("http") ? raw : `https://${raw}`);
+    if (url.hostname === "admin.shopify.com") {
+      const storeIndex = url.pathname.split("/").filter(Boolean).indexOf("store");
+      const storeSlug = url.pathname.split("/").filter(Boolean)[storeIndex + 1];
+      if (storeSlug) return titleizeStoreSlug(storeSlug);
+    }
+    return titleizeStoreSlug(url.hostname.replace(/\.myshopify\.com$/i, "").split(".")[0]);
+  } catch {
+    return titleizeStoreSlug(raw.replace(/\.myshopify\.com$/i, "").split(/[/?#]/)[0]);
+  }
+}
+
+function titleizeStoreSlug(value) {
+  const words = String(value || "").replace(/[_-]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "";
+  return words.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+}
+
+function workspaceName() {
+  const shopify = state.connectionStatus?.shopify;
+  if (shopify?.status === "connected" && shopify.externalAccount) {
+    return displayNameFromShopifyAccount(shopify.externalAccount) || shopify.externalAccount;
+  }
+  return "Northstar Retail";
+}
+
+function workspaceInitials() {
+  return workspaceName().split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join("").toUpperCase() || "LL";
+}
+
 function fmt(value) {
   return Number(value).toLocaleString("en-US");
 }
@@ -479,11 +513,13 @@ function spinner(label) {
 
 function layout(content) {
   const unread = state.notifications.some(n => !n.read);
+  const name = workspaceName();
+  const initials = workspaceInitials();
   return `
     ${state.sidebarOpen ? `<div class="drawer-overlay" data-close-sidebar></div>` : ""}
     <aside class="sidebar ${state.sidebarOpen ? "open" : ""}">
       <div class="sidebar-top">${logo()}</div>
-      <div class="store-row"><div class="store-name">Northstar Retail</div><div class="online"><span class="dot"></span>online</div></div>
+      <div class="store-row"><div class="store-name">${esc(name)}</div><div class="online"><span class="dot"></span>online</div></div>
       <nav class="sidebar-nav" aria-label="Primary">${navItems.map(([path, label, name]) => `<a href="${path}" class="nav-link ${state.path === path ? "active" : ""}" data-route="${path}"><span class="nav-icon">${icon(name)}</span>${label}</a>`).join("")}</nav>
       <div class="sidebar-bottom">
         <button class="btn-icon bottom-link" data-how type="button">${icon("help")}<span>How this works</span></button>
@@ -504,7 +540,7 @@ function layout(content) {
         </div>
         <button class="btn-icon" data-theme type="button" aria-label="Switch to ${currentTheme() === "light" ? "dark" : "light"} theme">${icon(currentTheme() === "light" ? "moon" : "sun")}</button>
         <button class="btn-ghost" data-download type="button" ${state.reportBusy ? "disabled" : ""}>${state.reportBusy ? spinner("Exporting...") : `${icon("file-text")}<span class="download-label">Download report</span>`}</button>
-        <div class="avatar" aria-label="Northstar Retail">NR</div>
+        <div class="avatar" aria-label="${esc(name)}">${esc(initials)}</div>
       </div>
     </header>
     <main class="main ${state.syncing ? "syncing" : ""}">${content}</main>
@@ -545,7 +581,7 @@ function loginPage() {
       <div class="auth-slideshow" aria-label="Product feature preview">
         ${demoSlides()}
       </div>
-      <p class="mono text-sm">Northstar Retail demo workspace</p>
+      <p class="mono text-sm">LiquidityLens demo workspace</p>
     </aside>
     <main class="auth-right">
       <button class="btn-icon auth-theme" data-theme type="button" aria-label="Switch to ${currentTheme() === "light" ? "dark" : "light"} theme">${icon(currentTheme() === "light" ? "moon" : "sun")}</button>
@@ -889,10 +925,10 @@ function listingCard(l) {
 }
 
 function mapSvg() {
-  return `<svg viewBox="0 0 900 180" role="img" aria-label="Partner map"><defs><pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="var(--border-default)" stroke-width="1"/></pattern></defs><rect width="900" height="180" fill="url(#grid)"/><g font-family="var(--font-mono)" font-size="11">${pin(450, 88, "var(--accent)", "Northstar Retail", 8)}${pin(560, 48, "var(--green)", "Midwest Outdoor Co.", 6)}${pin(330, 82, "var(--blue)", "Prairie City Retail", 6)}${pin(460, 142, "var(--yellow)", "River Valley Sports", 6)}</g></svg>`;
+  return `<svg viewBox="0 0 900 180" role="img" aria-label="Partner map"><defs><pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="var(--border-default)" stroke-width="1"/></pattern></defs><rect width="900" height="180" fill="url(#grid)"/><g font-family="var(--font-mono)" font-size="11">${pin(450, 88, "var(--accent)", workspaceName(), 8)}${pin(560, 48, "var(--green)", "Midwest Outdoor Co.", 6)}${pin(330, 82, "var(--blue)", "Prairie City Retail", 6)}${pin(460, 142, "var(--yellow)", "River Valley Sports", 6)}</g></svg>`;
 }
 function pin(x, y, color, label, r) {
-  return `<circle class="map-pin" cx="${x}" cy="${y}" r="${r + 6}" fill="${color}" opacity=".16"/><circle class="map-pin" cx="${x}" cy="${y}" r="${r}" fill="${color}"/><circle class="map-pin" cx="${x}" cy="${y}" r="2" fill="var(--bg-base)"/><text class="map-label" x="${x + 14}" y="${y - 8}" fill="var(--text-primary)">${label}</text>`;
+  return `<circle class="map-pin" cx="${x}" cy="${y}" r="${r + 6}" fill="${color}" opacity=".16"/><circle class="map-pin" cx="${x}" cy="${y}" r="${r}" fill="${color}"/><circle class="map-pin" cx="${x}" cy="${y}" r="2" fill="var(--bg-base)"/><text class="map-label" x="${x + 14}" y="${y - 8}" fill="var(--text-primary)">${esc(label)}</text>`;
 }
 
 function communityPage() {
@@ -919,6 +955,7 @@ function profilePage() {
   const user = state.authUser || {};
   const initials = `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase() || "LL";
   const mfaLabel = user.twoFactorEnabled ? `${user.twoFactorMethod === "phone" ? "Phone" : "Email"} verification enabled` : "Not enabled";
+  const name = workspaceName();
   return pageShell("Profile", "Manage your account, password, and session.", `
     <section class="grid-2 account-grid">
       <article class="card account-summary">
@@ -931,7 +968,7 @@ function profilePage() {
         <div class="account-facts">
           <div><span>Email status</span><strong>${user.emailVerified ? "Verified" : "Unverified"}</strong></div>
           <div><span>Two-factor auth</span><strong>${esc(mfaLabel)}</strong></div>
-          <div><span>Workspace</span><strong>Northstar Retail</strong></div>
+          <div><span>Workspace</span><strong>${esc(name)}</strong></div>
         </div>
       </article>
 
@@ -1554,7 +1591,7 @@ function postCommunity(e) {
   if (!state.selectedTopic || !text) return showToast("Choose a topic and add a message", "error");
   state.postBusy = true; render();
   setTimeout(() => {
-    state.posts.unshift({ id: Date.now(), author: "Northstar Retail", topic: state.selectedTopic, time: "just now", text });
+    state.posts.unshift({ id: Date.now(), author: workspaceName(), topic: state.selectedTopic, time: "just now", text });
     state.selectedTopic = null;
     state.postBusy = false;
     render();
