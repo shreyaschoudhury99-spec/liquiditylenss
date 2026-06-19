@@ -852,11 +852,12 @@ function integrationPanel() {
     </form>`;
   }
   if (state.selectedProvider === "clover") {
+    const cloverMerchantValue = state.cloverMerchantId || (status.status === "needs_reauth" ? "" : status.externalAccount || "");
     return `<form class="form-stack" data-clover-connect>
       <p>${esc(status.detail || "Connect a Clover merchant to sync orders and inventory into forecasts.")}</p>
       <div class="field">
         <label for="cloverMerchantId">Clover merchant ID</label>
-        <input id="cloverMerchantId" class="input" name="merchantId" value="${esc(state.cloverMerchantId || status.externalAccount || "")}" placeholder="Optional: leave blank to choose in Clover" autocomplete="off" />
+        <input id="cloverMerchantId" class="input" name="merchantId" value="${esc(cloverMerchantValue)}" placeholder="Optional: leave blank to choose in Clover" autocomplete="off" />
       </div>
       <details class="connection-instructions">
         <summary>${icon("help")}<span>How do I connect Clover?</span></summary>
@@ -873,7 +874,7 @@ function integrationPanel() {
         <p>LiquidityLens imports Clover items as inventory and Clover order line items as sales history.</p>
       </div>
       <div class="toolbar">
-        <button class="btn-primary" type="submit" ${state.connectionsBusy === "clover" ? "disabled" : ""}>${state.connectionsBusy === "clover" ? spinner("Opening Clover...") : "Connect Clover"}</button>
+        <button class="btn-primary" type="submit" ${state.connectionsBusy === "clover" ? "disabled" : ""}>${state.connectionsBusy === "clover" ? spinner("Opening Clover...") : status.status === "needs_reauth" ? "Reconnect Clover" : "Connect Clover"}</button>
         <button class="btn-ghost" data-sync-source="clover" type="button" ${state.connectionsBusy === "clover" ? "disabled" : ""}>Sync now</button>
       </div>
     </form>`;

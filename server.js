@@ -765,12 +765,14 @@ async function cloverApi(merchantId, accessToken, resource, params = {}) {
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, value);
   }
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/json",
-    },
+  let response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
   });
+  if (response.status === 401) {
+    const retryUrl = new URL(url);
+    retryUrl.searchParams.set("access_token", accessToken);
+    response = await fetch(retryUrl, { headers: { Accept: "application/json" } });
+  }
   const text = await response.text();
   const data = text ? JSON.parse(text) : {};
   const message = data.message || data.error_description || data.error || "Clover request failed.";
@@ -1322,8 +1324,7 @@ app.get("/api/integrations/clover/callback", oauthLimiter, asyncRoute(async (req
     return redirectWithMessage("Clover security check failed. Please try again.");
   }
 
-  const merchantId = normalizeCloverMerchantId(req.query.merchant_id || req.query.merchantId || stored.merchantId);
-  if (!merchantId) return redirectWithMessage("Clover did not return a merchant ID. Open the merchant in Clover and try connecting again.");
+  const requestedMerchantId = normalizeCloverMerchantId(req.query.merchant_id || req.query.merchantId || stored.merchantId);
   const code = String(req.query.code || "");
   if (!code) return redirectWithMessage("Clover did not return an authorization code. Please try again.");
 
@@ -1336,6 +1337,14 @@ app.get("/api/integrations/clover/callback", oauthLimiter, asyncRoute(async (req
   }
   const accessToken = tokenSet.access_token || tokenSet.accessToken || tokenSet.token;
   if (!accessToken) return redirectWithMessage("Clover did not return an access token. Please check the app credentials and try again.");
+  const merchantId = normalizeCloverMerchantId(
+    tokenSet.merchant_id ||
+    tokenSet.merchantId ||
+    tokenSet.merchant?.id ||
+    tokenSet.merchant?.merchant_id ||
+    requestedMerchantId
+  );
+  if (!merchantId) return redirectWithMessage("Clover did not return a merchant ID. Open the merchant in Clover and try connecting again.");
   await saveIntegrationToken(stored.userId, "clover", {
     accessToken,
     refreshToken: tokenSet.refresh_token || tokenSet.refreshToken,
