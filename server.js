@@ -646,7 +646,7 @@ function cloverConfig() {
   const production = String(process.env.CLOVER_ENV || "sandbox").toLowerCase() === "production";
   return {
     authorizeUrl: process.env.CLOVER_AUTHORIZE_URL || (production ? "https://www.clover.com/oauth/v2/authorize" : "https://sandbox.dev.clover.com/oauth/v2/authorize"),
-    tokenUrl: process.env.CLOVER_TOKEN_URL || (production ? "https://www.clover.com/oauth/v2/token" : "https://apisandbox.dev.clover.com/oauth/v2/token"),
+    tokenUrl: process.env.CLOVER_TOKEN_URL || (production ? "https://www.clover.com/oauth/v2/token" : "https://sandbox.dev.clover.com/oauth/v2/token"),
     apiBaseUrl: (process.env.CLOVER_API_BASE_URL || (production ? "https://api.clover.com/v3" : "https://apisandbox.dev.clover.com/v3")).replace(/\/$/, ""),
   };
 }
@@ -1288,7 +1288,11 @@ app.get("/api/integrations/clover/callback", oauthLimiter, asyncRoute(async (req
     accessToken,
     refreshToken: tokenSet.refresh_token || tokenSet.refreshToken,
     scopes: tokenSet.scope || process.env.CLOVER_SCOPES || "",
-    expiresAt: tokenSet.expires_in ? new Date(Date.now() + Number(tokenSet.expires_in) * 1000) : null,
+    expiresAt: tokenSet.access_token_expiration
+      ? new Date(Number(tokenSet.access_token_expiration) * 1000)
+      : tokenSet.expires_in
+        ? new Date(Date.now() + Number(tokenSet.expires_in) * 1000)
+        : null,
     externalAccount: merchantId,
     detail: `Connected to Clover merchant ${merchantId}. Press Sync now to import Clover orders and inventory.`,
   });
