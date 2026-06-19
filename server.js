@@ -644,9 +644,13 @@ function normalizeCloverMerchantId(value) {
 
 function cloverConfig() {
   const production = String(process.env.CLOVER_ENV || "sandbox").toLowerCase() === "production";
+  const useV2 = String(process.env.CLOVER_USE_V2 || "").toLowerCase() === "true";
+  const legacyAuthorizeUrl = production ? "https://www.clover.com/oauth/authorize" : "https://apisandbox.dev.clover.com/oauth/authorize";
+  const legacyTokenUrl = production ? "https://api.clover.com/oauth/token" : "https://apisandbox.dev.clover.com/oauth/token";
   return {
-    authorizeUrl: process.env.CLOVER_AUTHORIZE_URL || (production ? "https://www.clover.com/oauth/v2/authorize" : "https://sandbox.dev.clover.com/oauth/v2/authorize"),
-    tokenUrl: process.env.CLOVER_TOKEN_URL || (production ? "https://api.clover.com/oauth/v2/token" : "https://apisandbox.dev.clover.com/oauth/v2/token"),
+    useV2,
+    authorizeUrl: process.env.CLOVER_AUTHORIZE_URL || (useV2 ? (production ? "https://www.clover.com/oauth/v2/authorize" : "https://sandbox.dev.clover.com/oauth/v2/authorize") : legacyAuthorizeUrl),
+    tokenUrl: process.env.CLOVER_TOKEN_URL || (useV2 ? (production ? "https://api.clover.com/oauth/v2/token" : "https://sandbox.dev.clover.com/oauth/v2/token") : legacyTokenUrl),
     refreshUrl: process.env.CLOVER_REFRESH_URL || (production ? "https://api.clover.com/oauth/v2/refresh" : "https://apisandbox.dev.clover.com/oauth/v2/refresh"),
     apiBaseUrl: (process.env.CLOVER_API_BASE_URL || (production ? "https://api.clover.com/v3" : "https://apisandbox.dev.clover.com/v3")).replace(/\/$/, ""),
   };
@@ -1320,7 +1324,7 @@ app.post("/api/integrations/clover/start", authUser, oauthLimiter, asyncRoute(as
   const url = new URL(cfg.authorizeUrl);
   url.searchParams.set("client_id", process.env.CLOVER_CLIENT_ID);
   url.searchParams.set("redirect_uri", redirectUri);
-  url.searchParams.set("response_type", "code");
+  if (cfg.useV2) url.searchParams.set("response_type", "code");
   url.searchParams.set("state", state);
   if (usePkce) {
     url.searchParams.set("code_challenge", pkceChallenge(codeVerifier));

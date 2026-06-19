@@ -59,6 +59,6 @@ https://liquiditylens-f536.onrender.com/api/integrations/clover/callback
 
 Then add `CLOVER_CLIENT_ID`, `CLOVER_CLIENT_SECRET`, and `CLOVER_ENV` to `.env` locally and to Render environment variables for production.
 
-For the Clover private REST app flow, leave `CLOVER_USE_PKCE` unset or set it to `false`. Only set it to `true` for a Clover app that explicitly requires PKCE.
+For the Clover private REST Clients flow, leave `CLOVER_USE_PKCE` and `CLOVER_USE_V2` unset or set both to `false`. Only set them to `true` for a newer Clover app that explicitly requires v2 OAuth/PKCE.
 
-For sandbox, do not override the Clover URLs unless you need to debug a Clover environment issue. The default sandbox authorize host is `https://sandbox.dev.clover.com/oauth/v2/authorize`; token, refresh, and API calls use `https://apisandbox.dev.clover.com`.
+For sandbox REST Clients, do not override the Clover URLs unless you need to debug a Clover environment issue. The default sandbox authorize and token hosts are `https://apisandbox.dev.clover.com/oauth/authorize` and `https://apisandbox.dev.clover.com/oauth/token`; API calls use `https://apisandbox.dev.clover.com/v3`.
