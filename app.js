@@ -190,7 +190,7 @@ function icon(name) {
 }
 
 function logo() {
-  return `<div class="logo"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true"><rect x="4" y="6" width="8" height="16" rx="4" fill="var(--accent)" opacity="0.9"/><rect x="10" y="6" width="8" height="16" rx="4" fill="var(--accent)" opacity="0.5"/><rect x="16" y="6" width="8" height="16" rx="4" fill="var(--accent)" opacity="0.9"/></svg><span class="logo-title">LiquidityLens</span></div>`;
+  return `<div class="logo"><img class="logo-mark" src="assets/liquiditylens-logo.png?v=9" alt="" aria-hidden="true" /><span class="logo-title">LiquidityLens</span></div>`;
 }
 
 function esc(value) {
