@@ -228,6 +228,65 @@ function activeSkuData() {
   });
 }
 
+function moneyShort(value) {
+  const amount = Math.max(0, Math.round(Number(value) || 0));
+  if (amount >= 1000000) return `$${(amount / 1000000).toFixed(amount >= 10000000 ? 0 : 1)}M`;
+  if (amount >= 1000) return `$${Math.round(amount / 1000)}K`;
+  return `$${amount}`;
+}
+
+function riskLabel(score) {
+  if (score >= 70) return "HIGH";
+  if (score >= 40) return "MEDIUM";
+  return "LOW";
+}
+
+function importedDashboardMetrics(products) {
+  const importedUnits = state.salesRecords.reduce((sum, record) => sum + (Number(record.quantity) || 0), 0);
+  const skuCount = products.length;
+  const forecastUnits = products.reduce((sum, product) => sum + product.forecast, 0);
+  const currentUnits = products.reduce((sum, product) => sum + product.current, 0);
+  const highRiskSkus = products.filter(product => product.stockout >= 70).length;
+  const buyActions = products.filter(product => product.action === "buy").length;
+  const holdActions = products.filter(product => product.action === "hold").length;
+  const riskScore = Math.max(1, Math.min(100, Math.round(
+    products.reduce((sum, product) => sum + product.stockout * Math.max(1, product.forecast), 0) / Math.max(1, forecastUnits)
+  )));
+  const estimatedRevenueRisk = products.reduce((sum, product) => (
+    sum + Math.max(0, product.forecast - product.current) * 45
+  ), 0);
+  const estimatedExcessCost = products.reduce((sum, product) => (
+    sum + Math.max(0, product.current - product.forecast) * 18
+  ), 0);
+  return {
+    riskScore,
+    cards: [
+      ["Inventory Risk Score", riskScore, `${riskLabel(riskScore)} RISK`, `${highRiskSkus} high-risk ${highRiskSkus === 1 ? "SKU" : "SKUs"}`, `${buyActions} buy ${buyActions === 1 ? "action" : "actions"} recommended from imported data.`, riskScore >= 70 ? "bad" : riskScore >= 40 ? "warning" : "good", "accent", riskScore >= 70 ? "high" : riskScore >= 40 ? "warning" : "success"],
+      ["Imported Units", fmt(importedUnits), `${skuCount} ${skuCount === 1 ? "SKU" : "SKUs"}`, "Live data", "Synced sales quantity from connected sources.", "good", "", "success"],
+      ["8-Week Demand", fmt(forecastUnits), `${currentUnits} on hand est.`, `${buyActions} buy / ${holdActions} hold`, "Demand projection from imported sales velocity.", buyActions ? "bad" : "good", "", buyActions ? "warning" : "success"],
+      ["Revenue at Risk", moneyShort(estimatedRevenueRisk), "", estimatedExcessCost ? `${moneyShort(estimatedExcessCost)} excess` : "No excess", "Estimated from demand gap until product prices sync.", estimatedRevenueRisk ? "bad" : "good", "", estimatedRevenueRisk ? "warning" : "success"],
+    ],
+  };
+}
+
+function importedForecastData(products) {
+  if (!state.salesRecords.length) return forecastData;
+  const totalForecast = Math.max(1, products.reduce((sum, product) => sum + product.forecast, 0));
+  const weeklyBase = Math.max(1, totalForecast / 8);
+  return Array.from({ length: 8 }, (_, index) => {
+    const lift = 1 + index * 0.08;
+    const ensemble = Math.max(1, Math.round(weeklyBase * lift));
+    return {
+      week: `Wk ${index + 1}`,
+      arima: Math.max(1, Math.round(ensemble * 0.92)),
+      xgboost: Math.max(1, Math.round(ensemble * 1.08)),
+      ensemble,
+      lower: Math.max(0, Math.round(ensemble * 0.75)),
+      upper: Math.max(1, Math.round(ensemble * 1.25)),
+    };
+  });
+}
+
 function auth() {
   return state.authUser;
 }
@@ -530,26 +589,29 @@ function dashboard() {
   if (state.loading) return pageShell("Dashboard", "Inventory risk, transfer opportunity, and executive KPIs.", skeletonPage());
   const products = activeSkuData();
   const dataSourceCopy = state.salesRecords.length ? `${state.salesRecords.length} imported sales rows powering this view.` : "Import CSV sales data to replace the starter sample.";
-  const cards = [
-    ["Inventory Risk Score", state.riskScore, "HIGH RISK", "↑ 8pts vs last week", "3 transfers recommended to reduce to medium.", "bad", "accent"],
-    ["Total Inventory Value", "$12.8M", "", "↑ 2.1%", "Across all connected stores.", "good", ""],
-    ["Revenue at Risk", `$${Math.round(state.revenueRisk / 1000)}K`, "9 SKUs", "↑ $48K", "Likely stockout loss this week.", "bad", ""],
-    ["Excess Cost", "$312K", "", "↓ $12K", "Markdown and carrying cost.", "good", ""],
+  const importedMetrics = state.salesRecords.length ? importedDashboardMetrics(products) : null;
+  const cards = importedMetrics?.cards || [
+    ["Inventory Risk Score", state.riskScore, "HIGH RISK", "↑ 8pts vs last week", "3 transfers recommended to reduce to medium.", "bad", "accent", "high"],
+    ["Total Inventory Value", "$12.8M", "", "↑ 2.1%", "Across all connected stores.", "good", "", "success"],
+    ["Revenue at Risk", `$${Math.round(state.revenueRisk / 1000)}K`, "9 SKUs", "↑ $48K", "Likely stockout loss this week.", "bad", "", "warning"],
+    ["Excess Cost", "$312K", "", "↓ $12K", "Markdown and carrying cost.", "good", "", "success"],
   ];
+  const chartData = importedForecastData(products);
   return pageShell("Dashboard", state.lastUpdated, `
     <div class="toolbar-spread"><p class="muted">${esc(dataSourceCopy)}</p><button class="btn-primary" data-refresh type="button" ${state.refreshing ? "disabled" : ""}>${state.refreshing ? spinner("Refreshing...") : `${icon("chart-line")}Refresh analysis`}</button></div>
     <section class="kpi-grid">${cards.map((c, i) => kpiCard(c, i)).join("")}</section>
     <section class="grid-2">
-      <article class="card"><div class="toolbar-spread"><div><p class="eyebrow">Forecast</p><h2 class="text-lg">8-week demand outlook</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>XGBoost</span><span><i style="background:var(--text-muted)"></i>ARIMA</span></div></div><div class="chart">${lineChart(forecastData, 820, 280)}</div></article>
+      <article class="card"><div class="toolbar-spread"><div><p class="eyebrow">Forecast</p><h2 class="text-lg">8-week demand outlook</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>XGBoost</span><span><i style="background:var(--text-muted)"></i>ARIMA</span></div></div><div class="chart">${lineChart(chartData, 820, 280)}</div></article>
       <article class="card"><p class="eyebrow">Recommendations</p><h2 class="text-lg">Action queue</h2><div class="report-list">${products.slice(0, 5).map(s => `<div class="report-row"><span>${esc(s.product)}</span><span class="badge badge--${s.action}">${s.action}</span></div>`).join("")}</div></article>
     </section>
   `);
 }
 
-function kpiCard([label, value, badge, trend, subtext, trendClass, accent], index) {
+function kpiCard([label, value, badge, trend, subtext, trendClass, accent, badgeTone], index) {
   if (state.refreshing) return `<article class="card kpi-card ${accent ? "card--accent" : ""}"><div class="skeleton skel-line"></div><div class="skeleton skel-line" style="height:38px;width:70%"></div><div class="skeleton skel-line" style="width:85%"></div></article>`;
+  const tone = badgeTone || (index === 0 ? "high" : "warning");
   return `<article class="card kpi-card ${accent ? "card--accent" : ""}">
-    <div class="kpi-top"><p class="eyebrow">${label}</p>${badge ? `<span class="badge badge--${index === 0 ? "high" : "warning"}">${badge}</span>` : ""}</div>
+    <div class="kpi-top"><p class="eyebrow">${label}</p>${badge ? `<span class="badge badge--${tone}">${badge}</span>` : ""}</div>
     ${index === 0 ? `<div class="risk-layout">${riskGauge(value)}<span class="trend ${trendClass}">${trend}</span></div>` : `<div class="toolbar-spread"><div class="metric-value">${value}</div><span class="trend ${trendClass}">${trend}</span></div>`}
     <p class="kpi-subtext">${subtext}</p>
   </article>`;
@@ -1548,7 +1610,9 @@ function scrollHighlighted() {
 function lineChart(data, w, h) {
   const pad = { l: 52, r: 18, t: 18, b: 34 };
   const vals = data.flatMap(d => [d.lower, d.upper, d.arima, d.xgboost, d.ensemble]);
-  const min = Math.min(...vals) - 8000, max = Math.max(...vals) + 8000;
+  const low = Math.min(...vals), high = Math.max(...vals);
+  const padding = Math.max(1, Math.round((high - low) * 0.18), Math.round(high * 0.08));
+  const min = Math.max(0, low - padding), max = high + padding;
   const x = i => pad.l + i * ((w - pad.l - pad.r) / (data.length - 1));
   const y = v => h - pad.b - ((v - min) / (max - min)) * (h - pad.t - pad.b);
   const path = key => data.map((d, i) => `${i ? "L" : "M"}${x(i)},${y(d[key])}`).join(" ");

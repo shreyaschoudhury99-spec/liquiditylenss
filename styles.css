@@ -524,6 +524,7 @@ a { color: inherit; text-decoration: none; }
 .trend { font: 500 12px var(--font-mono); }
 .trend.bad { color: var(--red); }
 .trend.good { color: var(--green); }
+.trend.warning { color: var(--yellow); }
 .kpi-subtext { color: var(--text-secondary); margin: 0; }
 .risk-layout { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
 .grid-2 { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.75fr); gap: var(--space-4); }
