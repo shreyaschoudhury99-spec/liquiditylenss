@@ -662,17 +662,26 @@ async function exchangeCloverCode(code, redirectUri, codeVerifier) {
     client_id: process.env.CLOVER_CLIENT_ID,
     client_secret: process.env.CLOVER_CLIENT_SECRET,
     code,
-    grant_type: "authorization_code",
-    redirect_uri: redirectUri,
   };
   const pkcePayload = {
     client_id: process.env.CLOVER_CLIENT_ID,
     code,
     code_verifier: codeVerifier,
-    grant_type: "authorization_code",
-    redirect_uri: redirectUri,
   };
+  const highTrustUrl = new URL(cfg.tokenUrl);
+  for (const [key, value] of Object.entries(highTrustPayload)) {
+    if (value) highTrustUrl.searchParams.set(key, value);
+  }
+  const pkceUrl = new URL(cfg.tokenUrl);
+  for (const [key, value] of Object.entries(pkcePayload)) {
+    if (value) pkceUrl.searchParams.set(key, value);
+  }
   const attempts = [
+    {
+      url: highTrustUrl.toString(),
+      method: "POST",
+      headers: { Accept: "application/json" },
+    },
     {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -684,6 +693,11 @@ async function exchangeCloverCode(code, redirectUri, codeVerifier) {
       body: new URLSearchParams(Object.entries(highTrustPayload).filter(([, value]) => value)).toString(),
     },
     ...(codeVerifier ? [
+      {
+        url: pkceUrl.toString(),
+        method: "POST",
+        headers: { Accept: "application/json" },
+      },
       {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -700,7 +714,8 @@ async function exchangeCloverCode(code, redirectUri, codeVerifier) {
   let lastError;
   for (const options of attempts) {
     try {
-      return await fetchJson(cfg.tokenUrl, options);
+      const { url, ...requestOptions } = options;
+      return await fetchJson(url || cfg.tokenUrl, requestOptions);
     } catch (err) {
       lastError = err;
     }
@@ -714,7 +729,16 @@ async function refreshCloverToken(refreshToken) {
     client_id: process.env.CLOVER_CLIENT_ID,
     refresh_token: refreshToken,
   };
+  const refreshUrl = new URL(cfg.refreshUrl);
+  for (const [key, value] of Object.entries(payload)) {
+    if (value) refreshUrl.searchParams.set(key, value);
+  }
   const attempts = [
+    {
+      url: refreshUrl.toString(),
+      method: "POST",
+      headers: { Accept: "application/json" },
+    },
     {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -730,7 +754,8 @@ async function refreshCloverToken(refreshToken) {
   let lastError;
   for (const options of attempts) {
     try {
-      return await fetchJson(cfg.refreshUrl, options);
+      const { url, ...requestOptions } = options;
+      return await fetchJson(url || cfg.refreshUrl, requestOptions);
     } catch (err) {
       lastError = err;
     }
