@@ -777,6 +777,16 @@ function integrationPanel() {
         <label for="shopifyShop">Shopify store domain</label>
         <input id="shopifyShop" class="input" name="shop" value="${esc(state.shopifyShop || status.externalAccount || "")}" placeholder="your-store.myshopify.com" autocomplete="off" />
       </div>
+      <details class="connection-instructions">
+        <summary>${icon("help")}<span>How do I connect Shopify?</span></summary>
+        <ol class="instruction-list">
+          <li>Paste your Shopify store domain, for example <code>liquiditylens.myshopify.com</code>. Do not paste the Shopify admin settings URL.</li>
+          <li>Press <strong>Connect Shopify</strong>, then approve or install the LiquidityLens app in Shopify.</li>
+          <li>After Shopify sends you back here, press <strong>Sync now</strong> to import orders, products, and inventory.</li>
+          <li>Make sure the Shopify app has <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>, and <code>read_locations</code>.</li>
+          <li>If the dashboard still looks empty, create a completed test order in Shopify and press <strong>Sync now</strong> again.</li>
+        </ol>
+      </details>
       <div class="card connection-help">
         <p class="eyebrow">Required Shopify scopes</p>
         <p>Use read_orders, read_products, read_inventory, and read_locations in the Shopify developer dashboard.</p>

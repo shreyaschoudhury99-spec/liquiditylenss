@@ -445,7 +445,19 @@ a { color: inherit; text-decoration: none; }
 }
 .nav-link.active { color: var(--text-primary); font-weight: 600; border-left-color: var(--accent); background: var(--bg-elevated); }
 .sidebar-bottom { margin-top: auto; border-top: 1px solid var(--border-default); padding: var(--space-3); display: grid; gap: var(--space-1); }
-.bottom-link { color: var(--text-muted); font-size: 12px; justify-content: flex-start; width: 100%; }
+.bottom-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.bottom-link span { line-height: 1; }
 
 .topbar {
   position: fixed;
@@ -600,6 +612,34 @@ a { color: inherit; text-decoration: none; }
 .connection-card { min-height: 230px; align-content: space-between; }
 .connection-card p { margin: 0; }
 .connection-help { background: var(--bg-subtle); box-shadow: none; }
+.connection-instructions {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  padding: var(--space-3) var(--space-4);
+}
+.connection-instructions summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+}
+.connection-instructions summary::-webkit-details-marker { display: none; }
+.connection-instructions svg { width: 16px; height: 16px; color: var(--accent); }
+.instruction-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding-left: 22px;
+  color: var(--text-secondary);
+}
+.instruction-list code {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
 .error-list { border: 1px solid var(--red); border-radius: var(--radius-md); padding: var(--space-3); color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
 .error-list p { margin: var(--space-2) 0 0; }
 .checklist { display: grid; gap: var(--space-3); }
