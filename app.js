@@ -251,16 +251,19 @@ function activeSkuData() {
     }
   }
   return [...bySku.values()].map((item, index) => {
-    const activeDays = Math.max(1, item.dates.size || 1);
-    const avgDaily = item.quantity / activeDays;
-    const forecast = Math.max(1, Math.round(avgDaily * 56));
-    const current = Math.max(0, Math.round(item.current ?? avgDaily * 21));
+    const dates = [...item.dates].map(date => new Date(`${date}T00:00:00Z`).getTime()).filter(Number.isFinite);
+    const minDate = dates.length ? Math.min(...dates) : Date.now();
+    const maxDate = dates.length ? Math.max(...dates) : Date.now();
+    const activeWeeks = Math.max(1, Math.ceil(((maxDate - minDate) / 86400000 + 1) / 7));
+    const avgWeekly = item.quantity / activeWeeks;
+    const forecast = Math.max(0, Math.round(avgWeekly * 8));
+    const current = Math.max(0, Math.round(item.current ?? avgWeekly * 3));
     const deficit = Math.max(0, forecast - current);
     const surplus = Math.max(0, current - forecast);
     const stockout = Math.max(0, Math.min(99, Math.round((deficit / Math.max(1, forecast)) * 100)));
     const overstock = Math.max(0, Math.min(99, Math.round((surplus / Math.max(1, current)) * 100)));
     const action = stockout > 70 ? "buy" : overstock > 70 ? "sell" : item.locations.size > 1 ? "transfer" : "hold";
-    return { id: index + 1, product: item.product, sku: item.sku, current, forecast, stockout, overstock, action, price: item.price || 0 };
+    return { id: index + 1, product: item.product, sku: item.sku, current, forecast, stockout, overstock, action, price: item.price || 0, sold: item.quantity, activeWeeks };
   });
 }
 
@@ -343,9 +346,9 @@ function executiveSummaryRows() {
 function importedForecastData(products) {
   if (!state.salesRecords.length) return forecastData;
   const totalForecast = Math.max(1, products.reduce((sum, product) => sum + product.forecast, 0));
-  const weeklyBase = Math.max(1, totalForecast / 8);
+  const weeklyBase = Math.max(0, totalForecast / 8);
   return Array.from({ length: 8 }, (_, index) => {
-    const lift = 1 + index * 0.08;
+    const lift = state.salesRecords.length >= 12 ? 1 + index * 0.03 : 1;
     const ensemble = Math.max(1, Math.round(weeklyBase * lift));
     return {
       week: `Wk ${index + 1}`,
@@ -356,6 +359,28 @@ function importedForecastData(products) {
       upper: Math.max(1, Math.round(ensemble * 1.25)),
     };
   });
+}
+
+function forecastSummary(chartData) {
+  const latest = chartData[chartData.length - 1] || { arima: 0, xgboost: 0, ensemble: 0 };
+  return {
+    arima: latest.arima,
+    xgboost: latest.xgboost,
+    ensemble: latest.ensemble,
+    label: state.salesRecords.length ? "Early forecast from synced Shopify history." : "Baseline demand from recurring cycles.",
+    xgbLabel: state.salesRecords.length ? "Inventory-adjusted forecast from synced SKU data." : "Signal-adjusted regional demand.",
+    ensembleLabel: state.salesRecords.length ? "Operational forecast from live store sales and inventory." : "Operational forecast used for recommendations.",
+  };
+}
+
+function seasonalDemandData() {
+  if (!state.salesRecords.length) return seasonalData;
+  const byMonth = Array.from({ length: 12 }, (_, index) => ({ month: new Date(2026, index, 1).toLocaleString("en-US", { month: "short" }), demand: 0 }));
+  for (const record of state.salesRecords) {
+    const date = new Date(`${String(record.date).slice(0, 10)}T00:00:00Z`);
+    if (!Number.isNaN(date.getTime())) byMonth[date.getUTCMonth()].demand += Number(record.quantity) || 0;
+  }
+  return byMonth;
 }
 
 function auth() {
@@ -788,15 +813,29 @@ function checkRows() {
 
 function forecastsPage() {
   if (state.loading) return pageShell("Forecasts", "Model output, confidence bands, and seasonal demand.", skeletonPage("chart"));
+  const products = activeSkuData();
+  const chartData = importedForecastData(products);
+  const summary = forecastSummary(chartData);
+  const dataNote = state.salesRecords.length
+    ? `${state.salesRecords.length} synced sales rows and ${state.inventoryItems.length} inventory items. Forecast confidence improves as more order history syncs.`
+    : "Starter sample forecast. Connect Shopify or upload CSV for store-specific output.";
+  const modelNotes = state.salesRecords.length
+    ? accordion("Observed baseline", "Sales velocity", ["Uses synced Shopify order quantities grouped by SKU", "Calculates observed weekly demand from available order history", "Output: conservative weekly demand baseline"], "Shopify orders", "Weekly baseline")
+      + accordion("Adjusted forecast", "Inventory context", ["Uses synced Shopify inventory on hand and variant prices", "Compares 8-week demand against current stock", "Output: buy, hold, sell, or transfer recommendation"], "Sales + inventory", "Inventory action")
+      + accordion("Confidence", "Data quality", ["Flags limited history when only a small number of rows are synced", "Uses a wider confidence band until more orders are available", "Output: early forecast with visible uncertainty"], "Order history depth", "Confidence band")
+    : accordion("ARIMA", "Demand baseline", ["Uses 24 months of daily sales data to detect seasonality", "Removes trend to isolate repeatable demand cycles", "Output: weekly baseline forecast ±8% confidence band"], "Daily sales", "Weekly baseline")
+      + accordion("XGBoost", "Signal adjustment", ["Uses promotions, holidays, stock levels, and regional signals", "Ranks demand drivers by predictive lift", "Output: demand-adjusted forecast"], "Sales + external signals", "Adjusted demand")
+      + accordion("Ensemble", "Operational forecast", ["Blends statistical baseline with ML adjustment", "Weights models by recent forecast error", "Output: SKU action recommendations"], "ARIMA + XGBoost", "Buy, sell, hold, transfer");
   return pageShell("Forecasts", "Model output, confidence bands, and seasonal demand.", `
+    <p class="muted">${esc(dataNote)}</p>
     <section class="grid-3">
-      <article class="card"><p class="eyebrow">ARIMA</p><div class="metric-value">172,900</div><p class="muted">Baseline demand from recurring cycles.</p></article>
-      <article class="card"><p class="eyebrow">XGBoost</p><div class="metric-value">189,700</div><p class="muted">Signal-adjusted regional demand.</p></article>
-      <article class="card card--accent"><p class="eyebrow">Ensemble</p><div class="metric-value">184,200</div><p class="muted">Operational forecast used for recommendations.</p></article>
+      <article class="card"><p class="eyebrow">${state.salesRecords.length ? "Observed baseline" : "ARIMA"}</p><div class="metric-value">${fmt(summary.arima)}</div><p class="muted">${esc(summary.label)}</p></article>
+      <article class="card"><p class="eyebrow">${state.salesRecords.length ? "Adjusted forecast" : "XGBoost"}</p><div class="metric-value">${fmt(summary.xgboost)}</div><p class="muted">${esc(summary.xgbLabel)}</p></article>
+      <article class="card card--accent"><p class="eyebrow">Ensemble</p><div class="metric-value">${fmt(summary.ensemble)}</div><p class="muted">${esc(summary.ensembleLabel)}</p></article>
     </section>
-    <section class="card"><div class="toolbar-spread"><div><p class="eyebrow">8-week demand forecast</p><h2 class="text-lg">Forecast blend</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>XGBoost</span><span><i style="background:var(--text-muted)"></i>ARIMA</span></div></div><div id="forecastChart" class="chart">${lineChart(forecastData, 900, 280)}</div></section>
-    <section class="grid-2"><article class="card"><p class="eyebrow">Monte Carlo simulation</p><div id="mcChart" class="chart chart-small">${areaChart()}</div></article><article class="card"><p class="eyebrow">Seasonal demand</p><div id="seasonChart" class="chart chart-tiny">${barChart()}</div></article></section>
-    <section class="card"><p class="eyebrow">How each model works</p><div class="accordion">${accordion("ARIMA", "Demand baseline", ["Uses 24 months of daily sales data to detect seasonality", "Removes trend to isolate repeatable demand cycles", "Output: weekly baseline forecast ±8% confidence band"], "Daily sales", "Weekly baseline")}${accordion("XGBoost", "Signal adjustment", ["Uses promotions, holidays, stock levels, and regional signals", "Ranks demand drivers by predictive lift", "Output: demand-adjusted forecast"], "Sales + external signals", "Adjusted demand")}${accordion("Ensemble", "Operational forecast", ["Blends statistical baseline with ML adjustment", "Weights models by recent forecast error", "Output: SKU action recommendations"], "ARIMA + XGBoost", "Buy, sell, hold, transfer")}</div></section>
+    <section class="card"><div class="toolbar-spread"><div><p class="eyebrow">8-week demand forecast</p><h2 class="text-lg">Forecast blend</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>Adjusted</span><span><i style="background:var(--text-muted)"></i>Baseline</span></div></div><div id="forecastChart" class="chart">${lineChart(chartData, 900, 280)}</div></section>
+    <section class="grid-2"><article class="card"><p class="eyebrow">${state.salesRecords.length ? "Forecast confidence" : "Monte Carlo simulation"}</p><div id="mcChart" class="chart chart-small">${areaChart(chartData)}</div></article><article class="card"><p class="eyebrow">Seasonal demand</p><div id="seasonChart" class="chart chart-tiny">${barChart(seasonalDemandData())}</div></article></section>
+    <section class="card"><p class="eyebrow">How each model works</p><div class="accordion">${modelNotes}</div></section>
   `);
 }
 
@@ -1714,7 +1753,19 @@ function lineChart(data, w, h) {
   }).join("")}</svg>`;
 }
 
-function areaChart() {
+function areaChart(data = null) {
+  if (data && state.salesRecords.length) {
+    const w = 520, h = 220, p = 34;
+    const confidence = data.map((d, index) => ({ week: d.week, band: Math.max(0, Math.round(((d.upper - d.lower) / Math.max(1, d.ensemble)) * 100)), index }));
+    const max = Math.max(20, ...confidence.map(point => point.band));
+    const x = i => p + i * ((w - p * 2) / Math.max(1, confidence.length - 1));
+    const y = v => h - p - (v / max) * (h - p * 2);
+    const d = confidence.map((point, i) => `${i ? "L" : "M"}${x(i)},${y(point.band)}`).join(" ");
+    return `<svg viewBox="0 0 ${w} ${h}"><path d="${d} L${w - p},${h - p} L${p},${h - p}Z" fill="var(--blue-dim)"/><path d="${d}" fill="none" stroke="var(--blue)" stroke-width="2"/><text x="${p}" y="${p}" fill="var(--blue)">Uncertainty band</text><text x="${p}" y="${p + 20}" fill="var(--text-muted)">${state.salesRecords.length < 12 ? "Limited order history" : "Synced order history"}</text>${confidence.map((point, i) => {
+      const tip = `<strong>${point.week} forecast confidence</strong><span>Band width: ${point.band}%</span><span>${state.salesRecords.length < 12 ? "Needs more history for stronger confidence." : "Based on synced sales variance."}</span>`;
+      return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}"><circle cx="${x(i)}" cy="${y(point.band)}" r="12" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x(i)}" cy="${y(point.band)}" r="4" fill="var(--blue)"/></g><text x="${x(i)}" y="${h - 8}" text-anchor="middle">${point.week.replace("Wk ", "W")}</text>`;
+    }).join("")}</svg>`;
+  }
   const w = 520, h = 220, p = 34, max = 28;
   const x = i => p + i * ((w - p * 2) / (monteCarloData.length - 1));
   const y = v => h - p - (v / max) * (h - p * 2);
@@ -1727,16 +1778,17 @@ function areaChart() {
   }).join("")}</svg>`;
 }
 
-function barChart() {
-  const w = 520, h = 180, p = 28, max = 235000, bw = (w - p * 2) / seasonalData.length - 8;
-  const avg = seasonalData.reduce((sum, m) => sum + m.demand, 0) / seasonalData.length;
-  return `<svg viewBox="0 0 ${w} ${h}">${seasonalData.map((m, i) => {
+function barChart(data = seasonalData) {
+  const w = 520, h = 180, p = 28, max = Math.max(1, ...data.map(m => m.demand)), bw = (w - p * 2) / data.length - 8;
+  const avg = data.reduce((sum, m) => sum + m.demand, 0) / Math.max(1, data.length);
+  const currentMonth = new Date().toLocaleString("en-US", { month: "short" });
+  return `<svg viewBox="0 0 ${w} ${h}">${data.map((m, i) => {
     const bh = (m.demand / max) * (h - p * 2);
-    const current = m.month === "Jun";
+    const current = m.month === currentMonth;
     const xPos = p + i * (bw + 8);
     const yPos = h - p - bh;
-    const lift = Math.round(((m.demand - avg) / avg) * 100);
-    const tip = `<strong>${m.month} seasonal demand</strong><span>Demand: ${fmt(m.demand)} units</span><span>${lift >= 0 ? "+" : ""}${lift}% vs annual average</span><span>${current ? "Current month: watch stockouts weekly." : "Use for buying and transfer timing."}</span>`;
+    const lift = avg ? Math.round(((m.demand - avg) / avg) * 100) : 0;
+    const tip = `<strong>${m.month} seasonal demand</strong><span>Demand: ${fmt(m.demand)} units</span><span>${lift >= 0 ? "+" : ""}${lift}% vs annual average</span><span>${state.salesRecords.length ? "From synced order history." : current ? "Current month: watch stockouts weekly." : "Use for buying and transfer timing."}</span>`;
     return `<g class="chart-bar" tabindex="0" data-chart-tip="${attr(tip)}"><rect x="${xPos - 3}" y="${p}" width="${bw + 6}" height="${h - p * 2}" fill="var(--bg-base)" opacity="0.001"/><rect x="${xPos}" y="${yPos}" width="${bw}" height="${bh}" rx="3" fill="var(--accent)" opacity="${current ? "1" : ".6"}" ${current ? 'filter="drop-shadow(0 0 8px var(--accent))"' : ""}/></g><text x="${xPos + bw / 2}" y="${h - 8}" text-anchor="middle">${m.month}</text>`;
   }).join("")}</svg>`;
 }
