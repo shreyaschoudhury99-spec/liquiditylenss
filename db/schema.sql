@@ -85,6 +85,24 @@ CREATE TABLE IF NOT EXISTS sales_records (
 CREATE INDEX IF NOT EXISTS sales_records_user_lookup_idx
   ON sales_records (user_id, sale_date DESC);
 
+CREATE TABLE IF NOT EXISTS inventory_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sku TEXT NOT NULL,
+  product TEXT NOT NULL,
+  current_quantity NUMERIC NOT NULL DEFAULT 0 CHECK (current_quantity >= 0),
+  unit_price NUMERIC NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
+  source TEXT NOT NULL DEFAULT 'shopify',
+  external_id TEXT,
+  location TEXT NOT NULL DEFAULT 'all locations',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, source, sku, location)
+);
+
+CREATE INDEX IF NOT EXISTS inventory_items_user_lookup_idx
+  ON inventory_items (user_id, source, sku);
+
 CREATE TABLE IF NOT EXISTS integration_connections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -534,19 +534,48 @@ async function syncShopifyOrders(userId, shop, accessToken) {
     fields: "id,title,variants",
   });
   const variants = [];
+  const variantByInventoryItemId = new Map();
   for (const product of productsData.products || []) {
     for (const variant of product.variants || []) {
-      const sku = String(variant.sku || variant.title || product.title || `shopify-variant-${variant.id}`).trim();
+      const sku = String(variant.sku || `shopify-variant-${variant.id}`).trim();
       if (!sku) continue;
       const productName = [product.title, variant.title && variant.title !== "Default Title" ? variant.title : ""].filter(Boolean).join(" - ");
-      variants.push({
+      const normalizedVariant = {
         sku,
         product: productName || sku,
         current: Math.max(0, Number(variant.inventory_quantity || 0)),
         price: Math.max(0, Number(variant.price || 0)),
         externalId: String(variant.id || ""),
+        inventoryItemId: String(variant.inventory_item_id || ""),
+      };
+      variants.push(normalizedVariant);
+      if (normalizedVariant.inventoryItemId) variantByInventoryItemId.set(normalizedVariant.inventoryItemId, normalizedVariant);
+    }
+  }
+  const inventoryRows = [];
+  const inventoryItemIds = [...variantByInventoryItemId.keys()];
+  for (let index = 0; index < inventoryItemIds.length; index += 50) {
+    const chunk = inventoryItemIds.slice(index, index + 50);
+    if (!chunk.length) continue;
+    const levelsData = await shopifyApi(shop, accessToken, "inventory_levels", {
+      limit: "250",
+      inventory_item_ids: chunk.join(","),
+    }).catch(err => {
+      if (err.code === "SHOPIFY_PERMISSION_DENIED") throw err;
+      return { inventory_levels: [] };
+    });
+    for (const level of levelsData.inventory_levels || []) {
+      const variant = variantByInventoryItemId.get(String(level.inventory_item_id || ""));
+      if (!variant) continue;
+      inventoryRows.push({
+        ...variant,
+        current: Math.max(0, Number(level.available || 0)),
+        location: locationById.get(String(level.location_id || "")) || shop,
       });
     }
+  }
+  if (!inventoryRows.length) {
+    for (const variant of variants) inventoryRows.push({ ...variant, location: shop });
   }
   const ordersData = await shopifyApi(shop, accessToken, "orders", {
     status: "any",
@@ -557,7 +586,8 @@ async function syncShopifyOrders(userId, shop, accessToken) {
   const totals = new Map();
   await pool.query("BEGIN");
   try {
-    for (const item of variants) {
+    await pool.query("DELETE FROM inventory_items WHERE user_id = $1 AND source = 'shopify'", [userId]);
+    for (const item of inventoryRows) {
       await pool.query(
         `INSERT INTO inventory_items (user_id, sku, product, current_quantity, unit_price, source, external_id, location)
          VALUES ($1, $2, $3, $4, $5, 'shopify', $6, $7)
@@ -567,14 +597,14 @@ async function syncShopifyOrders(userId, shop, accessToken) {
              unit_price = EXCLUDED.unit_price,
              external_id = EXCLUDED.external_id,
              updated_at = now()`,
-        [userId, item.sku, item.product, item.current, item.price, item.externalId, shop]
+        [userId, item.sku, item.product, item.current, item.price, item.externalId, item.location]
       );
     }
     for (const order of orders) {
       const saleDate = String(order.created_at || "").slice(0, 10);
       const location = locationById.get(String(order.location_id)) || shop;
       for (const item of order.line_items || []) {
-        const sku = String(item.sku || item.name || `shopify-line-item-${item.id}`).trim();
+        const sku = String(item.sku || (item.variant_id ? `shopify-variant-${item.variant_id}` : "") || item.name || `shopify-line-item-${item.id}`).trim();
         const quantity = Number(item.quantity || 0);
         if (!saleDate || !sku || !Number.isFinite(quantity) || quantity < 0) continue;
         const key = `${sku}\u0000${saleDate}\u0000${location}`;
@@ -597,7 +627,7 @@ async function syncShopifyOrders(userId, shop, accessToken) {
     await pool.query("ROLLBACK");
     throw err;
   }
-  return { orders: orders.length, rows: totals.size, inventoryItems: variants.length };
+  return { orders: orders.length, rows: totals.size, inventoryItems: inventoryRows.length };
 }
 
 app.post("/api/auth/signup", authLimiter, asyncRoute(async (req, res) => {

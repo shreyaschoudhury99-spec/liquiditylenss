@@ -240,7 +240,9 @@ function fmt(value) {
 }
 
 function activeSkuData() {
-  if (!state.salesRecords.length) return skuData;
+  if (!state.salesRecords.length && !state.inventoryItems.length) return skuData;
+  const hasSales = Boolean(state.salesRecords.length);
+  const hasInventory = Boolean(state.inventoryItems.length);
   const bySku = new Map();
   const inventoryBySku = new Map();
   for (const item of state.inventoryItems) {
@@ -290,13 +292,13 @@ function activeSkuData() {
     const maxDate = dates.length ? Math.max(...dates) : Date.now();
     const activeWeeks = Math.max(1, Math.ceil(((maxDate - minDate) / 86400000 + 1) / 7));
     const avgWeekly = item.quantity / activeWeeks;
-    const forecast = Math.max(0, Math.round(avgWeekly * 8));
-    const current = Math.max(0, Math.round(item.current ?? avgWeekly * 3));
+    const forecast = hasSales ? Math.max(0, Math.round(avgWeekly * 8)) : 0;
+    const current = Math.max(0, Math.round(item.current ?? (hasInventory ? 0 : avgWeekly * 3)));
     const deficit = Math.max(0, forecast - current);
     const surplus = Math.max(0, current - forecast);
-    const stockout = Math.max(0, Math.min(99, Math.round((deficit / Math.max(1, forecast)) * 100)));
-    const overstock = Math.max(0, Math.min(99, Math.round((surplus / Math.max(1, current)) * 100)));
-    const action = stockout > 70 ? "buy" : overstock > 70 ? "sell" : item.locations.size > 1 ? "transfer" : "hold";
+    const stockout = hasSales ? Math.max(0, Math.min(99, Math.round((deficit / Math.max(1, forecast)) * 100))) : 0;
+    const overstock = hasSales ? Math.max(0, Math.min(99, Math.round((surplus / Math.max(1, current)) * 100))) : 0;
+    const action = !hasSales ? "hold" : stockout > 70 ? "buy" : overstock > 70 ? "sell" : item.locations.size > 1 ? "transfer" : "hold";
     return { id: index + 1, product: item.product, sku: item.sku, current, forecast, stockout, overstock, action, price: item.price || 0, sold: item.quantity, activeWeeks };
   });
 }
@@ -343,7 +345,7 @@ function importedDashboardMetrics(products) {
 }
 
 function executiveSummaryRows() {
-  if (!state.salesRecords.length) {
+  if (!state.salesRecords.length && !state.inventoryItems.length) {
     return [
       ["Risk Score", "76 (HIGH)"],
       ["Revenue at Risk", "$684,000"],
@@ -378,7 +380,17 @@ function executiveSummaryRows() {
 }
 
 function importedForecastData(products) {
-  if (!state.salesRecords.length) return forecastData;
+  if (!state.salesRecords.length && !state.inventoryItems.length) return forecastData;
+  if (!state.salesRecords.length) {
+    return Array.from({ length: 8 }, (_, index) => ({
+      week: `Wk ${index + 1}`,
+      arima: 0,
+      xgboost: 0,
+      ensemble: 0,
+      lower: 0,
+      upper: 0,
+    }));
+  }
   const totalForecast = Math.max(1, products.reduce((sum, product) => sum + product.forecast, 0));
   const weeklyBase = Math.max(0, totalForecast / 8);
   return Array.from({ length: 8 }, (_, index) => {
@@ -397,18 +409,19 @@ function importedForecastData(products) {
 
 function forecastSummary(chartData) {
   const latest = chartData[chartData.length - 1] || { arima: 0, xgboost: 0, ensemble: 0 };
+  const hasInventoryOnly = !state.salesRecords.length && state.inventoryItems.length;
   return {
     arima: latest.arima,
     xgboost: latest.xgboost,
     ensemble: latest.ensemble,
-    label: state.salesRecords.length ? "Early forecast from synced Shopify history." : "Baseline demand from recurring cycles.",
-    xgbLabel: state.salesRecords.length ? "Inventory-adjusted forecast from synced SKU data." : "Signal-adjusted regional demand.",
-    ensembleLabel: state.salesRecords.length ? "Operational forecast from live store sales and inventory." : "Operational forecast used for recommendations.",
+    label: state.salesRecords.length ? "Early forecast from synced Shopify history." : hasInventoryOnly ? "Waiting for synced sales history." : "Baseline demand from recurring cycles.",
+    xgbLabel: state.salesRecords.length ? "Inventory-adjusted forecast from synced SKU data." : hasInventoryOnly ? "Inventory is live; demand needs orders." : "Signal-adjusted regional demand.",
+    ensembleLabel: state.salesRecords.length ? "Operational forecast from live store sales and inventory." : hasInventoryOnly ? "Connect order history to forecast demand." : "Operational forecast used for recommendations.",
   };
 }
 
 function seasonalDemandData() {
-  if (!state.salesRecords.length) return seasonalData;
+  if (!state.salesRecords.length && !state.inventoryItems.length) return seasonalData;
   const byMonth = Array.from({ length: 12 }, (_, index) => ({ month: new Date(2026, index, 1).toLocaleString("en-US", { month: "short" }), demand: 0 }));
   for (const record of state.salesRecords) {
     const date = new Date(`${String(record.date).slice(0, 10)}T00:00:00Z`);
@@ -720,10 +733,13 @@ function skeletonPage(kind = "cards") {
 function dashboard() {
   if (state.loading) return pageShell("Dashboard", "Inventory risk, transfer opportunity, and executive KPIs.", skeletonPage());
   const products = activeSkuData();
+  const hasLiveData = Boolean(state.salesRecords.length || state.inventoryItems.length);
   const dataSourceCopy = state.salesRecords.length
-    ? `${state.salesRecords.length} imported sales rows and ${state.inventoryItems.length} inventory items powering this view.`
+    ? `${state.salesRecords.length} imported sales rows and ${products.length} analyzed SKUs from ${state.inventoryItems.length} Shopify inventory records powering this view.`
+    : state.inventoryItems.length
+      ? `${products.length} analyzed SKUs from ${state.inventoryItems.length} Shopify inventory records. Sync orders or upload CSV history to forecast demand.`
     : "Import CSV sales data or sync Shopify to replace the starter sample.";
-  const importedMetrics = state.salesRecords.length ? importedDashboardMetrics(products) : null;
+  const importedMetrics = hasLiveData ? importedDashboardMetrics(products) : null;
   const cards = importedMetrics?.cards || [
     ["Inventory Risk Score", state.riskScore, "HIGH RISK", "↑ 8pts vs last week", "3 transfers recommended to reduce to medium.", "bad", "accent", "high"],
     ["Total Inventory Value", "$12.8M", "", "↑ 2.1%", "Across all connected stores.", "good", "", "success"],
@@ -863,7 +879,9 @@ function forecastsPage() {
   const chartData = importedForecastData(products);
   const summary = forecastSummary(chartData);
   const dataNote = state.salesRecords.length
-    ? `${state.salesRecords.length} synced sales rows and ${state.inventoryItems.length} inventory items. Forecast confidence improves as more order history syncs.`
+    ? `${state.salesRecords.length} synced sales rows and ${products.length} analyzed SKUs from ${state.inventoryItems.length} Shopify inventory records. Forecast confidence improves as more order history syncs.`
+    : state.inventoryItems.length
+      ? `${products.length} analyzed SKUs from ${state.inventoryItems.length} Shopify inventory records. Sync orders or upload CSV history to enable demand forecasts.`
     : "Starter sample forecast. Connect Shopify or upload CSV for store-specific output.";
   const modelNotes = state.salesRecords.length
     ? accordion("ARIMA", "Observed baseline", ["Uses synced Shopify order quantities grouped by SKU", "Calculates observed weekly demand from available order history", "Output: conservative demand baseline until more history is available"], "Shopify orders", "Weekly baseline")
@@ -1790,7 +1808,7 @@ function lineChart(data, w, h) {
   const path = key => data.map((d, i) => `${i ? "L" : "M"}${x(i)},${y(d[key])}`).join(" ");
   const area = `${data.map((d, i) => `${i ? "L" : "M"}${x(i)},${y(d.upper)}`).join(" ")} ${[...data].reverse().map((d, i) => `L${x(data.length - 1 - i)},${y(d.lower)}`).join(" ")} Z`;
   return `<svg viewBox="0 0 ${w} ${h}">${[0, 1, 2, 3].map(i => `<line class="chart-grid" x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + i * 55}" y2="${pad.t + i * 55}"/>`).join("")}<path d="${area}" fill="var(--accent-dim)"/><path d="${path("arima")}" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-dasharray="5 5"/><path d="${path("xgboost")}" fill="none" stroke="var(--blue)" stroke-width="1.5"/><path d="${path("ensemble")}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>${data.map((d, i) => {
-    const variance = Math.round(((d.upper - d.lower) / d.ensemble) * 100);
+    const variance = Math.round(((d.upper - d.lower) / Math.max(1, d.ensemble)) * 100);
     const tip = `<strong>${d.week} demand forecast</strong>
       <span>Ensemble: ${fmt(d.ensemble)} units</span>
       <span>XGBoost: ${fmt(d.xgboost)} units</span>
