@@ -10,10 +10,12 @@ const routes = {
   "/inventory": "Inventory",
   "/marketplace": "Marketplace",
   "/community": "Community",
+  "/pricing": "Pricing",
   "/reports": "Reports",
   "/profile": "Profile",
 };
 const authRoutes = new Set(["/login", "/reset-password"]);
+const publicRoutes = new Set(["/pricing"]);
 
 const navItems = [
   ["/", "Dashboard", "layout-dashboard"],
@@ -22,6 +24,7 @@ const navItems = [
   ["/inventory", "Inventory", "boxes"],
   ["/marketplace", "Marketplace", "store"],
   ["/community", "Community", "messages"],
+  ["/pricing", "Pricing", "credit-card"],
   ["/reports", "Reports", "file-text"],
   ["/profile", "Profile", "user"],
 ];
@@ -65,6 +68,46 @@ const seasonalData = [
   { month: "Apr", demand: 168000 }, { month: "May", demand: 175000 }, { month: "Jun", demand: 162000 },
   { month: "Jul", demand: 158000 }, { month: "Aug", demand: 172000 }, { month: "Sep", demand: 181000 },
   { month: "Oct", demand: 195000 }, { month: "Nov", demand: 210000 }, { month: "Dec", demand: 225000 },
+];
+
+const pricingTiers = [
+  {
+    name: "Small Retailers",
+    size: "1-5 stores",
+    price: "$199-499",
+    cadence: "/month",
+    summary: "Core visibility for teams replacing spreadsheet-based inventory planning.",
+    features: ["Demand forecasting", "Inventory alerts", "Dashboard access"],
+    cta: "Choose Small",
+  },
+  {
+    name: "Regional Retailers",
+    size: "5-50 stores",
+    price: "$1,000-5,000",
+    cadence: "/month",
+    summary: "Advanced forecasting and risk analysis for multi-location operators.",
+    features: ["ARIMA + XGBoost forecasting", "Monte Carlo risk analysis", "Inventory risk scoring"],
+    cta: "Choose Regional",
+    featured: true,
+  },
+  {
+    name: "Large National Retailers",
+    size: "National networks",
+    price: "$10,000-50,000+",
+    cadence: "/month",
+    summary: "Full operating layer for inventory optimization and network coordination.",
+    features: ["Full platform access", "Optimization engine", "API integration", "Marketplace access"],
+    cta: "Talk to Sales",
+  },
+  {
+    name: "Enterprise Contracts",
+    size: "Custom scale",
+    price: "$250K-2M",
+    cadence: "/year",
+    summary: "Dedicated analytics partnerships for complex retail and private data needs.",
+    features: ["Custom model training", "Private integrations", "Dedicated analytics support"],
+    cta: "Contact Enterprise",
+  },
 ];
 
 const providerFields = {
@@ -173,6 +216,7 @@ function icon(name) {
     store: '<path d="M4 10h16l-1-6H5Z"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/>',
     messages: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/>',
     "file-text": '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h6"/>',
+    "credit-card": '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/><path d="M14 15h4"/>',
     help: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 1 1 5.8 1c-.6 1.2-2 1.5-2.5 2.7"/><path d="M12 17h.01"/>',
     signout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
     eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
@@ -999,6 +1043,43 @@ function reportsPage() {
   `);
 }
 
+function pricingPage() {
+  return pageShell("Pricing", "Tiered subscriptions that scale with retailer size and operational complexity.", `
+    <section class="pricing-hero card card--accent">
+      <div>
+        <p class="eyebrow">Subscription model</p>
+        <h2>Plans built for inventory teams from one store to enterprise networks.</h2>
+        <p>Start with forecasting and alerts, then scale into risk modeling, optimization, API access, marketplace coordination, and dedicated analytics support.</p>
+      </div>
+      <div class="pricing-hero-stat">
+        <span class="mono">Backend status</span>
+        <strong>Checkout wiring next</strong>
+        <p>These plan buttons are ready for Stripe, invoices, or sales-led checkout when we add payments.</p>
+      </div>
+    </section>
+    <section class="pricing-grid">
+      ${pricingTiers.map(tier => `<article class="pricing-card ${tier.featured ? "pricing-card--featured" : ""}">
+        ${tier.featured ? `<span class="badge badge--info pricing-featured-badge">Most relevant</span>` : ""}
+        <div>
+          <p class="eyebrow">${esc(tier.size)}</p>
+          <h2 class="text-lg">${esc(tier.name)}</h2>
+          <p class="pricing-summary">${esc(tier.summary)}</p>
+        </div>
+        <div class="pricing-price"><strong>${esc(tier.price)}</strong><span>${esc(tier.cadence)}</span></div>
+        <ul class="pricing-feature-list">${tier.features.map(feature => `<li>${esc(feature)}</li>`).join("")}</ul>
+        <button class="${tier.featured ? "btn-primary" : "btn-ghost"}" data-pricing-plan="${attr(tier.name)}" type="button">${esc(tier.cta)}</button>
+      </article>`).join("")}
+    </section>
+    <section class="pricing-band">
+      <div>
+        <p class="eyebrow">Positioning</p>
+        <h2 class="text-lg">Premium analytics that grows with the customer.</h2>
+      </div>
+      <p>This pricing model lets LiquidityLens support small retailers while still leaving room for national accounts, custom model training, and enterprise services.</p>
+    </section>
+  `);
+}
+
 function profilePage() {
   const user = state.authUser || {};
   const initials = `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase() || "LL";
@@ -1084,12 +1165,12 @@ function render() {
     app.innerHTML = `<main class="auth-loading"><span class="spinner" aria-hidden="true"></span><span>Checking your session...</span></main>`;
     return;
   }
-  if (authRoutes.has(location.pathname) || !auth()) {
+  if (authRoutes.has(location.pathname) || (!auth() && !publicRoutes.has(location.pathname))) {
     app.innerHTML = loginPage();
     bind();
     return;
   }
-  const views = { "/": dashboard, "/dashboard": dashboard, "/connect": connectPage, "/forecasts": forecastsPage, "/inventory": inventoryPage, "/marketplace": marketplacePage, "/community": communityPage, "/reports": reportsPage, "/profile": profilePage };
+  const views = { "/": dashboard, "/dashboard": dashboard, "/connect": connectPage, "/forecasts": forecastsPage, "/inventory": inventoryPage, "/marketplace": marketplacePage, "/community": communityPage, "/pricing": pricingPage, "/reports": reportsPage, "/profile": profilePage };
   app.innerHTML = layout((views[state.path] || dashboard)());
   bind();
 }
@@ -1142,6 +1223,7 @@ function bind() {
   document.querySelector("[data-message]")?.addEventListener("submit", sendMessage);
   document.querySelectorAll("[data-topic]").forEach(el => el.addEventListener("click", () => { state.selectedTopic = el.dataset.topic; render(); }));
   document.querySelector("[data-post]")?.addEventListener("submit", postCommunity);
+  document.querySelectorAll("[data-pricing-plan]").forEach(el => el.addEventListener("click", () => showToast(`${el.dataset.pricingPlan} checkout is ready for payment backend wiring.`, "success")));
   document.querySelector("[data-profile-form]")?.addEventListener("submit", updateProfile);
   document.querySelector("[data-password-form]")?.addEventListener("submit", changePassword);
   document.querySelector("[data-send-profile-reset]")?.addEventListener("click", sendProfileReset);
@@ -2000,7 +2082,7 @@ async function bootAuth() {
     state.authUser = null;
   }
   state.authReady = true;
-  if (!auth() && !authRoutes.has(location.pathname)) {
+  if (!auth() && !authRoutes.has(location.pathname) && !publicRoutes.has(location.pathname)) {
     sessionStorage.setItem("ll_redirect_after_login", location.pathname in routes ? location.pathname : "/dashboard");
     replacePath("/login");
   }

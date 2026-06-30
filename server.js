@@ -1666,6 +1666,7 @@ function metaForPath(pathname) {
     "/inventory": ["Inventory | LiquidityLens", "SKU-level buy, sell, hold, and transfer recommendations."],
     "/marketplace": ["Marketplace | LiquidityLens", "Find nearby retailers with matching inventory excess or shortage signals."],
     "/community": ["Community | LiquidityLens", "Coordinate markdowns, delivery routes, and bulk buys with retail peers."],
+    "/pricing": ["Pricing | LiquidityLens", "Tiered LiquidityLens subscription plans for retailers from single-store teams to enterprise networks."],
     "/reports": ["Reports | LiquidityLens", "Executive inventory health reports for finance and operations teams."],
     "/profile": ["Profile | LiquidityLens", "Manage your LiquidityLens account profile, password, and active session."],
     "/login": ["Sign In | LiquidityLens", "Secure access to LiquidityLens inventory intelligence."],
