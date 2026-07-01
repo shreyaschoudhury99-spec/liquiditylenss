@@ -23,6 +23,7 @@ const refreshTokenMs = 7 * 24 * 60 * 60 * 1000;
 const resetTokenMs = 60 * 60 * 1000;
 const mfaTokenMs = 10 * 60 * 1000;
 const bcryptCost = 12;
+const marketplaceUserAgent = process.env.MARKETPLACE_USER_AGENT || `LiquidityLens/1.0 (${appBaseUrl})`;
 
 if (process.env.SENDGRID_API_KEY) sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
@@ -360,6 +361,150 @@ function authUser(req, res, next) {
   } catch {
     return error(res, 401, "Session expired. Sign in again.", "SESSION_EXPIRED");
   }
+}
+
+function clampNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function overpassShopFilter(category) {
+  const categories = {
+    food: "supermarket|convenience|bakery|butcher|greengrocer|deli|beverages",
+    apparel: "clothes|shoes|sports|outdoor|bag|fashion_accessories",
+    electronics: "electronics|computer|mobile_phone|hifi",
+    home: "furniture|hardware|doityourself|houseware|garden_centre",
+    health: "pharmacy|chemist|medical_supply|beauty",
+  };
+  return categories[category] ? `["shop"~"^(${categories[category]})$"]` : `["shop"]`;
+}
+
+function marketplaceCategory(shop) {
+  if (/supermarket|convenience|bakery|butcher|greengrocer|deli|beverages/.test(shop)) return "food";
+  if (/clothes|shoes|sports|outdoor|bag|fashion_accessories/.test(shop)) return "apparel";
+  if (/electronics|computer|mobile_phone|hifi/.test(shop)) return "electronics";
+  if (/furniture|hardware|doityourself|houseware|garden_centre/.test(shop)) return "home";
+  if (/pharmacy|chemist|medical_supply|beauty/.test(shop)) return "health";
+  return "retail";
+}
+
+function titleCase(value) {
+  return String(value || "Retail").replaceAll("_", " ").replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function buildOsmAddress(tags = {}) {
+  const parts = [
+    tags["addr:housenumber"],
+    tags["addr:street"],
+    tags["addr:city"],
+    tags["addr:state"],
+    tags["addr:postcode"],
+  ].filter(Boolean);
+  return parts.join(", ");
+}
+
+function sanitizeExternalUrl(value) {
+  if (!value) return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw)) return `https://${raw}`;
+  return "";
+}
+
+function haversineMiles(a, b) {
+  const toRad = degrees => (degrees * Math.PI) / 180;
+  const earthMiles = 3958.8;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return earthMiles * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+async function fetchExternalJson(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      const err = new Error(data?.remark || data?.error || `Directory request failed with ${response.status}.`);
+      err.status = response.status;
+      throw err;
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function geocodeMarketplaceLocation(location) {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("q", location);
+  const data = await fetchExternalJson(url, {
+    headers: {
+      "User-Agent": marketplaceUserAgent,
+      "Accept-Language": "en",
+    },
+  });
+  const match = Array.isArray(data) ? data[0] : null;
+  if (!match) return null;
+  return {
+    lat: Number(match.lat),
+    lon: Number(match.lon),
+    label: match.display_name || location,
+  };
+}
+
+async function searchNearbyOsmShops({ lat, lon, radiusMiles, category }) {
+  const radiusMeters = Math.round(radiusMiles * 1609.344);
+  const shopFilter = overpassShopFilter(category);
+  const query = `[out:json][timeout:25];(node${shopFilter}(around:${radiusMeters},${lat},${lon});way${shopFilter}(around:${radiusMeters},${lat},${lon});relation${shopFilter}(around:${radiusMeters},${lat},${lon}););out center tags 80;`;
+  const url = new URL("https://overpass-api.de/api/interpreter");
+  url.searchParams.set("data", query);
+  const data = await fetchExternalJson(url, {
+    headers: {
+      "User-Agent": marketplaceUserAgent,
+      Accept: "application/json",
+    },
+  }, 18000);
+  return Array.isArray(data?.elements) ? data.elements : [];
+}
+
+function normalizeOsmBusiness(element, origin, index) {
+  const tags = element.tags || {};
+  const lat = Number(element.lat ?? element.center?.lat);
+  const lon = Number(element.lon ?? element.center?.lon);
+  const shop = String(tags.shop || "retail");
+  const name = tags.name || tags.brand || titleCase(shop);
+  const address = buildOsmAddress(tags);
+  const website = sanitizeExternalUrl(tags.website || tags["contact:website"]);
+  const distance = Number.isFinite(lat) && Number.isFinite(lon)
+    ? Math.round(haversineMiles(origin, { lat, lon }))
+    : null;
+  return {
+    id: `osm-${element.type}-${element.id || index}`,
+    retailer: name,
+    dist: distance,
+    type: "directory",
+    cat: marketplaceCategory(shop),
+    product: `${titleCase(shop)} retailer`,
+    qty: null,
+    price: null,
+    urgency: "low",
+    source: "OpenStreetMap",
+    address,
+    phone: tags.phone || tags["contact:phone"] || "",
+    website,
+    lat,
+    lon,
+    osmUrl: element.id ? `https://www.openstreetmap.org/${element.type}/${element.id}` : "",
+  };
 }
 
 const integrationProviders = {
@@ -1187,6 +1332,60 @@ app.get("/api/integrations/sales", authUser, asyncRoute(async (req, res) => {
     [req.user.sub]
   );
   res.json({ records: salesResult.rows, inventory: inventoryResult.rows });
+}));
+
+app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
+  const location = String(req.query.location || "").trim();
+  if (!location) return error(res, 400, "Enter a city, ZIP code, or address to find nearby businesses.", "LOCATION_REQUIRED");
+
+  const radiusMiles = clampNumber(req.query.radius, 25, 1, 100);
+  const category = String(req.query.category || "all").toLowerCase();
+  const allowedCategories = new Set(["all", "food", "apparel", "electronics", "home", "health", "retail"]);
+  const selectedCategory = allowedCategories.has(category) ? category : "all";
+
+  let origin;
+  try {
+    origin = await geocodeMarketplaceLocation(location);
+  } catch (err) {
+    console.error("Marketplace geocode failed:", err);
+    return error(res, 502, "Could not reach the public business directory. Try again in a minute.", "MARKETPLACE_GEOCODE_FAILED");
+  }
+  if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lon)) {
+    return error(res, 404, "We could not find that location. Try a city plus state or a ZIP code.", "LOCATION_NOT_FOUND");
+  }
+
+  try {
+    const elements = await searchNearbyOsmShops({
+      lat: origin.lat,
+      lon: origin.lon,
+      radiusMiles,
+      category: selectedCategory,
+    });
+    const seen = new Set();
+    const businesses = elements
+      .map((element, index) => normalizeOsmBusiness(element, origin, index))
+      .filter(business => {
+        const key = `${business.retailer}|${business.address}|${business.lat}|${business.lon}`.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return business.retailer && business.dist !== null && business.dist <= radiusMiles;
+      })
+      .sort((a, b) => a.dist - b.dist || a.retailer.localeCompare(b.retailer))
+      .slice(0, 24);
+
+    res.json({
+      origin,
+      radiusMiles,
+      category: selectedCategory,
+      count: businesses.length,
+      businesses,
+      source: "OpenStreetMap",
+      note: "These are public nearby business listings. Private inventory and transfer data is available only after a business connects to LiquidityLens.",
+    });
+  } catch (err) {
+    console.error("Marketplace lookup failed:", err);
+    return error(res, 502, "Could not load nearby businesses right now. Try again in a minute.", "MARKETPLACE_LOOKUP_FAILED");
+  }
 }));
 
 app.post("/api/integrations/csv", authUser, asyncRoute(async (req, res) => {

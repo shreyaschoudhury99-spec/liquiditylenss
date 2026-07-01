@@ -177,6 +177,12 @@ let state = {
   typeFilter: "all",
   catFilter: "all",
   distFilter: 100,
+  marketplaceLocation: localStorage.getItem("ll_marketplace_location") || "",
+  marketplaceListings: [],
+  marketplaceOrigin: null,
+  marketplaceDirectoryNote: "",
+  marketplaceSearchBusy: false,
+  marketplaceError: "",
   selectedRetailer: listings[0],
   messageSent: "",
   marketplaceBusy: false,
@@ -1000,24 +1006,69 @@ function severity(n) {
   return n > 70 ? "severity-high" : n >= 40 ? "severity-medium" : "severity-low";
 }
 
+function marketplaceListings() {
+  return state.marketplaceListings.length ? state.marketplaceListings : listings;
+}
+
+function marketplaceMessage() {
+  const retailer = state.selectedRetailer;
+  if (!retailer) return "";
+  if (retailer.source === "OpenStreetMap") {
+    return `Public listing note for ${retailer.retailer}: this business is nearby, but private inventory and transfer requests require them to join LiquidityLens or connect their store. Use the website/phone if available for manual outreach.`;
+  }
+  return `Hi ${retailer.retailer}, we're interested in discussing a transfer of ${retailer.product}. Can you confirm availability and pricing for ${retailer.qty} units?`;
+}
+
 function marketplacePage() {
-  const filtered = listings.filter(l => (state.typeFilter === "all" || l.type === state.typeFilter) && (state.catFilter === "all" || l.cat === state.catFilter) && l.dist <= state.distFilter);
-  const msg = state.selectedRetailer ? `Hi ${state.selectedRetailer.retailer}, we're interested in discussing a transfer of ${state.selectedRetailer.product}. Can you confirm availability and pricing for ${state.selectedRetailer.qty} units?` : "";
-  return pageShell("Marketplace", `Showing ${filtered.length} of ${listings.length} partners`, `
+  const activeListings = marketplaceListings();
+  const filtered = activeListings.filter(l => (state.typeFilter === "all" || l.type === state.typeFilter) && (state.catFilter === "all" || l.cat === state.catFilter) && Number(l.dist || 0) <= state.distFilter);
+  const hasRealResults = state.marketplaceListings.length > 0;
+  const msg = marketplaceMessage();
+  const subtitle = hasRealResults
+    ? `${filtered.length} nearby public business listing${filtered.length === 1 ? "" : "s"} from OpenStreetMap`
+    : `Showing ${filtered.length} of ${listings.length} demo partners`;
+  return pageShell("Marketplace", subtitle, `
     <p class="eyebrow">PARTNER NETWORK</p>
-    <article class="card map-panel">${mapSvg()}</article>
-    <div class="toolbar"><select class="select" data-market-filter="typeFilter" style="max-width:160px"><option value="all">All types</option><option value="excess">Excess</option><option value="shortage">Shortage</option></select><select class="select" data-market-filter="catFilter" style="max-width:180px"><option value="all">All categories</option><option value="footwear">Footwear</option><option value="outdoor">Outdoor</option><option value="home">Home</option></select><select class="select" data-market-filter="distFilter" style="max-width:160px"><option value="25">25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select></div>
-    <section class="listing-grid">${filtered.length ? filtered.map(l => listingCard(l)).join("") : `<article class="card empty-state">No partners match your filters. Try expanding the distance or category.</article>`}</section>
-    <section class="card message-layout"><div>${listings.map(l => `<button class="btn-ghost retailer-row ${state.selectedRetailer?.id === l.id ? "selected" : ""}" data-retailer="${l.id}" type="button"><span>${esc(l.retailer)}</span><span class="mono">${l.dist} mi</span></button>`).join("")}</div><form class="form-stack" data-message><textarea class="textarea" name="message">${esc(msg)}</textarea><button class="btn-primary" type="submit" ${state.marketplaceBusy ? "disabled" : ""}>${state.marketplaceBusy ? spinner("Sending...") : "Send request"}</button>${state.messageSent ? `<p class="severity-low">${esc(state.messageSent)}</p>` : ""}</form></section>
+    <section class="card marketplace-search-card">
+      <form class="marketplace-search" data-marketplace-search>
+        <label class="field"><span>Find real nearby businesses</span><input class="input" name="location" value="${attr(state.marketplaceLocation)}" placeholder="City, ZIP, or street address" autocomplete="off"></label>
+        <label class="field"><span>Category</span><select class="select" name="category"><option value="all">All retail</option><option value="food">Food and grocery</option><option value="apparel">Apparel and outdoor</option><option value="electronics">Electronics</option><option value="home">Home and hardware</option><option value="health">Health and beauty</option></select></label>
+        <label class="field"><span>Radius</span><select class="select" name="radius"><option value="10">10 miles</option><option value="25">25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select></label>
+        <button class="btn-primary" type="submit" ${state.marketplaceSearchBusy ? "disabled" : ""}>${state.marketplaceSearchBusy ? spinner("Searching...") : "Search nearby"}</button>
+      </form>
+      <p class="muted marketplace-note">${state.marketplaceDirectoryNote ? esc(state.marketplaceDirectoryNote) : "Search uses public OpenStreetMap business listings. These businesses do not expose private inventory unless they join or connect a store."}</p>
+      ${state.marketplaceError ? `<p class="severity-high">${esc(state.marketplaceError)}</p>` : ""}
+    </section>
+    <article class="card map-panel">${mapSvg(filtered)}</article>
+    <div class="toolbar">
+      <select class="select" data-market-filter="typeFilter" style="max-width:190px"><option value="all">All listing types</option><option value="directory">Nearby directory</option><option value="excess">Demo excess</option><option value="shortage">Demo shortage</option></select>
+      <select class="select" data-market-filter="catFilter" style="max-width:210px"><option value="all">All categories</option><option value="retail">General retail</option><option value="food">Food and grocery</option><option value="apparel">Apparel and outdoor</option><option value="electronics">Electronics</option><option value="home">Home and hardware</option><option value="health">Health and beauty</option><option value="footwear">Demo footwear</option><option value="outdoor">Demo outdoor</option></select>
+      <select class="select" data-market-filter="distFilter" style="max-width:160px"><option value="10">10 miles</option><option value="25">25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select>
+    </div>
+    <section class="listing-grid">${filtered.length ? filtered.map(l => listingCard(l)).join("") : `<article class="card empty-state">No businesses match your filters. Try a broader category, radius, or nearby city.</article>`}</section>
+    <section class="card message-layout"><div>${activeListings.map(l => `<button class="btn-ghost retailer-row ${String(state.selectedRetailer?.id) === String(l.id) ? "selected" : ""}" data-retailer="${attr(l.id)}" type="button"><span>${esc(l.retailer)}</span><span class="mono">${l.dist ?? "?"} mi</span></button>`).join("")}</div><form class="form-stack" data-message><textarea class="textarea" name="message">${esc(msg)}</textarea><button class="btn-primary" type="submit" ${state.marketplaceBusy ? "disabled" : ""}>${state.marketplaceBusy ? spinner("Sending...") : state.selectedRetailer?.source === "OpenStreetMap" ? "Save outreach note" : "Send request"}</button>${state.messageSent ? `<p class="severity-low">${esc(state.messageSent)}</p>` : ""}</form></section>
   `);
 }
 
 function listingCard(l) {
-  return `<article class="card listing-card"><div class="listing-top"><strong>${esc(l.retailer)}</strong><span class="badge badge--info">${l.dist} mi</span></div><div><p class="text-md">${esc(l.product)}</p><p class="muted mono">${l.qty} units at $${l.price}/unit</p></div><div class="toolbar-spread"><span class="badge badge--${l.urgency}">${l.urgency}</span><button class="btn-primary" data-contact="${l.id}" type="button">Contact</button></div></article>`;
+  const isDirectory = l.source === "OpenStreetMap";
+  const detail = isDirectory
+    ? `<p class="muted">${esc(l.address || "Address not listed")}</p><p class="muted mono">${esc(l.phone || "Phone not listed")}</p>`
+    : `<p class="muted mono">${l.qty} units at $${l.price}/unit</p>`;
+  const cta = isDirectory && l.website
+    ? `<a class="btn-primary" href="${attr(l.website)}" target="_blank" rel="noreferrer">Website</a>`
+    : `<button class="btn-primary" data-contact="${attr(l.id)}" type="button">${isDirectory ? "Select" : "Contact"}</button>`;
+  return `<article class="card listing-card"><div class="listing-top"><strong>${esc(l.retailer)}</strong><span class="badge badge--info">${l.dist ?? "?"} mi</span></div><div><p class="text-md">${esc(l.product)}</p>${detail}</div><div class="listing-meta"><span class="badge badge--${l.urgency}">${isDirectory ? "directory" : l.urgency}</span><span class="source-pill">${esc(l.source || "LiquidityLens")}</span></div><div class="toolbar-spread">${l.osmUrl ? `<a class="btn-ghost" href="${attr(l.osmUrl)}" target="_blank" rel="noreferrer">Map source</a>` : "<span></span>"}${cta}</div></article>`;
 }
 
-function mapSvg() {
-  return `<svg viewBox="0 0 900 180" role="img" aria-label="Partner map"><defs><pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="var(--border-default)" stroke-width="1"/></pattern></defs><rect width="900" height="180" fill="url(#grid)"/><g font-family="var(--font-mono)" font-size="11">${pin(450, 88, "var(--accent)", workspaceName(), 8)}${pin(560, 48, "var(--green)", "Midwest Outdoor Co.", 6)}${pin(330, 82, "var(--blue)", "Prairie City Retail", 6)}${pin(460, 142, "var(--yellow)", "River Valley Sports", 6)}</g></svg>`;
+function mapSvg(items = marketplaceListings()) {
+  const pins = items.slice(0, 5).map((item, index) => {
+    const x = 260 + ((index * 137) % 420);
+    const y = 42 + ((index * 53) % 96);
+    const color = item.source === "OpenStreetMap" ? "var(--green)" : index % 2 ? "var(--blue)" : "var(--yellow)";
+    return pin(x, y, color, item.retailer, 6);
+  }).join("");
+  return `<svg viewBox="0 0 900 180" role="img" aria-label="Partner map"><defs><pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="var(--border-default)" stroke-width="1"/></pattern></defs><rect width="900" height="180" fill="url(#grid)"/><g font-family="var(--font-mono)" font-size="11">${pin(450, 88, "var(--accent)", workspaceName(), 8)}${pins}</g></svg>`;
 }
 function pin(x, y, color, label, r) {
   return `<circle class="map-pin" cx="${x}" cy="${y}" r="${r + 6}" fill="${color}" opacity=".16"/><circle class="map-pin" cx="${x}" cy="${y}" r="${r}" fill="${color}"/><circle class="map-pin" cx="${x}" cy="${y}" r="2" fill="var(--bg-base)"/><text class="map-label" x="${x + 14}" y="${y - 8}" fill="var(--text-primary)">${esc(label)}</text>`;
@@ -1219,7 +1270,18 @@ function bind() {
   document.querySelector("[data-inventory-search]")?.addEventListener("input", e => { state.inventoryFilter = e.target.value; render(); });
   document.querySelectorAll("[data-action-filter]").forEach(el => el.addEventListener("click", () => { state.actionFilter = el.dataset.actionFilter; render(); }));
   document.querySelectorAll("[data-market-filter]").forEach(el => { el.value = state[el.dataset.marketFilter]; el.addEventListener("change", () => { state[el.dataset.marketFilter] = el.dataset.marketFilter === "distFilter" ? Number(el.value) : el.value; render(); }); });
-  document.querySelectorAll("[data-contact], [data-retailer]").forEach(el => el.addEventListener("click", () => { const id = Number(el.dataset.contact || el.dataset.retailer); state.selectedRetailer = listings.find(l => l.id === id); state.messageSent = ""; render(); }));
+  document.querySelector("[data-marketplace-search]")?.addEventListener("submit", searchMarketplaceBusinesses);
+  const marketplaceSearchForm = document.querySelector("[data-marketplace-search]");
+  if (marketplaceSearchForm) {
+    marketplaceSearchForm.category.value = ["all", "food", "apparel", "electronics", "home", "health"].includes(state.catFilter) ? state.catFilter : "all";
+    marketplaceSearchForm.radius.value = String(state.distFilter);
+  }
+  document.querySelectorAll("[data-contact], [data-retailer]").forEach(el => el.addEventListener("click", () => {
+    const id = el.dataset.contact || el.dataset.retailer;
+    state.selectedRetailer = marketplaceListings().find(l => String(l.id) === String(id)) || listings[0];
+    state.messageSent = "";
+    render();
+  }));
   document.querySelector("[data-message]")?.addEventListener("submit", sendMessage);
   document.querySelectorAll("[data-topic]").forEach(el => el.addEventListener("click", () => { state.selectedTopic = el.dataset.topic; render(); }));
   document.querySelector("[data-post]")?.addEventListener("submit", postCommunity);
@@ -1718,6 +1780,43 @@ function runChecklist(key) {
   }, 1500);
 }
 
+async function searchMarketplaceBusinesses(e) {
+  e.preventDefault();
+  const values = Object.fromEntries(new FormData(e.target).entries());
+  const locationValue = String(values.location || "").trim();
+  if (!locationValue) return showToast("Enter a city, ZIP code, or address.", "error");
+
+  state.marketplaceSearchBusy = true;
+  state.marketplaceError = "";
+  state.marketplaceLocation = locationValue;
+  state.catFilter = values.category || "all";
+  state.distFilter = Number(values.radius || 25);
+  localStorage.setItem("ll_marketplace_location", locationValue);
+  render();
+
+  try {
+    const params = new URLSearchParams({
+      location: locationValue,
+      category: state.catFilter,
+      radius: String(state.distFilter),
+    });
+    const data = await apiAuthedGet(`/api/marketplace/nearby?${params.toString()}`);
+    state.marketplaceListings = Array.isArray(data.businesses) ? data.businesses : [];
+    state.marketplaceOrigin = data.origin || null;
+    state.marketplaceDirectoryNote = data.note || "";
+    state.typeFilter = "all";
+    state.selectedRetailer = state.marketplaceListings[0] || listings[0];
+    state.messageSent = "";
+    showToast(state.marketplaceListings.length ? `Found ${state.marketplaceListings.length} nearby businesses.` : "No nearby businesses found. Try a broader radius.", state.marketplaceListings.length ? "success" : "info");
+  } catch (err) {
+    state.marketplaceError = err.message;
+    showToast(err.message, "error");
+  } finally {
+    state.marketplaceSearchBusy = false;
+    render();
+  }
+}
+
 function sendMessage(e) {
   e.preventDefault();
   const text = e.target.message.value.trim();
@@ -1726,10 +1825,13 @@ function sendMessage(e) {
   setTimeout(() => {
     const retailer = state.selectedRetailer.retailer;
     state.marketplaceBusy = false;
-    state.messageSent = `Request sent to ${retailer}. They typically respond within 24 hours.`;
+    const isDirectory = state.selectedRetailer.source === "OpenStreetMap";
+    state.messageSent = isDirectory
+      ? `Saved outreach note for ${retailer}. Use their listed website or phone for manual contact until they join LiquidityLens.`
+      : `Request sent to ${retailer}. They typically respond within 24 hours.`;
     render();
-    showToast(`Transaction request sent to ${retailer}.`, "success");
-    setTimeout(() => { state.selectedRetailer = listings[0]; state.messageSent = ""; render(); }, 3000);
+    showToast(isDirectory ? `Outreach note saved for ${retailer}.` : `Transaction request sent to ${retailer}.`, "success");
+    if (!isDirectory) setTimeout(() => { state.selectedRetailer = marketplaceListings()[0] || listings[0]; state.messageSent = ""; render(); }, 3000);
   }, 1800);
 }
 
