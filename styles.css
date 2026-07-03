@@ -663,11 +663,56 @@ a { color: inherit; text-decoration: none; }
 .severity-medium { color: var(--yellow); }
 .severity-low { color: var(--green); }
 
+.marketplace-insights { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.insight-card { display: grid; gap: var(--space-2); min-height: 124px; }
+.insight-card strong { font-size: 18px; }
 .listing-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
-.listing-card { display: grid; gap: var(--space-3); }
+.listing-card { display: grid; gap: var(--space-3); align-content: start; }
+.listing-preview {
+  min-height: 132px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: 1fr auto;
+  align-items: end;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-4);
+  background:
+    radial-gradient(circle at 84% 18%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--bg-subtle) 92%, var(--accent)), var(--bg-surface));
+}
+.listing-preview.has-image { padding: 0; display: block; background: var(--bg-subtle); }
+.listing-preview img { width: 100%; height: 132px; object-fit: cover; display: block; }
+.listing-preview strong { font-size: 30px; line-height: 1; }
+.listing-preview span:last-child { color: var(--text-secondary); font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+.preview-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.preview-icon svg { width: 24px; height: 24px; }
+.preview--food { background: radial-gradient(circle at 80% 20%, rgba(42, 211, 132, 0.28), transparent 34%), linear-gradient(135deg, #101612, #171b18); }
+.preview--apparel, .preview--footwear, .preview--outdoor { background: radial-gradient(circle at 80% 20%, rgba(255, 204, 64, 0.28), transparent 34%), linear-gradient(135deg, #17140d, #191714); }
+.preview--electronics { background: radial-gradient(circle at 80% 20%, rgba(84, 133, 255, 0.28), transparent 34%), linear-gradient(135deg, #111422, #14171d); }
+.preview--home { background: radial-gradient(circle at 80% 20%, rgba(193, 132, 255, 0.24), transparent 34%), linear-gradient(135deg, #17121d, #17161a); }
+.preview--health { background: radial-gradient(circle at 80% 20%, rgba(42, 211, 132, 0.22), transparent 34%), linear-gradient(135deg, #101716, #151819); }
 .listing-top { display: flex; justify-content: space-between; gap: var(--space-3); }
 .recommendation-badges { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.listing-detail-grid { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: var(--space-2) var(--space-3); margin-top: var(--space-3); }
+.listing-detail-grid span { color: var(--text-muted); font-size: 12px; text-transform: uppercase; }
+.listing-detail-grid strong,
+.listing-detail-grid a { min-width: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+.listing-detail-grid a { color: var(--accent); text-decoration: none; }
 .listing-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.contact-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.contact-action { min-height: 38px; width: auto; }
+.contact-action svg { width: 15px; height: 15px; margin-right: 6px; }
 .source-pill {
   display: inline-flex;
   align-items: center;
@@ -938,6 +983,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .kpi-grid,
   .grid-3,
   .topic-grid,
+  .marketplace-insights,
   .pricing-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .connection-status-grid,
   .grid-2,
@@ -968,6 +1014,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .chart { height: 200px; }
   .listing-grid,
+  .marketplace-insights,
   .connection-status-grid,
   .connector-grid,
   .pricing-grid { grid-template-columns: 1fr; }

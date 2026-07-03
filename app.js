@@ -237,6 +237,11 @@ function icon(name) {
     upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
     user: '<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/>',
     shield: '<path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3Z"/><path d="m9 12 2 2 4-5"/>',
+    phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.4 19.4 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2.1Z"/>',
+    "globe-2": '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 0 20"/><path d="M12 2a15.3 15.3 0 0 0 0 20"/>',
+    "map-pin": '<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+    image: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="m21 15-5-5L5 19"/>',
+    tag: '<path d="M12.6 2.6H4a2 2 0 0 0-2 2v8.6a2 2 0 0 0 .6 1.4l6.8 6.8a2 2 0 0 0 2.8 0l9.2-9.2a2 2 0 0 0 0-2.8l-6.8-6.8a2 2 0 0 0-1.4-.6Z"/><circle cx="7.5" cy="7.5" r=".5"/>',
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ""}</svg>`;
 }
@@ -1045,9 +1050,25 @@ function marketplacePage() {
       <select class="select" data-market-filter="catFilter" style="max-width:210px"><option value="all">All categories</option><option value="retail">General retail</option><option value="food">Food and grocery</option><option value="apparel">Apparel and outdoor</option><option value="electronics">Electronics</option><option value="home">Home and hardware</option><option value="health">Health and beauty</option><option value="footwear">Demo footwear</option><option value="outdoor">Demo outdoor</option></select>
       <select class="select" data-market-filter="distFilter" style="max-width:160px"><option value="10">10 miles</option><option value="25">25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select>
     </div>
+    ${marketplaceInsights(filtered)}
     <section class="listing-grid">${filtered.length ? filtered.map((l, index) => listingCard(l, filtered, index)).join("") : `<article class="card empty-state">No businesses match your filters. Try a broader category, radius, or nearby city.</article>`}</section>
     <section class="card message-layout"><div>${activeListings.map(l => `<button class="btn-ghost retailer-row ${String(state.selectedRetailer?.id) === String(l.id) ? "selected" : ""}" data-retailer="${attr(l.id)}" type="button"><span>${esc(l.retailer)}</span><span class="mono">${l.dist ?? "?"} mi</span></button>`).join("")}</div><form class="form-stack" data-message><textarea class="textarea" name="message">${esc(msg)}</textarea><button class="btn-primary" type="submit" ${state.marketplaceBusy ? "disabled" : ""}>${state.marketplaceBusy ? spinner("Sending...") : state.selectedRetailer?.source === "OpenStreetMap" ? "Save outreach note" : "Send request"}</button>${state.messageSent ? `<p class="severity-low">${esc(state.messageSent)}</p>` : ""}</form></section>
   `);
+}
+
+function marketplaceInsights(items) {
+  if (!items.length) return "";
+  const sorted = [...items].sort((a, b) => listingRecommendationScore(b) - listingRecommendationScore(a));
+  const recommended = sorted[0];
+  const contactable = items.filter(item => item.phone || item.website).length;
+  const distances = items.map(item => Number(item.dist)).filter(Number.isFinite);
+  const closest = distances.length ? Math.min(...distances) : null;
+  const source = state.marketplaceListings.length ? "Live public directory" : "Demo partner data";
+  return `<section class="marketplace-insights">
+    <article class="card insight-card"><span class="eyebrow">TOP MATCH</span><strong>${esc(recommended.retailer)}</strong><span class="muted">Score ${Math.round(listingRecommendationScore(recommended))} from distance, category, and contact signals.</span></article>
+    <article class="card insight-card"><span class="eyebrow">CONTACT READY</span><strong>${contactable}/${items.length}</strong><span class="muted">Listings with a phone or website available on the card.</span></article>
+    <article class="card insight-card"><span class="eyebrow">CLOSEST</span><strong>${closest === null ? "n/a" : `${closest} mi`}</strong><span class="muted">${esc(source)}. Inventory is private unless the business joins.</span></article>
+  </section>`;
 }
 
 function listingRecommendationScore(l) {
@@ -1095,13 +1116,80 @@ function listingCard(l, rankedListings = [l], index = 0) {
   const signalMarkup = signals.length
     ? `<div class="recommendation-badges">${signals.map(b => `<span class="badge badge--${attr(b.tone)}">${esc(b.label)}</span>`).join("")}</div>`
     : "";
-  const detail = isDirectory
-    ? `<p class="muted">${esc(l.address || "Address not listed")}</p><p class="muted mono">${esc(l.phone || "Phone not listed")}</p>`
-    : `<p class="muted mono">${l.qty} units at $${l.price}/unit</p>`;
-  const cta = isDirectory && l.website
-    ? `<a class="btn-primary" href="${attr(l.website)}" target="_blank" rel="noreferrer">Website</a>`
-    : `<button class="btn-primary" data-contact="${attr(l.id)}" type="button">${isDirectory ? "Select" : "Contact"}</button>`;
-  return `<article class="card listing-card"><div class="listing-top"><strong>${esc(l.retailer)}</strong><span class="badge badge--info">${l.dist ?? "?"} mi</span></div>${signalMarkup}<div><p class="text-md">${esc(l.product)}</p>${detail}</div><div class="listing-meta"><span class="badge badge--${l.urgency}">${isDirectory ? "directory" : l.urgency}</span><span class="source-pill">${esc(l.source || "LiquidityLens")}</span></div><div class="toolbar-spread">${l.osmUrl ? `<a class="btn-ghost" href="${attr(l.osmUrl)}" target="_blank" rel="noreferrer">Map source</a>` : "<span></span>"}${cta}</div></article>`;
+  return `<article class="card listing-card">
+    ${listingPreview(l)}
+    <div class="listing-top"><strong>${esc(l.retailer)}</strong><span class="badge badge--info">${l.dist ?? "?"} mi</span></div>
+    ${signalMarkup}
+    <div><p class="text-md">${esc(l.product)}</p>${listingDetails(l, isDirectory)}</div>
+    <div class="listing-meta"><span class="badge badge--${l.urgency}">${isDirectory ? "directory" : l.urgency}</span><span class="source-pill">${esc(l.source || "LiquidityLens")}</span><span class="source-pill">match ${Math.round(listingRecommendationScore(l))}</span></div>
+    ${listingActions(l, isDirectory)}
+  </article>`;
+}
+
+function listingPreview(l) {
+  if (l.imageUrl) return `<div class="listing-preview has-image"><img src="${attr(l.imageUrl)}" alt="${attr(l.retailer)} storefront" loading="lazy"></div>`;
+  return `<div class="listing-preview preview--${attr(normalizedCategory(l.cat))}">
+    <span class="preview-icon">${icon(categoryIcon(l.cat))}</span>
+    <strong>${esc(initials(l.retailer))}</strong>
+    <span>${esc(displayCategory(l.cat))} preview</span>
+  </div>`;
+}
+
+function listingDetails(l, isDirectory) {
+  if (!isDirectory) {
+    return `<div class="listing-detail-grid">
+      <span>Quantity</span><strong>${Number(l.qty || 0).toLocaleString()} units</strong>
+      <span>Price</span><strong>$${Number(l.price || 0).toLocaleString()}/unit</strong>
+      <span>Category</span><strong>${esc(displayCategory(l.cat))}</strong>
+    </div>`;
+  }
+  const phoneHref = phoneLink(l.phone);
+  return `<div class="listing-detail-grid">
+    <span>Address</span><strong>${esc(l.address || "Address not listed")}</strong>
+    <span>Phone</span>${phoneHref ? `<a href="${attr(phoneHref)}">${esc(l.phone)}</a>` : `<strong>Not listed</strong>`}
+    <span>Website</span>${l.website ? `<a href="${attr(l.website)}" target="_blank" rel="noreferrer">${esc(shortUrl(l.website))}</a>` : `<strong>Not listed</strong>`}
+  </div>`;
+}
+
+function listingActions(l, isDirectory) {
+  const actions = [];
+  const phoneHref = phoneLink(l.phone);
+  if (phoneHref) actions.push(`<a class="btn-ghost contact-action" href="${attr(phoneHref)}">${icon("phone")}Call</a>`);
+  if (l.website) actions.push(`<a class="btn-ghost contact-action" href="${attr(l.website)}" target="_blank" rel="noreferrer">${icon("globe-2")}Website</a>`);
+  if (l.osmUrl) actions.push(`<a class="btn-ghost contact-action" href="${attr(l.osmUrl)}" target="_blank" rel="noreferrer">${icon("map-pin")}Map</a>`);
+  actions.push(`<button class="btn-primary contact-action" data-contact="${attr(l.id)}" type="button">${isDirectory ? "Select" : "Contact"}</button>`);
+  return `<div class="contact-actions">${actions.join("")}</div>`;
+}
+
+function normalizedCategory(value) {
+  return String(value || "retail").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function displayCategory(value) {
+  const labels = { food: "Food", apparel: "Apparel", electronics: "Electronics", home: "Home", health: "Health", footwear: "Footwear", outdoor: "Outdoor", retail: "Retail" };
+  return labels[String(value || "").toLowerCase()] || "Retail";
+}
+
+function categoryIcon(value) {
+  return ({ food: "store", apparel: "tag", electronics: "plug", home: "boxes", health: "shield", footwear: "store", outdoor: "map-pin" })[String(value || "").toLowerCase()] || "store";
+}
+
+function initials(value) {
+  return String(value || "LL").split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "LL";
+}
+
+function phoneLink(value) {
+  const cleaned = String(value || "").replace(/[^\d+]/g, "");
+  return cleaned.length >= 7 ? `tel:${cleaned}` : "";
+}
+
+function shortUrl(value) {
+  try {
+    const url = new URL(String(value).startsWith("http") ? value : `https://${value}`);
+    return url.hostname.replace(/^www\./, "");
+  } catch {
+    return value;
+  }
 }
 
 function mapSvg(items = marketplaceListings()) {
