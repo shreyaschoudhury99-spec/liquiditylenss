@@ -12,6 +12,7 @@ const routes = {
   "/marketplace": "Marketplace",
   "/community": "Community",
   "/pricing": "Pricing",
+  "/admin": "Admin",
   "/reports": "Reports",
   "/profile": "Profile",
 };
@@ -27,6 +28,7 @@ const navItems = [
   ["/marketplace", "Marketplace", "store"],
   ["/community", "Community", "messages"],
   ["/pricing", "Pricing", "credit-card"],
+  ["/admin", "Admin", "shield"],
   ["/reports", "Reports", "file-text"],
   ["/profile", "Profile", "user"],
 ];
@@ -165,6 +167,17 @@ let state = {
   salesRecords: [],
   inventoryItems: [],
   advancedAnalytics: null,
+  enterprise: {
+    overview: null,
+    users: [],
+    alerts: [],
+    notifications: [],
+    settings: null,
+    apiKeys: [],
+    activity: [],
+  },
+  enterpriseError: "",
+  adminBusy: false,
   connectionStatus: {
     csv: { status: "not_connected", detail: "Upload a sales CSV to populate forecasts." },
     shopify: { status: "not_connected", detail: "Shopify OAuth is not configured yet." },
@@ -1403,6 +1416,125 @@ function pricingPage() {
   `);
 }
 
+function adminPage() {
+  const enterprise = state.enterprise || {};
+  const overview = enterprise.overview || {};
+  const counts = overview.counts || {};
+  const organization = overview.organization || {};
+  const providers = overview.providers || [];
+  const users = enterprise.users || [];
+  const alerts = enterprise.alerts || [];
+  const apiKeys = enterprise.apiKeys || [];
+  const activity = enterprise.activity || [];
+  const settings = enterprise.settings?.config || {};
+  const alertThresholds = settings.alertThresholds || {};
+  const marketplaceSettings = settings.marketplace || {};
+  const members = Number(counts.members || users.length || 0);
+  const openAlerts = alerts.filter(a => a.status !== "resolved").length;
+  const activeKeys = apiKeys.filter(k => !k.revoked).length;
+  const providerRows = providers.length ? providers.map(provider => `
+    <tr>
+      <td><strong>${esc(provider.provider)}</strong><br><span class="muted mono">${esc(provider.externalAccount || "No account linked")}</span></td>
+      <td><span class="badge badge--${provider.status === "connected" ? "success" : provider.status === "error" ? "high" : "info"}">${esc(provider.status || "unknown")}</span></td>
+      <td>${esc(provider.lastSync ? new Date(provider.lastSync).toLocaleString() : "No sync yet")}</td>
+      <td>${esc(provider.detail || "No detail")}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="4" class="muted">No integrations have reported status yet.</td></tr>`;
+  const userRows = users.length ? users.map(user => `
+    <tr>
+      <td><strong>${esc(`${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email)}</strong><br><span class="muted mono">${esc(user.email)}</span></td>
+      <td><span class="badge badge--info">${esc(user.role || "viewer")}</span></td>
+      <td>${user.emailVerified ? "Verified" : "Unverified"}</td>
+      <td>${esc(user.lastLogin ? new Date(user.lastLogin).toLocaleString() : "No login recorded")}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="4" class="muted">No team members found.</td></tr>`;
+  const alertRows = alerts.length ? alerts.map(alert => `
+    <tr>
+      <td><strong>${esc(alert.title)}</strong><br><span class="muted">${esc(alert.message || "")}</span></td>
+      <td><span class="badge badge--${alert.severity === "critical" || alert.severity === "high" ? "high" : "info"}">${esc(alert.severity)}</span></td>
+      <td>${esc(alert.status)}</td>
+      <td>${esc(new Date(alert.createdAt).toLocaleString())}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="4" class="muted">No alerts yet. Threshold breaches will appear here.</td></tr>`;
+  const keyRows = apiKeys.length ? apiKeys.map(key => `
+    <tr>
+      <td><strong>${esc(key.name)}</strong><br><span class="muted mono">${esc(key.prefix || "")}</span></td>
+      <td>${(key.scopes || []).map(scope => `<span class="source-pill">${esc(scope)}</span>`).join("") || `<span class="muted">No scopes</span>`}</td>
+      <td><span class="badge badge--${key.revoked ? "high" : "success"}">${key.revoked ? "revoked" : "active"}</span></td>
+      <td>${esc(key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : "Never used")}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="4" class="muted">No API keys created yet.</td></tr>`;
+  const activityRows = activity.length ? activity.slice(0, 8).map(item => `
+    <div class="report-row"><span><strong>${esc(item.action)}</strong><br><span class="muted">${esc(item.entityType || "system")}</span></span><span class="mono">${esc(new Date(item.createdAt).toLocaleString())}</span></div>
+  `).join("") : `<p class="muted">No activity has been recorded yet.</p>`;
+
+  return pageShell("Admin", "Production controls for users, permissions, alerts, integrations, API access, and audit history.", `
+    ${state.enterpriseError ? `<article class="card"><p class="form-error">${esc(state.enterpriseError)}</p></article>` : ""}
+    <div class="toolbar-spread">
+      <div>
+        <p class="eyebrow">Workspace</p>
+        <h2 class="text-lg">${esc(organization.name || workspaceName())}</h2>
+      </div>
+      <button class="btn-primary" data-refresh-admin type="button" ${state.adminBusy ? "disabled" : ""}>${state.adminBusy ? spinner("Refreshing...") : "Refresh admin data"}</button>
+    </div>
+
+    <section class="kpi-grid">
+      ${kpiCard("Plan", esc(organization.plan || "starter"), "Current subscription tier.", "info", "", false)}
+      ${kpiCard("Team members", fmt(members), "RBAC-backed users in this workspace.", "success", `${fmt(members)} users`, false)}
+      ${kpiCard("Sales rows", fmt(counts.salesRows || 0), "Imported rows feeding forecasts.", "success", "live data", false)}
+      ${kpiCard("Inventory records", fmt(counts.inventoryRows || 0), "SKU-location inventory records.", "info", "warehouse", false)}
+      ${kpiCard("Open alerts", fmt(openAlerts), "Unresolved threshold and integration alerts.", openAlerts ? "high" : "success", openAlerts ? "review" : "clear", false)}
+      ${kpiCard("API keys", fmt(activeKeys), "Active integration keys for partner systems.", "info", "secure", false)}
+    </section>
+
+    <section class="grid-2">
+      <article class="card">
+        <p class="eyebrow">Team and roles</p>
+        <h2 class="text-lg">Access control</h2>
+        <div class="table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Email</th><th>Last login</th></tr></thead><tbody>${userRows}</tbody></table></div>
+      </article>
+      <article class="card">
+        <p class="eyebrow">Integrations</p>
+        <h2 class="text-lg">Provider health</h2>
+        <div class="table-wrap"><table><thead><tr><th>Provider</th><th>Status</th><th>Last sync</th><th>Detail</th></tr></thead><tbody>${providerRows}</tbody></table></div>
+      </article>
+    </section>
+
+    <section class="grid-2">
+      <article class="card">
+        <p class="eyebrow">Alerting</p>
+        <h2 class="text-lg">Operational alerts</h2>
+        <div class="table-wrap"><table><thead><tr><th>Alert</th><th>Severity</th><th>Status</th><th>Created</th></tr></thead><tbody>${alertRows}</tbody></table></div>
+      </article>
+      <article class="card">
+        <p class="eyebrow">API access</p>
+        <h2 class="text-lg">Keys and scopes</h2>
+        <div class="table-wrap"><table><thead><tr><th>Key</th><th>Scopes</th><th>Status</th><th>Last used</th></tr></thead><tbody>${keyRows}</tbody></table></div>
+      </article>
+    </section>
+
+    <section class="grid-2">
+      <article class="card">
+        <p class="eyebrow">Settings</p>
+        <h2 class="text-lg">Forecast and risk configuration</h2>
+        <div class="report-list" style="margin-top:var(--space-4)">
+          <div class="report-row"><span>Forecast horizon</span><span class="mono">${fmt(settings.forecastHorizonWeeks || 8)} weeks</span></div>
+          <div class="report-row"><span>Lead time</span><span class="mono">${fmt(settings.leadTimeDays || 14)} days</span></div>
+          <div class="report-row"><span>Target service level</span><span class="mono">${fmtPercent((settings.targetServiceLevel || 0.95) * 100)}</span></div>
+          <div class="report-row"><span>Carrying cost rate</span><span class="mono">${fmtPercent((settings.carryingCostRate || 0.25) * 100)}</span></div>
+          <div class="report-row"><span>Stockout alert threshold</span><span class="mono">${fmt(alertThresholds.stockoutRisk || 70)}</span></div>
+          <div class="report-row"><span>Marketplace radius</span><span class="mono">${fmt(marketplaceSettings.radiusMiles || 100)} mi</span></div>
+        </div>
+      </article>
+      <article class="card">
+        <p class="eyebrow">Audit log</p>
+        <h2 class="text-lg">Recent activity</h2>
+        <div class="report-list" style="margin-top:var(--space-4)">${activityRows}</div>
+      </article>
+    </section>
+  `, "Production architecture");
+}
+
 function profilePage() {
   const user = state.authUser || {};
   const initials = `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase() || "LL";
@@ -1493,7 +1625,7 @@ function render() {
     bind();
     return;
   }
-  const views = { "/": dashboard, "/dashboard": dashboard, "/connect": connectPage, "/forecasts": forecastsPage, "/inventory": inventoryPage, "/analytics": advancedAnalyticsPage, "/marketplace": marketplacePage, "/community": communityPage, "/pricing": pricingPage, "/reports": reportsPage, "/profile": profilePage };
+  const views = { "/": dashboard, "/dashboard": dashboard, "/connect": connectPage, "/forecasts": forecastsPage, "/inventory": inventoryPage, "/analytics": advancedAnalyticsPage, "/marketplace": marketplacePage, "/community": communityPage, "/pricing": pricingPage, "/admin": adminPage, "/reports": reportsPage, "/profile": profilePage };
   app.innerHTML = layout((views[state.path] || dashboard)());
   bind();
 }
@@ -1520,6 +1652,14 @@ function bind() {
   document.querySelector("[data-menu]")?.addEventListener("click", () => { state.sidebarOpen = true; render(); });
   document.querySelector("[data-close-sidebar]")?.addEventListener("click", () => { state.sidebarOpen = false; render(); });
   document.querySelector("[data-refresh]")?.addEventListener("click", refreshAnalysis);
+  document.querySelector("[data-refresh-admin]")?.addEventListener("click", async () => {
+    state.adminBusy = true;
+    render();
+    await loadEnterpriseData();
+    state.adminBusy = false;
+    render();
+    if (!state.enterpriseError) showToast("Admin data refreshed", "success");
+  });
   document.querySelectorAll("[data-download]").forEach(el => el.addEventListener("click", downloadReport));
   document.querySelector("[data-global-search]")?.addEventListener("input", e => { clearTimeout(window.llSearchTimer); window.llSearchTimer = setTimeout(() => { state.search = e.target.value; state.searchOpen = true; render(); }, 200); });
   document.querySelector("[data-global-search]")?.addEventListener("keydown", e => { if (e.key === "Escape") { state.searchOpen = false; render(); } });
@@ -1698,6 +1838,39 @@ async function apiAuthedGet(path) {
   return data;
 }
 
+function apiPayload(response, key) {
+  const data = response?.data || response || {};
+  return key ? (data[key] || []) : data;
+}
+
+async function loadEnterpriseData() {
+  if (!state.accessToken) return;
+  try {
+    const [overview, users, alerts, notifications, settings, apiKeys, activity] = await Promise.all([
+      apiAuthedGet("/api/admin/overview"),
+      apiAuthedGet("/api/users"),
+      apiAuthedGet("/api/alerts"),
+      apiAuthedGet("/api/notifications"),
+      apiAuthedGet("/api/settings"),
+      apiAuthedGet("/api/api-keys"),
+      apiAuthedGet("/api/activity?limit=25"),
+    ]);
+    state.enterprise = {
+      overview: apiPayload(overview),
+      users: apiPayload(users, "users"),
+      alerts: apiPayload(alerts, "alerts"),
+      notifications: apiPayload(notifications, "notifications"),
+      settings: apiPayload(settings, "settings"),
+      apiKeys: apiPayload(apiKeys, "apiKeys"),
+      activity: apiPayload(activity, "activity"),
+    };
+    state.enterpriseError = "";
+  } catch (err) {
+    state.enterpriseError = err.message || "Admin data could not be loaded.";
+    console.warn("Could not load enterprise data:", err);
+  }
+}
+
 async function loadConnectionData() {
   if (!state.accessToken) return;
   try {
@@ -1715,6 +1888,7 @@ async function loadConnectionData() {
       state.checklist.inventory = true;
       state.checklist.analysis = true;
     }
+    await loadEnterpriseData();
   } catch (err) {
     console.warn("Could not load connection data:", err);
   }

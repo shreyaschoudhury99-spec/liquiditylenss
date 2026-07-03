@@ -146,6 +146,133 @@ async function ensureSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS mfa_challenges_lookup_idx
     ON mfa_challenges (id, expires_at)
     WHERE used_at IS NULL`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS organizations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    owner_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    plan TEXT NOT NULL DEFAULT 'trial',
+    billing_status TEXT NOT NULL DEFAULT 'not_configured',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS organization_members (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_name TEXT NOT NULL DEFAULT 'member' CHECK (role_name IN ('owner', 'admin', 'analyst', 'member', 'viewer')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invited', 'disabled')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (organization_id, user_id)
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS organization_members_user_idx ON organization_members (user_id)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (organization_id, name)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS role_permissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    permission TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (role_id, permission)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS alerts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    severity TEXT NOT NULL DEFAULT 'medium' CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'acknowledged', 'resolved')),
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    entity_type TEXT,
+    entity_id TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at TIMESTAMPTZ
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS alerts_user_status_idx ON alerts (user_id, status, created_at DESC)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    type TEXT NOT NULL DEFAULT 'info' CHECK (type IN ('info', 'success', 'warning', 'error')),
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    read_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS notifications_user_lookup_idx ON notifications (user_id, read_at, created_at DESC)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS api_keys (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    prefix TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    scopes TEXT[] NOT NULL DEFAULT ARRAY['read'],
+    last_used_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS api_keys_user_lookup_idx ON api_keys (user_id, revoked_at, created_at DESC)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS activity_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+    action TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ip_address TEXT,
+    user_agent TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS activity_logs_user_lookup_idx ON activity_logs (user_id, created_at DESC)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    report_type TEXT NOT NULL DEFAULT 'inventory_health',
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS suppliers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    contact_email TEXT,
+    lead_time_days INTEGER NOT NULL DEFAULT 14,
+    reliability_score NUMERIC NOT NULL DEFAULT 0 CHECK (reliability_score >= 0 AND reliability_score <= 100),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS purchase_orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
+    sku TEXT NOT NULL,
+    quantity NUMERIC NOT NULL CHECK (quantity >= 0),
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'submitted', 'received', 'cancelled')),
+    expected_at DATE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
 }
 
 const authLimiter = rateLimit({
@@ -363,10 +490,114 @@ function authUser(req, res, next) {
   }
 }
 
+function apiOk(res, data = {}, meta = {}) {
+  return res.json({ ok: true, data, meta });
+}
+
 function clampNumber(value, fallback, min, max) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
+}
+
+function parsePagination(req, defaultLimit = 25, maxLimit = 100) {
+  const limit = clampNumber(req.query.limit, defaultLimit, 1, maxLimit);
+  const page = clampNumber(req.query.page, 1, 1, 100000);
+  return { limit, page, offset: (page - 1) * limit };
+}
+
+function slugify(value) {
+  return String(value || "workspace")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "workspace";
+}
+
+function defaultSettingsConfig() {
+  return {
+    forecastHorizonWeeks: 8,
+    leadTimeDays: 14,
+    targetServiceLevel: 0.95,
+    carryingCostRate: 0.25,
+    grossMarginRate: 0.42,
+    alertThresholds: { stockoutRisk: 70, overstockRisk: 75 },
+    marketplace: { radiusMiles: 100 },
+  };
+}
+
+async function ensureDefaultOrganization(userId) {
+  const existing = await pool.query(
+    `SELECT o.id, o.name, o.slug, o.plan, o.billing_status, o.owner_user_id, om.role_name, om.status
+     FROM organization_members om
+     JOIN organizations o ON o.id = om.organization_id
+     WHERE om.user_id = $1
+     ORDER BY om.created_at ASC
+     LIMIT 1`,
+    [userId]
+  );
+  if (existing.rows[0]) return existing.rows[0];
+
+  const userResult = await pool.query(
+    "SELECT email, first_name, last_name FROM users WHERE id = $1",
+    [userId]
+  );
+  const user = userResult.rows[0];
+  if (!user) throw new Error("User not found");
+
+  const baseName = `${user.first_name || "LiquidityLens"} Workspace`;
+  const baseSlug = slugify(baseName);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const slug = attempt ? `${baseSlug}-${attempt + 1}` : baseSlug;
+    try {
+      const orgResult = await pool.query(
+        `INSERT INTO organizations (name, slug, owner_user_id)
+         VALUES ($1, $2, $3)
+         RETURNING id, name, slug, plan, billing_status, owner_user_id`,
+        [baseName, slug, userId]
+      );
+      const org = orgResult.rows[0];
+      await pool.query(
+        `INSERT INTO organization_members (organization_id, user_id, role_name, status)
+         VALUES ($1, $2, 'owner', 'active')
+         ON CONFLICT (organization_id, user_id) DO NOTHING`,
+        [org.id, userId]
+      );
+      await pool.query(
+        `INSERT INTO settings (user_id, organization_id, config)
+         VALUES ($1, $2, $3::jsonb)
+         ON CONFLICT (user_id) DO NOTHING`,
+        [userId, org.id, JSON.stringify(defaultSettingsConfig())]
+      );
+      return { ...org, role_name: "owner", status: "active" };
+    } catch (err) {
+      if (err.code !== "23505" || attempt === 4) throw err;
+    }
+  }
+  throw new Error("Could not create organization");
+}
+
+async function recordActivity(req, action, entityType, entityId = null, metadata = {}) {
+  try {
+    if (!req.user?.sub) return;
+    const org = await ensureDefaultOrganization(req.user.sub);
+    await pool.query(
+      `INSERT INTO activity_logs (organization_id, user_id, action, entity_type, entity_id, metadata, ip_address, user_agent)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)`,
+      [
+        org.id,
+        req.user.sub,
+        action,
+        entityType,
+        entityId,
+        JSON.stringify(metadata || {}),
+        req.ip || "",
+        req.get("user-agent") || "",
+      ]
+    );
+  } catch (err) {
+    console.warn("Activity log skipped:", err.message);
+  }
 }
 
 function numeric(value, fallback = 0) {
@@ -1617,6 +1848,420 @@ app.get("/api/analytics/advanced", authUser, asyncRoute(async (req, res) => {
     [req.user.sub]
   );
   res.json(buildAdvancedAnalytics(salesResult.rows, inventoryResult.rows));
+}));
+
+app.get("/api/organization", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  apiOk(res, { organization: org });
+}));
+
+app.get("/api/admin/overview", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  const [
+    salesCount,
+    inventoryCount,
+    alertCount,
+    keyCount,
+    memberCount,
+    providers,
+    activity,
+  ] = await Promise.all([
+    pool.query("SELECT count(*)::int AS count FROM sales_records WHERE user_id = $1", [req.user.sub]),
+    pool.query("SELECT count(*)::int AS count FROM inventory_items WHERE user_id = $1", [req.user.sub]),
+    pool.query("SELECT count(*)::int AS count FROM alerts WHERE organization_id = $1 AND status = 'open'", [org.id]),
+    pool.query("SELECT count(*)::int AS count FROM api_keys WHERE organization_id = $1 AND revoked_at IS NULL", [org.id]),
+    pool.query("SELECT count(*)::int AS count FROM organization_members WHERE organization_id = $1", [org.id]),
+    pool.query(
+      `SELECT provider, status, external_account, last_synced_at
+       FROM integration_connections
+       WHERE user_id = $1
+       ORDER BY provider ASC`,
+      [req.user.sub]
+    ),
+    pool.query(
+      `SELECT action, entity_type, created_at
+       FROM activity_logs
+       WHERE organization_id = $1
+       ORDER BY created_at DESC
+       LIMIT 5`,
+      [org.id]
+    ),
+  ]);
+
+  apiOk(res, {
+    organization: org,
+    counts: {
+      salesRows: salesCount.rows[0].count,
+      inventoryItems: inventoryCount.rows[0].count,
+      openAlerts: alertCount.rows[0].count,
+      activeApiKeys: keyCount.rows[0].count,
+      members: memberCount.rows[0].count,
+    },
+    providers: providers.rows,
+    recentActivity: activity.rows,
+    permissions: org.role_name === "owner" || org.role_name === "admin"
+      ? ["users:manage", "settings:write", "api_keys:manage", "reports:export"]
+      : ["reports:read", "analytics:read"],
+  });
+}));
+
+app.get("/api/users", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  const { limit, offset, page } = parsePagination(req);
+  const result = await pool.query(
+    `SELECT u.id, u.email, u.first_name, u.last_name, u.email_verified,
+            om.role_name, om.status, om.created_at
+     FROM organization_members om
+     JOIN users u ON u.id = om.user_id
+     WHERE om.organization_id = $1
+     ORDER BY om.created_at ASC
+     LIMIT $2 OFFSET $3`,
+    [org.id, limit, offset]
+  );
+  apiOk(res, { users: result.rows }, { page, limit });
+}));
+
+app.post("/api/users", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can invite users.", "FORBIDDEN");
+  const email = normalizeEmail(req.body.email);
+  if (!isEmail(email)) return error(res, 400, "Enter a valid email address.", "INVALID_EMAIL");
+  const firstName = String(req.body.firstName || "Invited").trim().slice(0, 80) || "Invited";
+  const lastName = String(req.body.lastName || "User").trim().slice(0, 80) || "User";
+  const roleName = ["admin", "analyst", "member", "viewer"].includes(req.body.roleName) ? req.body.roleName : "viewer";
+  let user = (await pool.query("SELECT id FROM users WHERE email = $1", [email])).rows[0];
+  if (!user) {
+    user = (await pool.query(
+      `INSERT INTO users (email, password_hash, first_name, last_name, email_verified)
+       VALUES ($1, NULL, $2, $3, false)
+       RETURNING id`,
+      [email, firstName, lastName]
+    )).rows[0];
+  }
+  await pool.query(
+    `INSERT INTO organization_members (organization_id, user_id, role_name, status)
+     VALUES ($1, $2, $3, 'invited')
+     ON CONFLICT (organization_id, user_id) DO UPDATE
+     SET role_name = EXCLUDED.role_name, status = 'invited'`,
+    [org.id, user.id, roleName]
+  );
+  await recordActivity(req, "user.invited", "user", user.id, { email, roleName });
+  apiOk(res, { id: user.id, email, roleName, status: "invited" });
+}));
+
+app.put("/api/users/:id", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can update users.", "FORBIDDEN");
+  const roleName = ["admin", "analyst", "member", "viewer"].includes(req.body.roleName) ? req.body.roleName : null;
+  if (!roleName) return error(res, 400, "Choose a valid role.", "INVALID_ROLE");
+  const result = await pool.query(
+    `UPDATE organization_members
+     SET role_name = $1
+     WHERE organization_id = $2 AND user_id = $3
+     RETURNING user_id, role_name, status`,
+    [roleName, org.id, req.params.id]
+  );
+  if (!result.rows[0]) return error(res, 404, "User not found in this workspace.", "USER_NOT_FOUND");
+  await recordActivity(req, "user.role_updated", "user", req.params.id, { roleName });
+  apiOk(res, { user: result.rows[0] });
+}));
+
+app.delete("/api/users/:id", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can remove users.", "FORBIDDEN");
+  if (req.params.id === req.user.sub) return error(res, 400, "You cannot remove yourself.", "SELF_REMOVE_BLOCKED");
+  await pool.query("DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2", [org.id, req.params.id]);
+  await recordActivity(req, "user.removed", "user", req.params.id);
+  apiOk(res, { removed: true });
+}));
+
+app.get("/api/alerts", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  const { limit, offset, page } = parsePagination(req);
+  const result = await pool.query(
+    `SELECT id, severity, title, message, status, metadata, created_at, resolved_at
+     FROM alerts
+     WHERE organization_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2 OFFSET $3`,
+    [org.id, limit, offset]
+  );
+  apiOk(res, { alerts: result.rows }, { page, limit });
+}));
+
+app.post("/api/alerts", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  const title = String(req.body.title || "").trim();
+  if (!title) return error(res, 400, "Alert title is required.", "TITLE_REQUIRED");
+  const severity = ["info", "warning", "critical"].includes(req.body.severity) ? req.body.severity : "info";
+  const result = await pool.query(
+    `INSERT INTO alerts (organization_id, severity, title, message, metadata)
+     VALUES ($1, $2, $3, $4, $5::jsonb)
+     RETURNING id, severity, title, message, status, metadata, created_at`,
+    [org.id, severity, title, String(req.body.message || ""), JSON.stringify(req.body.metadata || {})]
+  );
+  await recordActivity(req, "alert.created", "alert", result.rows[0].id, { severity, title });
+  apiOk(res, { alert: result.rows[0] });
+}));
+
+app.patch("/api/alerts/:id", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  const status = ["open", "acknowledged", "resolved"].includes(req.body.status) ? req.body.status : "acknowledged";
+  const result = await pool.query(
+    `UPDATE alerts
+     SET status = $1, resolved_at = CASE WHEN $1 = 'resolved' THEN now() ELSE resolved_at END
+     WHERE id = $2 AND organization_id = $3
+     RETURNING id, severity, title, message, status, metadata, created_at, resolved_at`,
+    [status, req.params.id, org.id]
+  );
+  if (!result.rows[0]) return error(res, 404, "Alert not found.", "ALERT_NOT_FOUND");
+  await recordActivity(req, "alert.updated", "alert", req.params.id, { status });
+  apiOk(res, { alert: result.rows[0] });
+}));
+
+app.get("/api/notifications", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  const result = await pool.query(
+    `SELECT id, title, message, type, read_at, created_at
+     FROM notifications
+     WHERE user_id = $1 OR organization_id = $2
+     ORDER BY created_at DESC
+     LIMIT 50`,
+    [req.user.sub, org.id]
+  );
+  apiOk(res, { notifications: result.rows });
+}));
+
+app.post("/api/notifications/:id/read", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  await pool.query(
+    `UPDATE notifications SET read_at = now()
+     WHERE id = $1 AND (user_id = $2 OR organization_id = $3)`,
+    [req.params.id, req.user.sub, org.id]
+  );
+  apiOk(res, { read: true });
+}));
+
+app.get("/api/settings", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  const result = await pool.query(
+    `INSERT INTO settings (user_id, organization_id, config)
+     VALUES ($1, $2, $3::jsonb)
+     ON CONFLICT (user_id) DO UPDATE SET organization_id = EXCLUDED.organization_id
+     RETURNING id, config, updated_at`,
+    [req.user.sub, org.id, JSON.stringify(defaultSettingsConfig())]
+  );
+  apiOk(res, { settings: result.rows[0] });
+}));
+
+app.put("/api/settings", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  const current = (await pool.query("SELECT config FROM settings WHERE user_id = $1", [req.user.sub])).rows[0]?.config || defaultSettingsConfig();
+  const next = { ...current, ...(req.body.config || {}) };
+  const result = await pool.query(
+    `INSERT INTO settings (user_id, organization_id, config)
+     VALUES ($1, $2, $3::jsonb)
+     ON CONFLICT (user_id) DO UPDATE SET config = EXCLUDED.config, updated_at = now()
+     RETURNING id, config, updated_at`,
+    [req.user.sub, org.id, JSON.stringify(next)]
+  );
+  await recordActivity(req, "settings.updated", "settings", result.rows[0].id);
+  apiOk(res, { settings: result.rows[0] });
+}));
+
+app.get("/api/api-keys", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  const result = await pool.query(
+    `SELECT id, name, prefix, scopes, last_used_at, revoked_at, created_at
+     FROM api_keys
+     WHERE organization_id = $1
+     ORDER BY created_at DESC`,
+    [org.id]
+  );
+  apiOk(res, { apiKeys: result.rows });
+}));
+
+app.post("/api/api-keys", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can create API keys.", "FORBIDDEN");
+  const name = String(req.body.name || "Production API key").trim().slice(0, 120);
+  const scopes = Array.isArray(req.body.scopes) ? req.body.scopes.slice(0, 12).map(String) : ["analytics:read"];
+  const secret = `ll_${crypto.randomBytes(24).toString("base64url")}`;
+  const result = await pool.query(
+    `INSERT INTO api_keys (organization_id, user_id, name, key_hash, prefix, scopes)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, name, prefix, scopes, created_at`,
+    [org.id, req.user.sub, name, hashToken(secret), secret.slice(0, 10), scopes]
+  );
+  await recordActivity(req, "api_key.created", "api_key", result.rows[0].id, { name, scopes });
+  apiOk(res, { apiKey: result.rows[0], secret });
+}));
+
+app.delete("/api/api-keys/:id", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can revoke API keys.", "FORBIDDEN");
+  await pool.query("UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND organization_id = $2", [req.params.id, org.id]);
+  await recordActivity(req, "api_key.revoked", "api_key", req.params.id);
+  apiOk(res, { revoked: true });
+}));
+
+app.get("/api/activity", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  const { limit, offset, page } = parsePagination(req);
+  const result = await pool.query(
+    `SELECT al.id, al.action, al.entity_type, al.entity_id, al.metadata, al.created_at,
+            u.email, u.first_name, u.last_name
+     FROM activity_logs al
+     LEFT JOIN users u ON u.id = al.user_id
+     WHERE al.organization_id = $1
+     ORDER BY al.created_at DESC
+     LIMIT $2 OFFSET $3`,
+    [org.id, limit, offset]
+  );
+  apiOk(res, { activity: result.rows }, { page, limit });
+}));
+
+app.get("/api/forecasts", authUser, asyncRoute(async (req, res) => {
+  const salesResult = await pool.query(
+    `SELECT sku, sale_date AS date, quantity::float AS quantity, location, source
+     FROM sales_records
+     WHERE user_id = $1
+     ORDER BY sale_date ASC, sku ASC
+     LIMIT 10000`,
+    [req.user.sub]
+  );
+  const inventoryResult = await pool.query(
+    `SELECT sku, product, current_quantity::float AS current, unit_price::float AS price, location, source
+     FROM inventory_items
+     WHERE user_id = $1
+     ORDER BY product ASC, sku ASC
+     LIMIT 10000`,
+    [req.user.sub]
+  );
+  const analytics = buildAdvancedAnalytics(salesResult.rows, inventoryResult.rows);
+  apiOk(res, { summary: analytics.summary, skus: analytics.skus, assumptions: analytics.assumptions, formulas: analytics.formulas });
+}));
+
+app.get("/api/analytics", authUser, asyncRoute(async (req, res) => {
+  const salesResult = await pool.query(
+    `SELECT sku, sale_date AS date, quantity::float AS quantity, location, source
+     FROM sales_records
+     WHERE user_id = $1
+     ORDER BY sale_date ASC, sku ASC
+     LIMIT 10000`,
+    [req.user.sub]
+  );
+  const inventoryResult = await pool.query(
+    `SELECT sku, product, current_quantity::float AS current, unit_price::float AS price, location, source
+     FROM inventory_items
+     WHERE user_id = $1
+     ORDER BY product ASC, sku ASC
+     LIMIT 10000`,
+    [req.user.sub]
+  );
+  apiOk(res, { analytics: buildAdvancedAnalytics(salesResult.rows, inventoryResult.rows) });
+}));
+
+app.get("/api/reports", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  const stored = await pool.query(
+    `SELECT id, type, title, payload, created_at
+     FROM reports
+     WHERE organization_id = $1
+     ORDER BY created_at DESC
+     LIMIT 50`,
+    [org.id]
+  );
+  const analytics = await pool.query(
+    `SELECT sku, sale_date AS date, quantity::float AS quantity, location, source
+     FROM sales_records
+     WHERE user_id = $1
+     ORDER BY sale_date ASC, sku ASC
+     LIMIT 10000`,
+    [req.user.sub]
+  );
+  const inventory = await pool.query(
+    `SELECT sku, product, current_quantity::float AS current, unit_price::float AS price, location, source
+     FROM inventory_items
+     WHERE user_id = $1
+     ORDER BY product ASC, sku ASC
+     LIMIT 10000`,
+    [req.user.sub]
+  );
+  apiOk(res, {
+    reports: stored.rows,
+    generated: {
+      title: "Inventory Health Summary",
+      payload: buildAdvancedAnalytics(analytics.rows, inventory.rows).summary,
+      createdAt: new Date().toISOString(),
+    },
+  });
+}));
+
+app.get("/api/inventory", authUser, asyncRoute(async (req, res) => {
+  const { limit, offset, page } = parsePagination(req, 50, 250);
+  const result = await pool.query(
+    `SELECT id, sku, product, current_quantity::float AS current, unit_price::float AS price, location, source, updated_at
+     FROM inventory_items
+     WHERE user_id = $1
+     ORDER BY product ASC, sku ASC
+     LIMIT $2 OFFSET $3`,
+    [req.user.sub, limit, offset]
+  );
+  apiOk(res, { inventory: result.rows }, { page, limit });
+}));
+
+app.post("/api/inventory", authUser, asyncRoute(async (req, res) => {
+  const sku = String(req.body.sku || "").trim();
+  if (!sku) return error(res, 400, "SKU is required.", "SKU_REQUIRED");
+  const product = String(req.body.product || sku).trim();
+  const current = numeric(req.body.current);
+  const price = numeric(req.body.price);
+  const location = String(req.body.location || "Default").trim() || "Default";
+  const source = String(req.body.source || "manual").trim() || "manual";
+  const result = await pool.query(
+    `INSERT INTO inventory_items (user_id, sku, product, current_quantity, unit_price, location, source)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (user_id, source, sku, location) DO UPDATE
+     SET product = EXCLUDED.product,
+         current_quantity = EXCLUDED.current_quantity,
+         unit_price = EXCLUDED.unit_price,
+         updated_at = now()
+     RETURNING id, sku, product, current_quantity::float AS current, unit_price::float AS price, location, source, updated_at`,
+    [req.user.sub, sku, product, current, price, location, source]
+  );
+  await recordActivity(req, "inventory.upserted", "inventory_item", result.rows[0].id, { sku, source });
+  apiOk(res, { item: result.rows[0] });
+}));
+
+app.put("/api/inventory/:id", authUser, asyncRoute(async (req, res) => {
+  const result = await pool.query(
+    `UPDATE inventory_items
+     SET product = COALESCE($1, product),
+         current_quantity = COALESCE($2, current_quantity),
+         unit_price = COALESCE($3, unit_price),
+         location = COALESCE($4, location),
+         updated_at = now()
+     WHERE id = $5 AND user_id = $6
+     RETURNING id, sku, product, current_quantity::float AS current, unit_price::float AS price, location, source, updated_at`,
+    [
+      req.body.product === undefined ? null : String(req.body.product),
+      req.body.current === undefined ? null : numeric(req.body.current),
+      req.body.price === undefined ? null : numeric(req.body.price),
+      req.body.location === undefined ? null : String(req.body.location),
+      req.params.id,
+      req.user.sub,
+    ]
+  );
+  if (!result.rows[0]) return error(res, 404, "Inventory item not found.", "INVENTORY_NOT_FOUND");
+  await recordActivity(req, "inventory.updated", "inventory_item", req.params.id);
+  apiOk(res, { item: result.rows[0] });
+}));
+
+app.delete("/api/inventory/:id", authUser, asyncRoute(async (req, res) => {
+  await pool.query("DELETE FROM inventory_items WHERE id = $1 AND user_id = $2", [req.params.id, req.user.sub]);
+  await recordActivity(req, "inventory.deleted", "inventory_item", req.params.id);
+  apiOk(res, { deleted: true });
 }));
 
 app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
