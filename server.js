@@ -376,8 +376,18 @@ function overpassShopFilter(category) {
     electronics: "electronics|computer|mobile_phone|hifi",
     home: "furniture|hardware|doityourself|houseware|garden_centre",
     health: "pharmacy|chemist|medical_supply|beauty",
+    all: "supermarket|convenience|bakery|butcher|greengrocer|deli|beverages|clothes|shoes|sports|outdoor|bag|fashion_accessories|electronics|computer|mobile_phone|hifi|furniture|hardware|doityourself|houseware|garden_centre|pharmacy|chemist|medical_supply|beauty|books|toys|gift|florist|pet|jewelry|department_store|general",
   };
   return categories[category] ? `["shop"~"^(${categories[category]})$"]` : `["shop"]`;
+}
+
+function marketplaceRadiusPlan(radiusMiles, category) {
+  const broadSearch = category === "all" || category === "retail";
+  const maxRadius = broadSearch ? Math.min(radiusMiles, 25) : radiusMiles;
+  const candidates = [Math.min(maxRadius, 10), Math.min(maxRadius, 25), maxRadius]
+    .map(radius => Math.round(radius))
+    .filter(radius => radius > 0 && radius <= maxRadius);
+  return [...new Set(candidates)].sort((a, b) => a - b);
 }
 
 function marketplaceCategory(shop) {
@@ -441,6 +451,31 @@ async function fetchExternalJson(url, options = {}, timeoutMs = 12000) {
   }
 }
 
+async function fetchOverpassJson(query) {
+  const endpoints = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+  ];
+  let lastError;
+  for (const endpoint of endpoints) {
+    try {
+      return await fetchExternalJson(endpoint, {
+        method: "POST",
+        headers: {
+          "User-Agent": marketplaceUserAgent,
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ data: query }).toString(),
+      }, 22000);
+    } catch (err) {
+      lastError = err;
+      console.warn(`Marketplace Overpass endpoint failed (${endpoint}):`, err.message);
+    }
+  }
+  throw lastError || new Error("Public directory lookup failed.");
+}
+
 async function geocodeMarketplaceLocation(location) {
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("format", "jsonv2");
@@ -465,14 +500,7 @@ async function searchNearbyOsmShops({ lat, lon, radiusMiles, category }) {
   const radiusMeters = Math.round(radiusMiles * 1609.344);
   const shopFilter = overpassShopFilter(category);
   const query = `[out:json][timeout:25];(node${shopFilter}(around:${radiusMeters},${lat},${lon});way${shopFilter}(around:${radiusMeters},${lat},${lon});relation${shopFilter}(around:${radiusMeters},${lat},${lon}););out center tags 80;`;
-  const url = new URL("https://overpass-api.de/api/interpreter");
-  url.searchParams.set("data", query);
-  const data = await fetchExternalJson(url, {
-    headers: {
-      "User-Agent": marketplaceUserAgent,
-      Accept: "application/json",
-    },
-  }, 18000);
+  const data = await fetchOverpassJson(query);
   return Array.isArray(data?.elements) ? data.elements : [];
 }
 
@@ -1355,12 +1383,27 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
   }
 
   try {
-    const elements = await searchNearbyOsmShops({
-      lat: origin.lat,
-      lon: origin.lon,
-      radiusMiles,
-      category: selectedCategory,
-    });
+    const radiusPlan = marketplaceRadiusPlan(radiusMiles, selectedCategory);
+    let elements = [];
+    let effectiveRadiusMiles = radiusPlan[radiusPlan.length - 1] || radiusMiles;
+    let lastLookupError;
+    for (const candidateRadius of radiusPlan) {
+      try {
+        elements = await searchNearbyOsmShops({
+          lat: origin.lat,
+          lon: origin.lon,
+          radiusMiles: candidateRadius,
+          category: selectedCategory,
+        });
+        effectiveRadiusMiles = candidateRadius;
+        if (elements.length || candidateRadius === radiusPlan[radiusPlan.length - 1]) break;
+      } catch (err) {
+        lastLookupError = err;
+        if (candidateRadius === radiusPlan[radiusPlan.length - 1]) throw err;
+      }
+    }
+    if (!elements.length && lastLookupError) throw lastLookupError;
+
     const seen = new Set();
     const businesses = elements
       .map((element, index) => normalizeOsmBusiness(element, origin, index))
@@ -1368,23 +1411,27 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
         const key = `${business.retailer}|${business.address}|${business.lat}|${business.lon}`.toLowerCase();
         if (seen.has(key)) return false;
         seen.add(key);
-        return business.retailer && business.dist !== null && business.dist <= radiusMiles;
+        return business.retailer && business.dist !== null && business.dist <= effectiveRadiusMiles;
       })
       .sort((a, b) => a.dist - b.dist || a.retailer.localeCompare(b.retailer))
       .slice(0, 24);
 
+    const limitedBroadSearch = effectiveRadiusMiles < radiusMiles;
     res.json({
       origin,
       radiusMiles,
+      effectiveRadiusMiles,
       category: selectedCategory,
       count: businesses.length,
       businesses,
       source: "OpenStreetMap",
-      note: "These are public nearby business listings. Private inventory and transfer data is available only after a business connects to LiquidityLens.",
+      note: limitedBroadSearch
+        ? `Showing public listings within ${effectiveRadiusMiles} miles for this broad search. Pick a category or enter a more specific city/state to search farther. Private inventory is available only after a business connects to LiquidityLens.`
+        : "These are public nearby business listings. Private inventory and transfer data is available only after a business connects to LiquidityLens.",
     });
   } catch (err) {
     console.error("Marketplace lookup failed:", err);
-    return error(res, 502, "Could not load nearby businesses right now. Try again in a minute.", "MARKETPLACE_LOOKUP_FAILED");
+    return error(res, 502, "Could not load nearby businesses from the public directory. Try a smaller radius, pick a category, or enter the city plus state.", "MARKETPLACE_LOOKUP_FAILED");
   }
 }));
 
