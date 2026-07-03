@@ -1045,20 +1045,63 @@ function marketplacePage() {
       <select class="select" data-market-filter="catFilter" style="max-width:210px"><option value="all">All categories</option><option value="retail">General retail</option><option value="food">Food and grocery</option><option value="apparel">Apparel and outdoor</option><option value="electronics">Electronics</option><option value="home">Home and hardware</option><option value="health">Health and beauty</option><option value="footwear">Demo footwear</option><option value="outdoor">Demo outdoor</option></select>
       <select class="select" data-market-filter="distFilter" style="max-width:160px"><option value="10">10 miles</option><option value="25">25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select>
     </div>
-    <section class="listing-grid">${filtered.length ? filtered.map(l => listingCard(l)).join("") : `<article class="card empty-state">No businesses match your filters. Try a broader category, radius, or nearby city.</article>`}</section>
+    <section class="listing-grid">${filtered.length ? filtered.map((l, index) => listingCard(l, filtered, index)).join("") : `<article class="card empty-state">No businesses match your filters. Try a broader category, radius, or nearby city.</article>`}</section>
     <section class="card message-layout"><div>${activeListings.map(l => `<button class="btn-ghost retailer-row ${String(state.selectedRetailer?.id) === String(l.id) ? "selected" : ""}" data-retailer="${attr(l.id)}" type="button"><span>${esc(l.retailer)}</span><span class="mono">${l.dist ?? "?"} mi</span></button>`).join("")}</div><form class="form-stack" data-message><textarea class="textarea" name="message">${esc(msg)}</textarea><button class="btn-primary" type="submit" ${state.marketplaceBusy ? "disabled" : ""}>${state.marketplaceBusy ? spinner("Sending...") : state.selectedRetailer?.source === "OpenStreetMap" ? "Save outreach note" : "Send request"}</button>${state.messageSent ? `<p class="severity-low">${esc(state.messageSent)}</p>` : ""}</form></section>
   `);
 }
 
-function listingCard(l) {
+function listingRecommendationScore(l) {
+  const distance = Number(l.dist);
+  const distanceScore = Number.isFinite(distance) ? Math.max(0, 100 - distance) : 0;
+  const contactScore = (l.website ? 18 : 0) + (l.phone ? 12 : 0);
+  const categoryScore = state.catFilter !== "all" && l.cat === state.catFilter ? 16 : 0;
+  const demoScore = l.source === "OpenStreetMap" ? 0 : (l.urgency === "high" ? 24 : l.urgency === "medium" ? 12 : 0);
+  return distanceScore + contactScore + categoryScore + demoScore;
+}
+
+function listingSignalBadges(l, rankedListings, index) {
   const isDirectory = l.source === "OpenStreetMap";
+  const distances = rankedListings.map(item => Number(item.dist)).filter(Number.isFinite);
+  const closest = distances.length ? Math.min(...distances) : null;
+  const bestScore = rankedListings.length ? Math.max(...rankedListings.map(listingRecommendationScore)) : 0;
+  const sameCategoryDemoPrices = rankedListings
+    .filter(item => item.source !== "OpenStreetMap" && item.cat === l.cat && Number.isFinite(Number(item.price)))
+    .map(item => Number(item.price));
+  const bestDemoPrice = sameCategoryDemoPrices.length ? Math.min(...sameCategoryDemoPrices) : null;
+  const badges = [];
+  const add = (label, tone = "info") => {
+    if (!badges.some(b => b.label === label)) badges.push({ label, tone });
+  };
+
+  if (isDirectory) {
+    if (listingRecommendationScore(l) === bestScore) add("Recommended", "success");
+    if (closest !== null && Number(l.dist) === closest) add("Closest", "success");
+    if (state.catFilter !== "all" && l.cat === state.catFilter) add("Category match", "info");
+    if (l.website || l.phone) add(l.website ? "Best contact" : "Phone listed", "info");
+    if (Number(l.dist) <= 3) add("Nearby", "success");
+  } else {
+    if (index === 0 || l.urgency === "high") add("Recommended", l.urgency);
+    if (bestDemoPrice !== null && Number(l.price) === bestDemoPrice) add("Best price", "success");
+    if (closest !== null && Number(l.dist) === closest) add("Closest", "info");
+    add(l.type === "excess" ? "Excess stock" : "Need match", l.urgency);
+  }
+
+  return badges.slice(0, 3);
+}
+
+function listingCard(l, rankedListings = [l], index = 0) {
+  const isDirectory = l.source === "OpenStreetMap";
+  const signals = listingSignalBadges(l, rankedListings, index);
+  const signalMarkup = signals.length
+    ? `<div class="recommendation-badges">${signals.map(b => `<span class="badge badge--${attr(b.tone)}">${esc(b.label)}</span>`).join("")}</div>`
+    : "";
   const detail = isDirectory
     ? `<p class="muted">${esc(l.address || "Address not listed")}</p><p class="muted mono">${esc(l.phone || "Phone not listed")}</p>`
     : `<p class="muted mono">${l.qty} units at $${l.price}/unit</p>`;
   const cta = isDirectory && l.website
     ? `<a class="btn-primary" href="${attr(l.website)}" target="_blank" rel="noreferrer">Website</a>`
     : `<button class="btn-primary" data-contact="${attr(l.id)}" type="button">${isDirectory ? "Select" : "Contact"}</button>`;
-  return `<article class="card listing-card"><div class="listing-top"><strong>${esc(l.retailer)}</strong><span class="badge badge--info">${l.dist ?? "?"} mi</span></div><div><p class="text-md">${esc(l.product)}</p>${detail}</div><div class="listing-meta"><span class="badge badge--${l.urgency}">${isDirectory ? "directory" : l.urgency}</span><span class="source-pill">${esc(l.source || "LiquidityLens")}</span></div><div class="toolbar-spread">${l.osmUrl ? `<a class="btn-ghost" href="${attr(l.osmUrl)}" target="_blank" rel="noreferrer">Map source</a>` : "<span></span>"}${cta}</div></article>`;
+  return `<article class="card listing-card"><div class="listing-top"><strong>${esc(l.retailer)}</strong><span class="badge badge--info">${l.dist ?? "?"} mi</span></div>${signalMarkup}<div><p class="text-md">${esc(l.product)}</p>${detail}</div><div class="listing-meta"><span class="badge badge--${l.urgency}">${isDirectory ? "directory" : l.urgency}</span><span class="source-pill">${esc(l.source || "LiquidityLens")}</span></div><div class="toolbar-spread">${l.osmUrl ? `<a class="btn-ghost" href="${attr(l.osmUrl)}" target="_blank" rel="noreferrer">Map source</a>` : "<span></span>"}${cta}</div></article>`;
 }
 
 function mapSvg(items = marketplaceListings()) {

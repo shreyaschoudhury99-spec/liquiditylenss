@@ -666,6 +666,7 @@ a { color: inherit; text-decoration: none; }
 .listing-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
 .listing-card { display: grid; gap: var(--space-3); }
 .listing-top { display: flex; justify-content: space-between; gap: var(--space-3); }
+.recommendation-badges { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .listing-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .source-pill {
   display: inline-flex;
@@ -693,6 +694,14 @@ a { color: inherit; text-decoration: none; }
 .map-label { opacity: 0; transition: opacity 0.15s; pointer-events: none; }
 .map-pin:hover + .map-label { opacity: 1; }
 .message-layout { display: grid; grid-template-columns: 320px 1fr; gap: var(--space-4); }
+.message-layout .form-stack { align-content: start; }
+.message-layout .form-stack .btn-primary {
+  justify-self: start;
+  align-self: start;
+  width: auto;
+  min-width: 180px;
+  min-height: 40px;
+}
 .retailer-row { width: 100%; text-align: left; border-left: 2px solid transparent; justify-content: space-between; }
 .retailer-row.selected { background: var(--accent-dim); border-left-color: var(--accent); color: var(--text-primary); }
 
