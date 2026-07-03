@@ -8,6 +8,7 @@ const routes = {
   "/connect": "Connect Store",
   "/forecasts": "Forecasts",
   "/inventory": "Inventory",
+  "/analytics": "Advanced Analytics",
   "/marketplace": "Marketplace",
   "/community": "Community",
   "/pricing": "Pricing",
@@ -22,6 +23,7 @@ const navItems = [
   ["/connect", "Connect Store", "plug"],
   ["/forecasts", "Forecasts", "chart-line"],
   ["/inventory", "Inventory", "boxes"],
+  ["/analytics", "Advanced Analytics", "calculator"],
   ["/marketplace", "Marketplace", "store"],
   ["/community", "Community", "messages"],
   ["/pricing", "Pricing", "credit-card"],
@@ -162,6 +164,7 @@ let state = {
   checklistBusy: "",
   salesRecords: [],
   inventoryItems: [],
+  advancedAnalytics: null,
   connectionStatus: {
     csv: { status: "not_connected", detail: "Upload a sales CSV to populate forecasts." },
     shopify: { status: "not_connected", detail: "Shopify OAuth is not configured yet." },
@@ -242,6 +245,7 @@ function icon(name) {
     "map-pin": '<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
     image: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="m21 15-5-5L5 19"/>',
     tag: '<path d="M12.6 2.6H4a2 2 0 0 0-2 2v8.6a2 2 0 0 0 .6 1.4l6.8 6.8a2 2 0 0 0 2.8 0l9.2-9.2a2 2 0 0 0 0-2.8l-6.8-6.8a2 2 0 0 0-1.4-.6Z"/><circle cx="7.5" cy="7.5" r=".5"/>',
+    calculator: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8"/><path d="M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/>',
   };
   return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ""}</svg>`;
 }
@@ -294,6 +298,16 @@ function workspaceInitials() {
 
 function fmt(value) {
   return Number(value).toLocaleString("en-US");
+}
+
+function fmtDecimal(value, places = 1) {
+  const parsed = Number(value);
+  const safe = Number.isFinite(parsed) ? parsed : 0;
+  return safe.toLocaleString("en-US", { minimumFractionDigits: places, maximumFractionDigits: places });
+}
+
+function fmtPercent(value) {
+  return `${fmtDecimal(value, 1)}%`;
 }
 
 function activeSkuData() {
@@ -1218,10 +1232,137 @@ function topicLabel(key) {
   return ({ "inventory-swap": "Inventory swap", "bulk-buy": "Bulk buy", "delivery-route": "Delivery route", pricing: "Pricing" })[key] || key;
 }
 
+function analyticsData() {
+  return state.advancedAnalytics || { summary: {}, assumptions: {}, formulas: [], abc: [], skus: [] };
+}
+
+function analyticsMetric(label, value, badge, body, tone = "info") {
+  const badgeTone = tone === "bad" ? "error" : tone === "good" ? "success" : tone === "warning" ? "warning" : "info";
+  return `<article class="card analytics-metric-card">
+    <div class="kpi-top">
+      <p class="eyebrow">${esc(label)}</p>
+      ${badge ? `<span class="badge badge--${badgeTone}">${esc(badge)}</span>` : ""}
+    </div>
+    <strong class="metric-value">${esc(value)}</strong>
+    <p class="analytics-note">${esc(body)}</p>
+  </article>`;
+}
+
+function actionBadge(action) {
+  const safeAction = action || "hold";
+  const tone = safeAction === "buy" ? "success" : safeAction === "sell" ? "error" : safeAction === "transfer" ? "info" : "warning";
+  return `<span class="badge badge--${tone}">${esc(safeAction)}</span>`;
+}
+
+function advancedAnalyticsPage() {
+  const data = analyticsData();
+  const summary = data.summary || {};
+  const assumptions = data.assumptions || {};
+  const hasData = Number(summary.analyzedSkus) > 0;
+  if (!hasData) {
+    return pageShell("Advanced Analytics", "GMROI, service levels, reorder points, and SKU diagnostics.", `
+      <article class="card empty-state">
+        <div>
+          <p class="eyebrow">Waiting for connected data</p>
+          <h2 class="text-lg">Connect Shopify, Clover, Square, or CSV sales to unlock advanced analytics.</h2>
+          <p class="muted">Once sales and inventory sync, this page calculates SKU-level reorder points, safety stock, days of cover, GMROI, and ABC ranking.</p>
+          <button class="btn-primary" data-route="/connect" type="button">Connect data</button>
+        </div>
+      </article>
+    `);
+  }
+  const actionCounts = summary.actionCounts || {};
+  const topSkus = (data.skus || []).slice(0, 12);
+  const abcGroups = ["A", "B", "C"].map(group => ({
+    group,
+    items: (data.abc || []).filter(item => item.group === group).slice(0, 5),
+  }));
+  return pageShell("Advanced Analytics", "GMROI, service levels, reorder math, and SKU diagnostics from connected data.", `
+    <section class="analytics-metric-grid">
+      ${analyticsMetric("Service Level", fmtPercent(summary.serviceLevel), `${fmt(summary.highRiskSkus || 0)} high risk`, "Percent of analyzed SKUs with stock above reorder point.", (summary.serviceLevel || 0) >= 90 ? "good" : (summary.serviceLevel || 0) >= 70 ? "warning" : "bad")}
+      ${analyticsMetric("GMROI", `${fmtDecimal(summary.gmroi, 2)}x`, moneyShort(summary.grossMargin), "Gross margin dollars divided by inventory value.", (summary.gmroi || 0) >= 2 ? "good" : (summary.gmroi || 0) >= 1 ? "warning" : "bad")}
+      ${analyticsMetric("Inventory Turnover", `${fmtDecimal(summary.inventoryTurnover, 2)}x`, `${fmt(summary.totalOnHand || 0)} on hand`, "Annualized units sold divided by average on-hand inventory.", (summary.inventoryTurnover || 0) >= 4 ? "good" : (summary.inventoryTurnover || 0) >= 1 ? "warning" : "bad")}
+      ${analyticsMetric("Demand Volatility", fmtPercent(summary.demandVolatility), `${fmtDecimal(summary.avgDaysCover, 1)} days cover`, "Coefficient of variation across SKU weekly demand.", (summary.demandVolatility || 0) <= 45 ? "good" : (summary.demandVolatility || 0) <= 90 ? "warning" : "bad")}
+    </section>
+
+    <section class="grid-2 analytics-section-grid">
+      <article class="card">
+        <p class="eyebrow">Formula library</p>
+        <h2 class="text-lg">What the backend is calculating</h2>
+        <div class="formula-grid">${(data.formulas || []).map(formula => `<div class="formula-card">
+          <strong>${esc(formula.name)}</strong>
+          <p class="formula-equation">${esc(formula.equation)}</p>
+          <p class="muted">${esc(formula.description)}</p>
+        </div>`).join("")}</div>
+      </article>
+      <article class="card">
+        <p class="eyebrow">Planning assumptions</p>
+        <h2 class="text-lg">Current model settings</h2>
+        <div class="assumption-grid">
+          <div class="assumption-chip"><span>Lead time</span><strong>${fmt(assumptions.leadTimeDays || 0)} days</strong></div>
+          <div class="assumption-chip"><span>Service target</span><strong>${fmtPercent((assumptions.targetServiceLevel || 0) * 100)}</strong></div>
+          <div class="assumption-chip"><span>Safety stock z-score</span><strong>${fmtDecimal(assumptions.zScore, 2)}</strong></div>
+          <div class="assumption-chip"><span>Carrying cost</span><strong>${fmtPercent((assumptions.carryingCostRate || 0) * 100)}</strong></div>
+          <div class="assumption-chip"><span>Gross margin</span><strong>${fmtPercent((assumptions.grossMarginRate || 0) * 100)}</strong></div>
+          <div class="assumption-chip"><span>Forecast horizon</span><strong>${fmt(assumptions.forecastHorizonWeeks || 0)} weeks</strong></div>
+        </div>
+        <div class="report-list analytics-actions">
+          <div class="report-row"><span>Buy actions</span><span class="mono">${fmt(actionCounts.buy || 0)}</span></div>
+          <div class="report-row"><span>Hold actions</span><span class="mono">${fmt(actionCounts.hold || 0)}</span></div>
+          <div class="report-row"><span>Sell actions</span><span class="mono">${fmt(actionCounts.sell || 0)}</span></div>
+        </div>
+      </article>
+    </section>
+
+    <article class="card">
+      <div class="toolbar-spread">
+        <div>
+          <p class="eyebrow">SKU diagnostics</p>
+          <h2 class="text-lg">Reorder point, safety stock, and margin risk</h2>
+        </div>
+        <span class="badge badge--info">${fmt(summary.analyzedSkus || 0)} analyzed SKUs</span>
+      </div>
+      <div class="table-wrap" style="margin-top:var(--space-4)">
+        <table class="data-table">
+          <thead><tr><th>Product</th><th>Action</th><th>On hand</th><th>8-week demand</th><th>Reorder point</th><th>Safety stock</th><th>Days cover</th><th>GMROI</th><th>Risk</th></tr></thead>
+          <tbody>${topSkus.map(item => `<tr>
+            <td><span class="diagnostic-product"><strong>${esc(item.product || item.sku)}</strong><span class="mono muted">${esc(item.sku)}</span></span></td>
+            <td>${actionBadge(item.action)}</td>
+            <td class="mono">${fmt(item.current)}</td>
+            <td class="mono">${fmt(item.forecast8w)}</td>
+            <td class="mono">${fmt(item.reorderPoint)}</td>
+            <td class="mono">${fmt(item.safetyStock)}</td>
+            <td class="mono">${fmtDecimal(item.daysCover, 1)}</td>
+            <td class="mono">${fmtDecimal(item.gmroi, 2)}x</td>
+            <td class="mono severity-${item.riskScore >= 70 ? "high" : item.riskScore >= 40 ? "medium" : "low"}">${fmt(item.riskScore)}</td>
+          </tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </article>
+
+    <section class="abc-grid">
+      ${abcGroups.map(group => `<article class="card">
+        <p class="eyebrow">ABC class ${group.group}</p>
+        <h2 class="text-lg">${group.group === "A" ? "Highest value movers" : group.group === "B" ? "Mid-value contributors" : "Long-tail SKUs"}</h2>
+        <div class="abc-list">${group.items.length ? group.items.map(item => `<div class="abc-row"><span>${esc(item.product || item.sku)}</span><strong class="mono">${fmtPercent(item.cumulativeShare)}</strong></div>`).join("") : `<p class="muted">No SKUs in this class yet.</p>`}</div>
+      </article>`).join("")}
+    </section>
+  `);
+}
+
 function reportsPage() {
   const rows = executiveSummaryRows();
+  const advanced = state.advancedAnalytics?.summary;
+  const advancedRows = advanced ? [
+    ["Service Level", fmtPercent(advanced.serviceLevel)],
+    ["GMROI", `${fmtDecimal(advanced.gmroi, 2)}x`],
+    ["Inventory Turnover", `${fmtDecimal(advanced.inventoryTurnover, 2)}x`],
+    ["Average Days Cover", `${fmtDecimal(advanced.avgDaysCover, 1)} days`],
+    ["Demand Volatility", fmtPercent(advanced.demandVolatility)],
+  ] : [];
   return pageShell("Reports", "Executive summary and exportable metrics.", `
     <article class="card"><div class="toolbar-spread"><div><p class="eyebrow">Executive report</p><h2 class="text-lg">Inventory Health Summary</h2></div><button class="btn-primary" data-download type="button">${state.reportBusy ? spinner("Exporting...") : "Download report"}</button></div><div class="report-list" style="margin-top:var(--space-6)">${rows.map(([a, b]) => `<div class="report-row"><span>${a}</span><span class="mono">${b}</span></div>`).join("")}</div></article>
+    ${advancedRows.length ? `<article class="card"><p class="eyebrow">Advanced metrics</p><h2 class="text-lg">Operating quality signals</h2><div class="report-list" style="margin-top:var(--space-4)">${advancedRows.map(([a, b]) => `<div class="report-row"><span>${a}</span><span class="mono">${b}</span></div>`).join("")}</div></article>` : ""}
   `);
 }
 
@@ -1352,7 +1493,7 @@ function render() {
     bind();
     return;
   }
-  const views = { "/": dashboard, "/dashboard": dashboard, "/connect": connectPage, "/forecasts": forecastsPage, "/inventory": inventoryPage, "/marketplace": marketplacePage, "/community": communityPage, "/pricing": pricingPage, "/reports": reportsPage, "/profile": profilePage };
+  const views = { "/": dashboard, "/dashboard": dashboard, "/connect": connectPage, "/forecasts": forecastsPage, "/inventory": inventoryPage, "/analytics": advancedAnalyticsPage, "/marketplace": marketplacePage, "/community": communityPage, "/pricing": pricingPage, "/reports": reportsPage, "/profile": profilePage };
   app.innerHTML = layout((views[state.path] || dashboard)());
   bind();
 }
@@ -1560,13 +1701,15 @@ async function apiAuthedGet(path) {
 async function loadConnectionData() {
   if (!state.accessToken) return;
   try {
-    const [statusData, salesData] = await Promise.all([
+    const [statusData, salesData, advancedData] = await Promise.all([
       apiAuthedGet("/api/integrations/status"),
       apiAuthedGet("/api/integrations/sales"),
+      apiAuthedGet("/api/analytics/advanced"),
     ]);
     for (const provider of statusData.providers || []) state.connectionStatus[provider.provider] = provider;
     state.salesRecords = salesData.records || [];
     state.inventoryItems = salesData.inventory || [];
+    state.advancedAnalytics = advancedData;
     if (state.salesRecords.length) {
       state.checklist.sales = true;
       state.checklist.inventory = true;
@@ -1684,6 +1827,7 @@ async function signOut() {
   state.authUser = null;
   state.salesRecords = [];
   state.inventoryItems = [];
+  state.advancedAnalytics = null;
   state.authBusy = false;
   sessionStorage.removeItem("ll_redirect_after_login");
   showToast("Signed out.", "info");

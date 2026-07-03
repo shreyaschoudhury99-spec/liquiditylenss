@@ -369,6 +369,243 @@ function clampNumber(value, fallback, min, max) {
   return Math.max(min, Math.min(max, parsed));
 }
 
+function numeric(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function round(value, places = 2) {
+  const parsed = numeric(value);
+  const factor = 10 ** places;
+  return Math.round(parsed * factor) / factor;
+}
+
+function average(values) {
+  const filtered = values.filter(value => Number.isFinite(value));
+  if (!filtered.length) return 0;
+  return filtered.reduce((sum, value) => sum + value, 0) / filtered.length;
+}
+
+function stdDev(values) {
+  const filtered = values.filter(value => Number.isFinite(value));
+  if (filtered.length < 2) return 0;
+  const mean = average(filtered);
+  const variance = filtered.reduce((sum, value) => sum + (value - mean) ** 2, 0) / filtered.length;
+  return Math.sqrt(variance);
+}
+
+function weekKey(dateValue) {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  const utc = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  const day = new Date(utc).getUTCDay() || 7;
+  const monday = utc - (day - 1) * 86400000;
+  return new Date(monday).toISOString().slice(0, 10);
+}
+
+function weekSpan(start, end) {
+  if (!start || !end) return 1;
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 1;
+  return Math.max(1, Math.ceil((endDate - startDate + 86400000) / (7 * 86400000)));
+}
+
+function buildAdvancedAnalytics(salesRows = [], inventoryRows = []) {
+  const assumptions = {
+    leadTimeDays: 14,
+    targetServiceLevel: 0.95,
+    zScore: 1.65,
+    grossMarginRate: 0.42,
+    carryingCostRate: 0.25,
+    forecastHorizonWeeks: 8,
+  };
+  const inventoryBySku = new Map();
+  const salesBySku = new Map();
+
+  for (const item of inventoryRows) {
+    const sku = String(item.sku || "").trim();
+    if (!sku) continue;
+    const current = inventoryBySku.get(sku) || {
+      sku,
+      product: item.product || sku,
+      currentUnits: 0,
+      price: 0,
+      locations: new Set(),
+      sources: new Set(),
+    };
+    current.currentUnits += numeric(item.current);
+    if (numeric(item.price) > 0) current.price = numeric(item.price);
+    if (item.product) current.product = item.product;
+    if (item.location) current.locations.add(item.location);
+    if (item.source) current.sources.add(item.source);
+    inventoryBySku.set(sku, current);
+  }
+
+  for (const row of salesRows) {
+    const sku = String(row.sku || "").trim();
+    if (!sku) continue;
+    const current = salesBySku.get(sku) || {
+      sku,
+      quantity: 0,
+      rowCount: 0,
+      firstDate: "",
+      lastDate: "",
+      weeks: new Map(),
+      locations: new Set(),
+      sources: new Set(),
+    };
+    const quantity = numeric(row.quantity);
+    const date = row.date ? String(row.date).slice(0, 10) : "";
+    current.quantity += quantity;
+    current.rowCount += 1;
+    if (date && (!current.firstDate || date < current.firstDate)) current.firstDate = date;
+    if (date && (!current.lastDate || date > current.lastDate)) current.lastDate = date;
+    const key = weekKey(row.date);
+    current.weeks.set(key, (current.weeks.get(key) || 0) + quantity);
+    if (row.location) current.locations.add(row.location);
+    if (row.source) current.sources.add(row.source);
+    salesBySku.set(sku, current);
+  }
+
+  const skuKeys = [...new Set([...inventoryBySku.keys(), ...salesBySku.keys()])];
+  const skus = skuKeys.map(sku => {
+    const inventory = inventoryBySku.get(sku) || {
+      sku,
+      product: sku,
+      currentUnits: 0,
+      price: 0,
+      locations: new Set(),
+      sources: new Set(),
+    };
+    const sales = salesBySku.get(sku) || {
+      sku,
+      quantity: 0,
+      rowCount: 0,
+      firstDate: "",
+      lastDate: "",
+      weeks: new Map(),
+      locations: new Set(),
+      sources: new Set(),
+    };
+    const observedWeeks = weekSpan(sales.firstDate, sales.lastDate);
+    const weeklyValues = [...sales.weeks.values()];
+    const avgWeeklyDemand = sales.quantity / observedWeeks;
+    const weeklyStd = stdDev(weeklyValues.length ? weeklyValues : [avgWeeklyDemand]);
+    const avgDailyDemand = avgWeeklyDemand / 7;
+    const dailyStd = weeklyStd / Math.sqrt(7);
+    const forecast8w = avgWeeklyDemand * assumptions.forecastHorizonWeeks;
+    const safetyStock = assumptions.zScore * dailyStd * Math.sqrt(assumptions.leadTimeDays);
+    const reorderPoint = avgDailyDemand * assumptions.leadTimeDays + safetyStock;
+    const currentUnits = Math.max(0, inventory.currentUnits);
+    const price = Math.max(0, inventory.price);
+    const shortfall = Math.max(0, forecast8w - currentUnits);
+    const excessUnits = Math.max(0, currentUnits - forecast8w);
+    const stockoutRisk = forecast8w ? Math.min(100, (shortfall / forecast8w) * 100) : 0;
+    const daysCover = avgDailyDemand ? currentUnits / avgDailyDemand : (currentUnits > 0 ? 999 : 0);
+    const sellThrough = sales.quantity + currentUnits ? (sales.quantity / (sales.quantity + currentUnits)) * 100 : 0;
+    const revenue = sales.quantity * price;
+    const inventoryValue = currentUnits * price;
+    const revenueAtRisk = shortfall * price;
+    const excessCost = excessUnits * price * assumptions.carryingCostRate;
+    const confidence = Math.min(95, Math.max(20, 30 + observedWeeks * 8 + sales.rowCount * 3));
+    const action = shortfall > reorderPoint
+      ? "buy"
+      : excessUnits > Math.max(10, forecast8w * 0.75)
+        ? "sell"
+        : inventory.locations.size > 1 && (shortfall || excessUnits)
+          ? "transfer"
+          : "hold";
+
+    return {
+      sku,
+      product: inventory.product || sku,
+      source: [...new Set([...inventory.sources, ...sales.sources])].join(", ") || "unknown",
+      locationCount: new Set([...inventory.locations, ...sales.locations]).size,
+      current: round(currentUnits, 0),
+      currentUnits: round(currentUnits, 0),
+      soldUnits: round(sales.quantity, 0),
+      avgWeeklyDemand: round(avgWeeklyDemand, 2),
+      forecast8w: round(forecast8w, 0),
+      safetyStock: round(safetyStock, 1),
+      reorderPoint: round(reorderPoint, 1),
+      daysCover: round(Math.min(daysCover, 999), 1),
+      sellThrough: round(sellThrough, 1),
+      stockoutRisk: round(stockoutRisk, 1),
+      riskScore: round(stockoutRisk, 1),
+      revenue: round(revenue, 2),
+      inventoryValue: round(inventoryValue, 2),
+      revenueAtRisk: round(revenueAtRisk, 2),
+      excessCost: round(excessCost, 2),
+      confidence: round(confidence, 0),
+      action,
+    };
+  }).sort((a, b) => b.revenueAtRisk - a.revenueAtRisk || b.stockoutRisk - a.stockoutRisk);
+
+  const revenueTotal = skus.reduce((sum, sku) => sum + sku.revenue, 0);
+  let cumulativeRevenue = 0;
+  const abc = [...skus].sort((a, b) => b.revenue - a.revenue).map(item => {
+    cumulativeRevenue += item.revenue;
+    const cumulativeShare = revenueTotal ? (cumulativeRevenue / revenueTotal) * 100 : 0;
+    return {
+      sku: item.sku,
+      product: item.product,
+      revenue: round(item.revenue, 2),
+      share: round(revenueTotal ? (item.revenue / revenueTotal) * 100 : 0, 1),
+      cumulativeShare: round(cumulativeShare, 1),
+      group: cumulativeShare <= 80 ? "A" : cumulativeShare <= 95 ? "B" : "C",
+      className: cumulativeShare <= 80 ? "A" : cumulativeShare <= 95 ? "B" : "C",
+    };
+  });
+
+  const grossMargin = revenueTotal * assumptions.grossMarginRate;
+  const cogs = revenueTotal * (1 - assumptions.grossMarginRate);
+  const inventoryValue = skus.reduce((sum, sku) => sum + sku.inventoryValue, 0);
+  const avgInventoryCost = inventoryValue * (1 - assumptions.grossMarginRate);
+  const forecast8w = skus.reduce((sum, sku) => sum + sku.forecast8w, 0);
+  const totalShortfall = skus.reduce((sum, sku) => sum + Math.max(0, sku.forecast8w - sku.currentUnits), 0);
+  const avgWeeklyValues = skus.map(sku => sku.avgWeeklyDemand).filter(value => value > 0);
+  const actionCounts = skus.reduce((counts, sku) => {
+    counts[sku.action] = (counts[sku.action] || 0) + 1;
+    return counts;
+  }, {});
+
+  return {
+    summary: {
+      analyzedSkus: skus.length,
+      salesRows: salesRows.length,
+      inventoryRows: inventoryRows.length,
+      totalUnitsSold: round(skus.reduce((sum, sku) => sum + sku.soldUnits, 0), 0),
+      totalOnHand: round(skus.reduce((sum, sku) => sum + sku.currentUnits, 0), 0),
+      forecast8w: round(forecast8w, 0),
+      inventoryValue: round(inventoryValue, 2),
+      revenueAtRisk: round(skus.reduce((sum, sku) => sum + sku.revenueAtRisk, 0), 2),
+      excessCost: round(skus.reduce((sum, sku) => sum + sku.excessCost, 0), 2),
+      grossMargin: round(grossMargin, 2),
+      gmroi: round(avgInventoryCost ? grossMargin / avgInventoryCost : 0, 2),
+      inventoryTurnover: round(avgInventoryCost ? cogs / avgInventoryCost : 0, 2),
+      serviceLevel: round(forecast8w ? Math.max(0, (1 - totalShortfall / forecast8w) * 100) : 100, 1),
+      demandVolatility: round(average(avgWeeklyValues) ? (stdDev(avgWeeklyValues) / average(avgWeeklyValues)) * 100 : 0, 1),
+      avgDaysCover: round(average(skus.map(sku => Math.min(sku.daysCover, 999))), 1),
+      highRiskSkus: skus.filter(sku => sku.stockoutRisk >= 70).length,
+      deadStockSkus: skus.filter(sku => sku.currentUnits > 0 && sku.soldUnits === 0).length,
+      actionCounts,
+    },
+    assumptions,
+    formulas: [
+      { name: "Reorder point", equation: "(avg daily demand x lead time days) + safety stock", description: "Minimum on-hand units before replenishment is triggered." },
+      { name: "Safety stock", equation: "Z x sigma(daily demand) x sqrt(lead time days)", description: "Buffer inventory for demand variability during replenishment." },
+      { name: "Days of cover", equation: "on-hand units / avg daily demand", description: "How long current inventory lasts at observed velocity." },
+      { name: "Sell-through", equation: "units sold / (units sold + on hand)", description: "How much available product has converted into demand." },
+      { name: "GMROI", equation: "gross margin dollars / average inventory cost", description: "Margin generated for each dollar held in inventory." },
+      { name: "Service level", equation: "1 - projected shortfall / forecast demand", description: "Estimated ability to satisfy demand from current stock." },
+      { name: "Demand CV", equation: "std dev weekly demand / avg weekly demand", description: "Volatility signal for forecast uncertainty." },
+    ],
+    abc,
+    skus,
+  };
+}
+
 function overpassShopFilter(category) {
   const categories = {
     food: "supermarket|convenience|bakery|butcher|greengrocer|deli|beverages",
@@ -1362,6 +1599,26 @@ app.get("/api/integrations/sales", authUser, asyncRoute(async (req, res) => {
   res.json({ records: salesResult.rows, inventory: inventoryResult.rows });
 }));
 
+app.get("/api/analytics/advanced", authUser, asyncRoute(async (req, res) => {
+  const salesResult = await pool.query(
+    `SELECT sku, sale_date AS date, quantity::float AS quantity, location, source
+     FROM sales_records
+     WHERE user_id = $1
+     ORDER BY sale_date ASC, sku ASC
+     LIMIT 10000`,
+    [req.user.sub]
+  );
+  const inventoryResult = await pool.query(
+    `SELECT sku, product, current_quantity::float AS current, unit_price::float AS price, location, source
+     FROM inventory_items
+     WHERE user_id = $1
+     ORDER BY product ASC, sku ASC
+     LIMIT 10000`,
+    [req.user.sub]
+  );
+  res.json(buildAdvancedAnalytics(salesResult.rows, inventoryResult.rows));
+}));
+
 app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
   const location = String(req.query.location || "").trim();
   if (!location) return error(res, 400, "Enter a city, ZIP code, or address to find nearby businesses.", "LOCATION_REQUIRED");
@@ -1910,6 +2167,7 @@ function metaForPath(pathname) {
     "/connect": ["Connect Store | LiquidityLens", "Connect POS, ERP, or CSV inventory data to start forecasting."],
     "/forecasts": ["Forecasts | LiquidityLens", "Demand forecasts with confidence bands and model comparison."],
     "/inventory": ["Inventory | LiquidityLens", "SKU-level buy, sell, hold, and transfer recommendations."],
+    "/analytics": ["Advanced Analytics | LiquidityLens", "Track GMROI, service levels, reorder points, safety stock, ABC classes, and SKU diagnostics from connected sales and inventory data."],
     "/marketplace": ["Marketplace | LiquidityLens", "Find nearby retailers with matching inventory excess or shortage signals."],
     "/community": ["Community | LiquidityLens", "Coordinate markdowns, delivery routes, and bulk buys with retail peers."],
     "/pricing": ["Pricing | LiquidityLens", "Tiered LiquidityLens subscription plans for retailers from single-store teams to enterprise networks."],
