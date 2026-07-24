@@ -39,7 +39,6 @@ const navItems = [
   ["/analytics", "Advanced Analytics", "calculator"],
   ["/marketplace", "Marketplace", "store"],
   ["/community", "Community", "messages"],
-  ["/pricing", "Pricing", "credit-card"],
   ["/admin", "Admin", "shield"],
   ["/reports", "Reports", "file-text"],
   ["/profile", "Profile", "user"],
@@ -543,6 +542,52 @@ function importedDashboardMetrics(products) {
   };
 }
 
+function shopifyOperatingHub(products) {
+  const shopify = state.connectionStatus?.shopify || {};
+  const inventoryRecords = state.inventoryItems.length;
+  const salesRows = state.salesRecords.length;
+  const locations = new Set(state.inventoryItems.map(item => item.location).filter(Boolean)).size;
+  const connected = shopify.status === "connected";
+  const rows = products.slice(0, 6);
+  return `<section class="shopify-hub">
+    <article class="card shopify-hub-overview">
+      <div class="toolbar-spread">
+        <div>
+          <p class="eyebrow">Shopify data mirror</p>
+          <h2 class="text-lg">${connected ? esc(displayNameFromShopifyAccount(shopify.externalAccount) || "Connected Shopify store") : "Connect Shopify to replace back-and-forth reporting"}</h2>
+          <p class="muted">Products, variants, inventory levels, locations, and order rows sync into LiquidityLink so the app acts as the planning view on top of Shopify.</p>
+        </div>
+        <span class="badge badge--${connected ? "success" : "info"}">${esc((shopify.status || "not connected").replaceAll("_", " "))}</span>
+      </div>
+      <div class="shopify-hub-kpis">
+        <span><strong>${fmt(products.length)}</strong><em>analyzed SKUs</em></span>
+        <span><strong>${fmt(inventoryRecords)}</strong><em>inventory records</em></span>
+        <span><strong>${fmt(salesRows)}</strong><em>order rows</em></span>
+        <span><strong>${fmt(locations)}</strong><em>locations</em></span>
+      </div>
+    </article>
+    <article class="card shopify-hub-table">
+      <div class="toolbar-spread">
+        <div><p class="eyebrow">Operating table</p><h2 class="text-lg">Shopify SKUs with LiquidityLink decisions</h2></div>
+        <a class="btn-ghost" href="/inventory" data-route="/inventory">View all inventory</a>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Product</th><th>On hand</th><th>30-day demand</th><th>Stockout</th><th>Overstock</th><th>Action</th></tr></thead>
+          <tbody>${rows.length ? rows.map(item => `<tr>
+            <td><strong>${esc(item.product || item.sku)}</strong><br><span class="mono muted">${esc(item.sku)}</span></td>
+            <td class="mono">${fmt(item.current)}</td>
+            <td class="mono">${fmt(item.forecast)}</td>
+            <td class="mono ${severity(item.stockout)}">${fmtDecimal(item.stockout, 1)}%</td>
+            <td class="mono ${severity(item.overstock)}">${fmtDecimal(item.overstock, 1)}%</td>
+            <td>${actionBadge(item.action)}</td>
+          </tr>`).join("") : `<tr><td colspan="6" class="muted">No Shopify products synced yet.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </article>
+  </section>`;
+}
+
 function executiveSummaryRows() {
   if (!state.salesRecords.length && !state.inventoryItems.length) {
     return [
@@ -612,6 +657,85 @@ function forecastSummary(chartData) {
     xgbLabel: state.salesRecords.length ? "Inventory-adjusted forecast from synced SKU data." : hasInventoryOnly ? "Inventory is live; demand needs orders." : "Signal-adjusted regional demand.",
     ensembleLabel: state.salesRecords.length ? "Operational forecast from live store sales and inventory." : hasInventoryOnly ? "Connect order history to forecast demand." : "Operational forecast used for recommendations.",
   };
+}
+
+function modelDiagnostics(chartData, products) {
+  const summary = state.advancedAnalytics?.summary || {};
+  const last = safeForecastPoint(chartData[chartData.length - 1] || {}, chartData.length - 1);
+  const salesRows = state.salesRecords.length;
+  const analyzed = products.length || finiteNumber(summary.analyzedSkus);
+  const avgRisk = products.length ? Math.round(products.reduce((sum, item) => sum + finiteNumber(item.stockout || item.riskScore), 0) / products.length) : finiteNumber(summary.riskScore);
+  return [
+    {
+      name: "Holt trend",
+      value: fmt(last.arima),
+      confidence: salesRows >= 20 ? "calibrated" : "early",
+      detail: "Smooths weekly demand and handles sparse Shopify order history without overfitting.",
+    },
+    {
+      name: "ARIMA baseline",
+      value: fmt(last.arima),
+      confidence: salesRows >= 52 ? "seasonal" : "limited history",
+      detail: "Uses observed recurring demand as the conservative baseline forecast.",
+    },
+    {
+      name: "XGBoost signal",
+      value: fmt(last.xgboost),
+      confidence: state.inventoryItems.length ? "inventory aware" : "needs stock",
+      detail: "Adjusts demand using inventory on hand, price, location, and action signals.",
+    },
+    {
+      name: "Monte Carlo risk",
+      value: `${fmtDecimal(Math.max(8, Math.min(68, avgRisk / 1.5)), 1)}%`,
+      confidence: `${fmt(analyzed)} SKUs`,
+      detail: "Stress-tests stockout and overstock exposure across demand-band scenarios.",
+    },
+    {
+      name: "Ensemble decision",
+      value: fmt(last.ensemble),
+      confidence: "recommended",
+      detail: "Blends the models into the final buy, sell, hold, or transfer queue.",
+    },
+  ];
+}
+
+function modelDiagnosticsGrid(chartData, products) {
+  return `<section class="model-diagnostics-grid">
+    ${modelDiagnostics(chartData, products).map((model, index) => `<article class="model-card ${index === 4 ? "model-card--active" : ""}">
+      <div><p class="eyebrow">${esc(model.name)}</p><strong>${esc(model.value)}</strong></div>
+      <span>${esc(model.confidence)}</span>
+      <p>${esc(model.detail)}</p>
+    </article>`).join("")}
+  </section>`;
+}
+
+function riskModelWorkbench(products) {
+  const rows = products.slice(0, 5);
+  if (!rows.length) return "";
+  return `<section class="card risk-workbench">
+    <div>
+      <p class="eyebrow">Risk analysis models</p>
+      <h2 class="text-lg">SKU decision stack</h2>
+      <p class="muted">The platform now shows multiple risk lenses instead of a single score: service gap, cash exposure, transfer fit, and confidence penalty.</p>
+    </div>
+    <div class="risk-stack">
+      ${rows.map(item => {
+        const stockout = finiteNumber(item.stockout ?? item.riskScore);
+        const overstock = finiteNumber(item.overstock);
+        const confidencePenalty = Math.max(0, Math.round(100 - finiteNumber(item.confidence, 0.35) * 100));
+        const transferFit = item.action === "transfer" ? 86 : item.action === "buy" ? 52 : item.action === "sell" ? 44 : 24;
+        return `<div class="risk-stack-row">
+          <strong>${esc(item.product || item.sku)}</strong>
+          ${[
+            ["Service gap", stockout],
+            ["Cash exposure", overstock],
+            ["Transfer fit", transferFit],
+            ["Data penalty", confidencePenalty],
+          ].map(([label, value]) => `<span><em>${esc(label)}</em><i style="--score:${Math.max(4, Math.min(100, finiteNumber(value)))}%"></i><b>${fmtDecimal(value, 0)}</b></span>`).join("")}
+        </div>`;
+      }).join("")}
+    </div>
+  </section>`;
 }
 
 function seasonalDemandData() {
@@ -734,7 +858,6 @@ function layout(content) {
     ["/", "Home"],
     ["/platform", "Platform"],
     ["/features", "Features"],
-    ["/pricing", "Pricing"],
     ["/integrations", "Integrations"],
     ["/security", "Security"],
     ["/book-demo", "Book demo"],
@@ -909,6 +1032,74 @@ function dashboardPreview() {
   </div>`;
 }
 
+function syncMirrorVisual() {
+  return `<div class="sync-mirror-visual" aria-label="Shopify data replacement preview">
+    <div class="mirror-sidebar">
+      ${["Products", "Variants", "Inventory", "Orders", "Locations"].map((item, index) => `<span class="${index === 2 ? "active" : ""}">${esc(item)}</span>`).join("")}
+    </div>
+    <div class="mirror-main">
+      <div class="chart-label"><strong>Shopify operating mirror</strong><span>catalog, stock, and order history</span></div>
+      <div class="mirror-kpis">
+        <span><strong>30</strong><em>inventory records</em></span>
+        <span><strong>2</strong><em>order rows</em></span>
+        <span><strong>8</strong><em>forecast weeks</em></span>
+      </div>
+      <div class="mirror-table">
+        ${[
+          ["Trail Running Shoes M10", "84 on hand", "BUY", "91% stockout"],
+          ["Dry Bag 10L", "63 on hand", "TRANSFER", "West covers North"],
+          ["Insulated Bottle 32oz", "512 on hand", "SELL", "$18K excess"],
+        ].map(([product, stock, action, note]) => `<div><span><strong>${esc(product)}</strong><em>${esc(stock)}</em></span><b>${esc(action)}</b><small>${esc(note)}</small></div>`).join("")}
+      </div>
+    </div>
+  </div>`;
+}
+
+function roleWorkspaceVisual() {
+  return `<div class="role-workspace-visual">
+    <div class="role-tabs">${["Planner", "Ops", "CFO"].map((role, index) => `<span class="${index === 0 ? "active" : ""}">${role}</span>`).join("")}</div>
+    <div class="role-dashboard">
+      <div><p class="eyebrow">Planner queue</p><strong>18 actions</strong><span>Ranked by revenue impact</span></div>
+      <div><p class="eyebrow">Ops view</p><strong>4 transfers</strong><span>Location-level recovery</span></div>
+      <div><p class="eyebrow">Finance</p><strong>$39K</strong><span>Cash exposure flagged</span></div>
+    </div>
+    <div class="role-flow"><span>SKU risk</span><i></i><span>Role context</span><i></i><span>Decision</span></div>
+  </div>`;
+}
+
+function categoryHealthVisual() {
+  return `<div class="category-health-visual">
+    <div class="chart-label"><strong>Category health</strong><span>demand, margin, and coverage</span></div>
+    ${[
+      ["Footwear", 88, "High stockout pressure"],
+      ["Outdoor", 64, "Transfer candidates"],
+      ["Apparel", 42, "Markdown watch"],
+      ["Home", 28, "Stable coverage"],
+    ].map(([label, value, note]) => `<div class="category-row"><span>${esc(label)}</span><i style="--score:${value}%"></i><strong>${value}</strong><em>${esc(note)}</em></div>`).join("")}
+  </div>`;
+}
+
+function securityControlsVisual() {
+  return `<div class="security-controls-visual">
+    <div class="chart-label"><strong>Enterprise controls</strong><span>secrets stay server-side</span></div>
+    ${[
+      ["OAuth token vault", "encrypted"],
+      ["Role access", "active"],
+      ["Audit log", "capturing"],
+      ["Model notes", "visible"],
+    ].map(([label, status]) => `<div class="control-row"><span>${icon("shield")}${esc(label)}</span><b>${esc(status)}</b></div>`).join("")}
+    <div class="control-line"><span></span><span></span><span></span></div>
+  </div>`;
+}
+
+function cleanForecastVisual() {
+  return `<div class="clean-forecast-visual">
+    <div class="chart-label"><strong>Forecast lab</strong><span>baseline, boosted trees, and ensemble</span></div>
+    ${forecastMockup()}
+    <div class="model-pill-row">${["Holt trend", "ARIMA", "XGBoost", "Monte Carlo", "Ensemble"].map((model, index) => `<span class="${index === 4 ? "active" : ""}">${esc(model)}</span>`).join("")}</div>
+  </div>`;
+}
+
 function queueRows(mode = "understock") {
   const rows = {
     understock: [
@@ -1031,6 +1222,14 @@ function growthImpactVisual() {
 function pricingModelVisual() {
   return `<div class="pricing-visual">
     <div class="chart-label"><strong>Pilot economics</strong><span>illustrative monthly range</span></div>
+    <div class="pricing-curve">
+      ${[["CSV", 18], ["Shopify", 32], ["Multi-store", 58], ["Optimization", 84]].map(([label, height]) => `<span style="--height:${height}%"><b></b><em>${esc(label)}</em></span>`).join("")}
+    </div>
+    <div class="pricing-mini-kpis">
+      <span><strong>30-60d</strong><em>pilot</em></span>
+      <span><strong>SKU + store</strong><em>scope</em></span>
+      <span><strong>Sales-led</strong><em>range</em></span>
+    </div>
     ${[["Small", "$199-$499", "CSV / Shopify pilot"], ["Regional", "$1K-$5K", "Multi-store risk modeling"], ["Enterprise", "$10K+", "Custom analytics + support"]].map(([tier, price, note]) => `<div class="persona-row"><span><strong>${tier}</strong><em>${note}</em></span><b>${price}</b></div>`).join("")}
     <p class="chart-caption">Pricing is shown as a sales-led range because deployment scope changes with store count, data sources, and analytics depth.</p>
   </div>`;
@@ -1109,7 +1308,7 @@ function enterpriseFaq() {
 }
 
 function platformPage() {
-  return `${pageHero("Platform", "A predictive operating layer for retail inventory.", "Unify sales, inventory, and supplier signals so every team can work from the same forward-looking plan.", productFrame("Dashboard", dashboardPreview(), "Dashboard, forecast, and SKU action views combined into one operating surface."), "platform")}
+  return `${pageHero("Platform", "A predictive operating layer for retail inventory.", "Unify sales, inventory, and supplier signals so every team can work from the same forward-looking plan.", productFrame("Shopify mirror", syncMirrorVisual(), "Product, variant, inventory, order, and location data in one planning surface."), "platform")}
   ${pageInteractive("Switch from shortage response to overstock recovery.", "The same operating layer can move from urgent replenishment to cash-release planning without changing tools.", "overstock")}
   ${marketingSection("Operating model", "From source data to decision queue.", "LiquidityLink normalizes commerce and POS data, models forward demand, then ranks the actions most likely to protect revenue and cash.", `<div class="process-lane">${["Connect", "Normalize", "Forecast", "Prioritize", "Report"].map((step, i) => `<div><b>${String(i + 1).padStart(2, "0")}</b><strong>${step}</strong><span>${["Shopify, Clover, Square, CSV", "SKU, location, cost, price", "Demand bands and confidence", "Buy, sell, hold, transfer", "Executive-ready summaries"][i]}</span></div>`).join("")}</div>`)}
   ${statBand([["8-week", "forecast horizon"], ["SKU + location", "planning grain"], ["Buy/sell/transfer", "action model"]])}`;
@@ -1122,7 +1321,7 @@ function featuresPage() {
     ["Forecast confidence", "Show planners when history is thin and when the model has enough evidence to be precise.", forecastMockup()],
     ["Marketplace signals", "Surface nearby retail partners and transfer opportunities when internal stock is imbalanced.", marketplaceMockup()],
   ];
-  return `${pageHero("Features", "Features that turn inventory data into action.", "Everything is organized around decisions: what to buy, what to move, what to reduce, and where cash is exposed.", productFrame("Advanced analytics", dashboardPreview()), "features")}
+  return `${pageHero("Features", "Features that turn inventory data into action.", "Everything is organized around decisions: what to buy, what to move, what to reduce, and where cash is exposed.", productFrame("Forecast lab", cleanForecastVisual(), "A cleaner model lab with inspectable forecasts and risk signals."), "features")}
   ${pageInteractive("Compare actions before planners commit.", "Use the queue mode to switch between lost-sales prevention and markdown/cash-release workflows.", "understock")}
   <section class="feature-zigzag">${features.map(([title, copy, art], i) => `<article class="${i % 2 ? "flip" : ""}"><div><p class="eyebrow">Feature ${i + 1}</p><h2>${esc(title)}</h2><p>${esc(copy)}</p></div>${productFrame(title, art)}</article>`).join("")}</section>`;
 }
@@ -1136,13 +1335,13 @@ function solutionsPage() {
     { title: "Chief Supply Chain Officers", copy: "Standardize planning intelligence across banners, categories, and geographies.", kicker: "Executive" },
     { title: "CEOs", copy: "Understand inventory health as a growth, margin, and customer experience driver.", kicker: "Executive" },
   ];
-  return `${pageHero("Solutions", "Solutions for every inventory decision maker.", "LiquidityLink gives each role the level of detail they need without forcing everyone into the same dashboard.", productFrame("Role-based workspace", dashboardPreview()), "solutions")}
+  return `${pageHero("Solutions", "Solutions for every inventory decision maker.", "LiquidityLink gives each role the level of detail they need without forcing everyone into the same dashboard.", productFrame("Role-based workspace", roleWorkspaceVisual()), "solutions")}
   ${pageInteractive("Each role can inspect the same signal differently.", "Switch the action queue to see how planners and executives move between shortage and surplus priorities.", "understock")}
   <section class="role-matrix">${cards.map((card, i) => insightCard(card, i === 3 ? "cash" : i === 4 ? "routes" : i === 5 ? "growth" : i % 3 === 0 ? "gauge" : i % 3 === 1 ? "rows" : "bars")).join("")}</section>`;
 }
 
 function industriesPage() {
-  return `${pageHero("Industries", "Built for retailers with complex demand and capital pressure.", "The model works best where inventory decisions affect cash, margin, availability, and customer trust.", productFrame("Category health", forecastMockup()), "industries")}
+  return `${pageHero("Industries", "Built for retailers with complex demand and capital pressure.", "The model works best where inventory decisions affect cash, margin, availability, and customer trust.", productFrame("Category health", categoryHealthVisual()), "industries")}
   ${pageInteractive("Tune the queue to each category's risk profile.", "Seasonal industries need both understock protection and overstock cleanup in the same planning rhythm.", "overstock")}
   <section class="industry-board">${[
     { title: "Specialty retail", copy: "Manage seasonal categories, long-tail SKUs, and local demand variation." },
@@ -1182,7 +1381,7 @@ function documentationPage() {
 }
 
 function securityPage() {
-  return `${pageHero("Security", "Security built for enterprise evaluation.", "LiquidityLink is structured so procurement, IT, and operations can understand how data is handled before a pilot expands.", productFrame("Admin controls", dashboardPreview()), "security")}
+  return `${pageHero("Security", "Security built for enterprise evaluation.", "LiquidityLink is structured so procurement, IT, and operations can understand how data is handled before a pilot expands.", productFrame("Admin controls", securityControlsVisual()), "security")}
   ${pageInteractive("Review connected data without exposing secrets.", "The interactive view uses planning outputs while provider tokens stay server-side.", "understock")}
   <section class="security-table">
     ${[
@@ -1483,6 +1682,7 @@ function dashboard() {
     ${qualityBanners}
     <div class="toolbar-spread"><p class="muted">${esc(dataSourceCopy)}</p><button class="btn-primary" data-refresh type="button" ${state.refreshing ? "disabled" : ""}>${state.refreshing ? spinner("Refreshing...") : `${icon("chart-line")}Refresh analysis`}</button></div>
     <section class="kpi-grid">${cards.map((c, i) => kpiCard(c, i)).join("")}</section>
+    ${shopifyOperatingHub(products)}
     <section class="grid-2">
       <article class="card"><div class="toolbar-spread"><div><p class="eyebrow">Forecast</p><h2 class="text-lg">8-week demand outlook</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>XGBoost</span><span><i style="background:var(--text-muted)"></i>ARIMA</span></div></div><div class="chart">${lineChart(chartData, 820, 280)}</div><p class="chart-caption"><strong>Demand forecast</strong> Weekly unit projection by model; the shaded band shows lower and upper confidence bounds.</p></article>
       <article class="card"><p class="eyebrow">Recommendations</p><h2 class="text-lg">Action queue</h2><div class="report-list">${products.slice(0, 5).map(s => `<div class="report-row"><span>${esc(s.product)}</span><span class="badge badge--${s.action}">${s.action}</span></div>`).join("")}</div></article>
@@ -1647,10 +1847,14 @@ function forecastsPage() {
     : "Starter sample forecast. Connect Shopify or upload CSV for store-specific output.";
   const modelNotes = state.salesRecords.length
     ? accordion("ARIMA", "Observed baseline", ["Uses synced Shopify order quantities grouped by SKU", "Calculates observed weekly demand from available order history", "Output: conservative demand baseline until more history is available"], "Shopify orders", "Weekly baseline")
+      + accordion("Holt trend", "Sparse-history stabilizer", ["Smooths weekly demand when Shopify history is short", "Prevents a one-order spike from becoming the whole forecast", "Output: trend-safe weekly demand path"], "Recent weekly units", "Trend forecast")
       + accordion("XGBoost", "Inventory-adjusted forecast", ["Uses synced Shopify inventory on hand and variant prices", "Compares 8-week demand against current stock", "Output: demand adjustment for buy, hold, sell, or transfer recommendations"], "Sales + inventory", "Adjusted demand")
+      + accordion("Monte Carlo", "Demand stress test", ["Simulates upside and downside demand scenarios from the confidence band", "Highlights stockout and overstock exposure under uncertainty", "Output: risk-band width and confidence penalty"], "Forecast band", "Risk distribution")
       + accordion("Ensemble", "Operational forecast", ["Blends the baseline demand forecast with inventory-adjusted signals", "Uses a wider confidence band while synced order history is limited", "Output: final forecast and SKU action recommendation"], "ARIMA + XGBoost", "Forecast + action")
     : accordion("ARIMA", "Demand baseline", ["Uses 24 months of daily sales data to detect seasonality", "Removes trend to isolate repeatable demand cycles", "Output: weekly baseline forecast ±8% confidence band"], "Daily sales", "Weekly baseline")
+      + accordion("Holt trend", "Trend smoothing", ["Responds to recent movement without overreacting to one week", "Works as a fallback for short product histories", "Output: smoothed demand trajectory"], "Weekly units", "Trend forecast")
       + accordion("XGBoost", "Signal adjustment", ["Uses promotions, holidays, stock levels, and regional signals", "Ranks demand drivers by predictive lift", "Output: demand-adjusted forecast"], "Sales + external signals", "Adjusted demand")
+      + accordion("Monte Carlo", "Risk simulation", ["Samples demand around the forecast confidence interval", "Quantifies stockout probability and excess exposure", "Output: risk distribution for planning"], "Forecast range", "Scenario risk")
       + accordion("Ensemble", "Operational forecast", ["Blends statistical baseline with ML adjustment", "Weights models by recent forecast error", "Output: SKU action recommendations"], "ARIMA + XGBoost", "Buy, sell, hold, transfer");
   return pageShell("Forecasts", "Model output, confidence bands, and seasonal demand.", `
     ${quality.enoughData === false ? `<div class="data-warning"><strong>Low-confidence forecast.</strong> Flat lines reflect limited order history, not stable demand. Add at least 20 transactions across 3 selling SKUs before using this forecast for purchasing.</div>` : ""}
@@ -1660,8 +1864,10 @@ function forecastsPage() {
       <article class="card"><p class="eyebrow">${state.salesRecords.length ? "Adjusted forecast" : "XGBoost"}</p><div class="metric-value">${fmt(summary.xgboost)}</div><p class="muted">${esc(summary.xgbLabel)}</p></article>
       <article class="card card--accent"><p class="eyebrow">Ensemble</p><div class="metric-value">${fmt(summary.ensemble)}</div><p class="muted">${esc(summary.ensembleLabel)}</p></article>
     </section>
+    ${modelDiagnosticsGrid(chartData, products)}
     <section class="card"><div class="toolbar-spread"><div><p class="eyebrow">8-week demand forecast</p><h2 class="text-lg">Forecast blend</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>Adjusted</span><span><i style="background:var(--text-muted)"></i>Baseline</span></div></div><div id="forecastChart" class="chart">${lineChart(chartData, 900, 280)}</div><p class="chart-caption"><strong>Unit forecast</strong> The x-axis is forecast week and the y-axis is projected demand units.</p></section>
     <section class="grid-2"><article class="card"><p class="eyebrow">${state.salesRecords.length ? "Forecast confidence" : "Monte Carlo simulation"}</p><div id="mcChart" class="chart chart-small">${areaChart(chartData)}</div><p class="chart-caption"><strong>Uncertainty band</strong> ${state.salesRecords.length < 20 ? "Limited order history widens the range; treat the forecast as directional." : "Range is estimated from observed weekly demand variance."}</p></article><article class="card"><p class="eyebrow">Seasonal demand</p><div id="seasonChart" class="chart chart-tiny">${barChart(seasonalDemandData())}</div><p class="chart-caption"><strong>Monthly demand</strong> Bars show units by month so buyers can see seasonal lift and troughs.</p></article></section>
+    ${riskModelWorkbench(products)}
     <section class="card"><p class="eyebrow">How each model works</p><div class="accordion">${modelNotes}</div></section>
   `);
 }
