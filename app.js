@@ -786,8 +786,8 @@ function marketingCards(cards) {
   </article>`).join("")}</div>`;
 }
 
-function productFrame(title, art, caption = "") {
-  return `<figure class="product-frame">
+function productFrame(title, art, caption = "", extraClass = "") {
+  return `<figure class="product-frame ${extraClass}">
     <div class="browser-chrome"><span></span><span></span><span></span><em>${esc(title)}</em></div>
     <div class="product-frame-art">${art}</div>
     ${caption ? `<figcaption>${esc(caption)}</figcaption>` : ""}
@@ -848,7 +848,7 @@ function pageInteractive(title, copy, mode = "understock") {
       <h2>${esc(title)}</h2>
       <p>${esc(copy)}</p>
     </div>
-    ${productFrame("Action queue", `${queuePanel(mode)}<div class="hero-forecast">${forecastMockup()}</div>`, "Switch the queue mode to see the recommendation list and forecast context change together.")}
+    <div class="interactive-surface">${queuePanel(mode)}<div class="hero-forecast">${forecastMockup()}</div></div>
   </section>`;
 }
 
@@ -857,7 +857,7 @@ function statBand(stats) {
 }
 
 function pageHero(eyebrow, title, copy, art, mood = "") {
-  return `<section class="marketing-page-hero page-hero-${mood}">
+  return `<section class="marketing-page-hero page-hero-${mood} ${art ? "" : "marketing-page-hero--no-art"}">
     <div>
       <p class="eyebrow">${esc(eyebrow)}</p>
       <h1>${esc(title)}</h1>
@@ -972,7 +972,10 @@ function homePage() {
         <span>Executive-ready reporting</span>
       </div>
     </div>
-    ${productFrame("Live action queue", `<div class="hero-interactive">${queuePanel()}<div class="hero-forecast">${forecastMockup()}</div></div>`, "Switch Understock and Overstock to preview how the live queue changes planner priorities.")}
+    <div class="hero-command-surface" aria-label="Live action queue preview">
+      <div class="surface-label"><span>Live action queue</span><b>Planner preview</b></div>
+      <div class="hero-interactive">${queuePanel()}<div class="hero-forecast">${forecastMockup()}</div></div>
+    </div>
   </section>
   ${pageInteractive("A planner can move between shortage risk and excess recovery.", "The full-width queue demonstrates the same operating motion inside the app: switch the mode, review the ranked SKUs, then act with context.", "understock")}
   ${marketingSection("Why it matters", "Inventory risk is now a board-level operating metric.", "Retail teams need earlier signals, not more dashboards. LiquidityLink connects demand, inventory, and cash exposure so every recommendation is tied to measurable business impact.", outcomes)}
@@ -1110,10 +1113,13 @@ function contactPage() {
 }
 
 function bookDemoPage() {
-  return `<section class="marketing-page-hero">
-    <p class="eyebrow">Book demo</p>
-    <h1>Plan an inventory intelligence pilot.</h1>
-    <p>Tell us your retail footprint, core inventory pain, and data source. We will shape the first pilot around measurable business impact.</p>
+  return `<section class="marketing-page-hero demo-hero">
+    <div>
+      <p class="eyebrow">Book demo</p>
+      <h1>Plan an inventory intelligence pilot.</h1>
+      <p>Tell us your retail footprint, core inventory pain, and data source. We will shape the first pilot around measurable business impact.</p>
+    </div>
+    <div class="demo-hero-visual">${forecastMockup()}</div>
   </section>
   <section class="marketing-demo-grid">
     <form class="marketing-form" data-demo-form>
