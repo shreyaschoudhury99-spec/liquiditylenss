@@ -1365,7 +1365,11 @@ async function ensurePlanningDataset(userId) {
 }
 
 function holtForecast(weeklyValues, horizon = 8) {
-  const series = weeklyValues.length ? weeklyValues : [0];
+  const series = (weeklyValues || [])
+    .map(value => numeric(value, 0))
+    .filter(Number.isFinite);
+  if (!series.length) return Array.from({ length: horizon }, () => 0);
+  if (series.length === 1) return Array.from({ length: horizon }, () => Math.max(0, round(series[0], 2)));
   let level = series[0] || 0;
   let trend = series.length > 1 ? series[1] - series[0] : 0;
   const alpha = 0.38;
@@ -1375,7 +1379,7 @@ function holtForecast(weeklyValues, horizon = 8) {
     level = alpha * value + (1 - alpha) * (level + trend);
     trend = beta * (level - previous) + (1 - beta) * trend;
   }
-  return Array.from({ length: horizon }, (_, index) => Math.max(0, level + trend * (index + 1)));
+  return Array.from({ length: horizon }, (_, index) => Math.max(0, round(level + trend * (index + 1), 2)));
 }
 
 async function persistPlanningOutputs(userId, analytics) {
@@ -2737,7 +2741,7 @@ app.get("/api/live-statistics", asyncRoute(async (req, res) => {
   }
 
   try {
-    const graphVersion = process.env.META_GRAPH_VERSION || "v23.0";
+    const graphVersion = process.env.META_GRAPH_VERSION || "v25.0";
     const url = new URL(`https://graph.facebook.com/${graphVersion}/${accountId}`);
     url.searchParams.set("fields", "followers_count");
     url.searchParams.set("access_token", accessToken);
@@ -3814,13 +3818,14 @@ app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, re
     }
     try {
       const synced = await syncShopifyOrders(req.user.sub, connection.external_account, decryptSecret(connection.access_token_enc));
+      const analytics = await buildPlanningAnalytics(req.user.sub, { persist: true });
       const status = await upsertIntegration(req.user.sub, "shopify", {
         status: "connected",
         detail: `Synced ${synced.rows} sales rows from ${synced.orders} Shopify orders and ${synced.inventoryItems} inventory items.`,
         externalAccount: connection.external_account,
         synced: true,
       });
-      return res.json({ ok: true, status, synced });
+      return res.json({ ok: true, status, synced, analytics });
     } catch (err) {
       const status = await upsertIntegration(req.user.sub, "shopify", {
         status: err.code === "SHOPIFY_REAUTH_REQUIRED" ? "needs_reauth" : "error",

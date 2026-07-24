@@ -394,7 +394,9 @@ function workspaceInitials() {
 }
 
 function fmt(value) {
-  return Number(value).toLocaleString("en-US");
+  const parsed = Number(value);
+  const safe = Number.isFinite(parsed) ? parsed : 0;
+  return safe.toLocaleString("en-US");
 }
 
 function fmtDecimal(value, places = 1) {
@@ -407,16 +409,40 @@ function fmtPercent(value) {
   return `${fmtDecimal(value, 1)}%`;
 }
 
+function finiteNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function sumNumbers(values = []) {
+  return values.reduce((sum, value) => sum + finiteNumber(value), 0);
+}
+
+function safeForecastPoint(row = {}, index = 0) {
+  return {
+    week: row.week || `Wk ${index + 1}`,
+    arima: finiteNumber(row.arima ?? row.baseline),
+    xgboost: finiteNumber(row.xgboost ?? row.adjusted),
+    ensemble: finiteNumber(row.ensemble),
+    lower: finiteNumber(row.lower),
+    upper: finiteNumber(row.upper),
+  };
+}
+
 function activeSkuData() {
   if (!state.salesRecords.length && !state.inventoryItems.length) return skuData;
   if (state.advancedAnalytics?.skus?.length) {
     return state.advancedAnalytics.skus.map((item, index) => ({
       ...item,
       id: index + 1,
-      current: item.currentUnits,
-      forecast: item.forecast8w,
-      stockout: item.stockoutRisk,
-      overstock: item.currentUnits ? Math.min(100, Math.max(0, ((item.currentUnits - item.forecast8w) / item.currentUnits) * 100)) : 0,
+      current: Math.max(0, Math.round(finiteNumber(item.current ?? item.currentUnits ?? item.onHand))),
+      forecast: Math.max(0, Math.round(finiteNumber(item.forecast30d ?? sumNumbers(item.forecast8w)))),
+      stockout: Math.max(0, Math.min(99, finiteNumber(item.stockoutRisk ?? (item.riskLabel === "high" ? item.riskScore : 0)))),
+      overstock: (() => {
+        const current = finiteNumber(item.current ?? item.currentUnits ?? item.onHand);
+        const demand = finiteNumber(item.forecast30d ?? sumNumbers(item.forecast8w));
+        return current ? Math.min(99, Math.max(0, ((current - demand) / current) * 100)) : 0;
+      })(),
     }));
   }
   const hasSales = Boolean(state.salesRecords.length);
@@ -545,6 +571,10 @@ function executiveSummaryRows() {
 
 function importedForecastData(products) {
   if (!state.salesRecords.length && !state.inventoryItems.length) return forecastData;
+  const syncedForecast = state.advancedAnalytics?.forecasts?.weekly;
+  if (Array.isArray(syncedForecast) && syncedForecast.length) {
+    return syncedForecast.slice(0, 8).map(safeForecastPoint);
+  }
   if (!state.salesRecords.length) {
     return Array.from({ length: 8 }, (_, index) => ({
       week: `Wk ${index + 1}`,
@@ -572,7 +602,7 @@ function importedForecastData(products) {
 }
 
 function forecastSummary(chartData) {
-  const latest = chartData[chartData.length - 1] || { arima: 0, xgboost: 0, ensemble: 0 };
+  const latest = safeForecastPoint(chartData[chartData.length - 1] || {}, chartData.length - 1);
   const hasInventoryOnly = !state.salesRecords.length && state.inventoryItems.length;
   return {
     arima: latest.arima,
@@ -2068,8 +2098,12 @@ function advancedAnalyticsPage() {
   const topSkus = (data.skus || []).slice(0, 12);
   const abcGroups = ["A", "B", "C"].map(group => ({
     group,
-    items: (data.abc || []).filter(item => item.group === group).slice(0, 5),
+    items: (data.abc || []).filter(item => (item.group || item.class) === group).slice(0, 5),
   }));
+  const percentAssumption = value => {
+    const numericValue = finiteNumber(value);
+    return fmtPercent(numericValue <= 1 ? numericValue * 100 : numericValue);
+  };
   return pageShell("Advanced Analytics", "GMROI, service levels, reorder math, and SKU diagnostics from connected data.", `
     ${summary.sampleCatalogDetected ? `<div class="data-warning"><strong>Shopify sample products excluded.</strong> ${fmt(summary.excludedSampleSkus)} default catalog item${summary.excludedSampleSkus === 1 ? " was" : "s were"} removed from all metrics.</div>` : ""}
     ${summary.enoughData === false ? `<div class="data-warning"><strong>Low statistical confidence.</strong> Forecast and service metrics need at least 20 transactions across 3 selling SKUs.</div>` : ""}
@@ -2086,8 +2120,8 @@ function advancedAnalyticsPage() {
         <h2 class="text-lg">What the backend is calculating</h2>
         <div class="formula-grid">${(data.formulas || []).map(formula => `<div class="formula-card">
           <strong>${esc(formula.name)}</strong>
-          <p class="formula-equation">${esc(formula.equation)}</p>
-          <p class="muted">${esc(formula.description)}</p>
+          <p class="formula-equation">${esc(formula.equation || formula.expression || "")}</p>
+          <p class="muted">${esc(formula.description || "Calculated from synced sales, inventory, price, and cost data.")}</p>
         </div>`).join("")}</div>
       </article>
       <article class="card">
@@ -2095,10 +2129,10 @@ function advancedAnalyticsPage() {
         <h2 class="text-lg">Current model settings</h2>
         <div class="assumption-grid">
           <div class="assumption-chip"><span>Lead time</span><strong>${fmt(assumptions.leadTimeDays || 0)} days</strong></div>
-          <div class="assumption-chip"><span>Service target</span><strong>${fmtPercent((assumptions.targetServiceLevel || 0) * 100)}</strong></div>
+          <div class="assumption-chip"><span>Service target</span><strong>${percentAssumption(assumptions.targetServiceLevel)}</strong></div>
           <div class="assumption-chip"><span>Safety stock z-score</span><strong>${fmtDecimal(assumptions.zScore, 2)}</strong></div>
-          <div class="assumption-chip"><span>Carrying cost</span><strong>${fmtPercent((assumptions.carryingCostRate || 0) * 100)}</strong></div>
-          <div class="assumption-chip"><span>Gross margin</span><strong>${fmtPercent((assumptions.grossMarginRate || 0) * 100)}</strong></div>
+          <div class="assumption-chip"><span>Carrying cost</span><strong>${percentAssumption(assumptions.carryingCostRate)}</strong></div>
+          <div class="assumption-chip"><span>Gross margin</span><strong>${percentAssumption(assumptions.grossMarginRate)}</strong></div>
           <div class="assumption-chip"><span>Forecast horizon</span><strong>${fmt(assumptions.forecastHorizonWeeks || 0)} weeks</strong></div>
         </div>
         <div class="report-list analytics-actions">
@@ -2124,7 +2158,7 @@ function advancedAnalyticsPage() {
             <td><span class="diagnostic-product"><strong>${esc(item.product || item.sku)}</strong><span class="mono muted">${esc(item.sku)}</span></span></td>
             <td>${actionBadge(item.action)}</td>
             <td class="mono">${fmt(item.current)}</td>
-            <td class="mono">${fmt(item.forecast8w)}</td>
+            <td class="mono">${fmt(item.forecast30d ?? sumNumbers(item.forecast8w))}</td>
             <td class="mono">${fmt(item.reorderPoint)}</td>
             <td class="mono">${fmt(item.safetyStock)}</td>
             <td class="mono">${fmtDecimal(item.daysCover, 1)}</td>
@@ -2139,7 +2173,7 @@ function advancedAnalyticsPage() {
       ${abcGroups.map(group => `<article class="card">
         <p class="eyebrow">ABC class ${group.group}</p>
         <h2 class="text-lg">${group.group === "A" ? "Highest value movers" : group.group === "B" ? "Mid-value contributors" : "Long-tail SKUs"}</h2>
-        <div class="abc-list">${group.items.length ? group.items.map(item => `<div class="abc-row"><span>${esc(item.product || item.sku)}</span><strong class="mono">${fmtPercent(item.cumulativeShare)}</strong></div>`).join("") : `<p class="muted">No SKUs in this class yet.</p>`}</div>
+        <div class="abc-list">${group.items.length ? group.items.map(item => `<div class="abc-row"><span>${esc(item.product || item.sku)}</span><strong class="mono">${fmtPercent(item.cumulativeShare ?? item.contribution)}</strong></div>`).join("") : `<p class="muted">No SKUs in this class yet.</p>`}</div>
       </article>`).join("")}
     </section>
     ${analyticsDecisionVisuals(data)}
@@ -3194,6 +3228,7 @@ async function syncSource(provider) {
   try {
     const data = await apiAuthedPost(`/api/integrations/${provider}/sync`, {});
     if (data.status) state.connectionStatus[provider] = data.status;
+    if (data.analytics) state.advancedAnalytics = data.analytics;
     await loadConnectionData();
     showToast(`${providerName(provider)} synced.`, "success");
   } catch (err) {
@@ -3508,31 +3543,34 @@ function scrollHighlighted() {
 
 function lineChart(data, w, h) {
   const pad = { l: 52, r: 18, t: 18, b: 34 };
-  const vals = data.flatMap(d => [d.lower, d.upper, d.arima, d.xgboost, d.ensemble]);
-  const low = Math.min(...vals), high = Math.max(...vals);
+  const cleanData = (data?.length ? data : forecastData).map(safeForecastPoint);
+  const vals = cleanData.flatMap(d => [d.lower, d.upper, d.arima, d.xgboost, d.ensemble]).filter(Number.isFinite);
+  const low = vals.length ? Math.min(...vals) : 0;
+  const high = vals.length ? Math.max(...vals) : 1;
   const padding = Math.max(1, Math.round((high - low) * 0.18), Math.round(high * 0.08));
-  const min = Math.max(0, low - padding), max = high + padding;
-  const x = i => pad.l + i * ((w - pad.l - pad.r) / (data.length - 1));
-  const y = v => h - pad.b - ((v - min) / (max - min)) * (h - pad.t - pad.b);
-  const path = key => data.map((d, i) => `${i ? "L" : "M"}${x(i)},${y(d[key])}`).join(" ");
-  const area = `${data.map((d, i) => `${i ? "L" : "M"}${x(i)},${y(d.upper)}`).join(" ")} ${[...data].reverse().map((d, i) => `L${x(data.length - 1 - i)},${y(d.lower)}`).join(" ")} Z`;
+  const min = Math.max(0, (Number.isFinite(low) ? low : 0) - padding);
+  const max = Math.max(min + 1, (Number.isFinite(high) ? high : 0) + padding);
+  const x = i => pad.l + i * ((w - pad.l - pad.r) / Math.max(1, cleanData.length - 1));
+  const y = v => h - pad.b - ((finiteNumber(v) - min) / Math.max(1, max - min)) * (h - pad.t - pad.b);
+  const path = key => cleanData.map((d, i) => `${i ? "L" : "M"}${x(i)},${y(d[key])}`).join(" ");
+  const area = `${cleanData.map((d, i) => `${i ? "L" : "M"}${x(i)},${y(d.upper)}`).join(" ")} ${[...cleanData].reverse().map((d, i) => `L${x(cleanData.length - 1 - i)},${y(d.lower)}`).join(" ")} Z`;
   const series = [
     ["arima", "ARIMA baseline", "var(--text-muted)", "Observed baseline from recurring demand cycles."],
     ["xgboost", "XGBoost adjusted", "var(--blue)", "Inventory- and signal-adjusted forecast."],
     ["ensemble", "Ensemble forecast", "var(--accent)", "Blended operating forecast used for recommendations."],
   ];
-  const points = series.map(([key, label, color, note]) => data.map((d, i) => {
+  const points = series.map(([key, label, color, note]) => cleanData.map((d, i) => {
     const variance = Math.round(((d.upper - d.lower) / Math.max(1, d.ensemble)) * 100);
     const tip = `<strong>${d.week} · ${label}</strong><span>Projected demand: ${fmt(d[key])} units</span><span>Confidence band: ${fmt(d.lower)}-${fmt(d.upper)} units (${variance}% width)</span><span>${note}</span>`;
     return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}" aria-label="${attr(`${d.week} ${label}: ${fmt(d[key])} units`)}"><circle cx="${x(i)}" cy="${y(d[key])}" r="12" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x(i)}" cy="${y(d[key])}" r="${key === "ensemble" ? 4.5 : 3.5}" fill="${color}"/></g>`;
   }).join("")).join("");
-  return `<svg viewBox="0 0 ${w} ${h}"><text x="${pad.l}" y="14" fill="var(--text-muted)">Projected units</text>${[0, 1, 2, 3].map(i => { const value = Math.round(max - ((max - min) * i) / 3); return `<line class="chart-grid" x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + i * 55}" y2="${pad.t + i * 55}"/><text x="8" y="${pad.t + i * 55 + 4}" fill="var(--text-muted)">${fmt(value)}</text>`; }).join("")}<path d="${area}" fill="var(--accent-dim)"/><path d="${path("arima")}" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-dasharray="5 5"/><path d="${path("xgboost")}" fill="none" stroke="var(--blue)" stroke-width="1.5"/><path d="${path("ensemble")}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>${data.map((d, i) => `<line x1="${x(i)}" x2="${x(i)}" y1="${pad.t}" y2="${h - pad.b}" class="chart-hit-line"/>`).join("")}${points}${data.map((d, i) => `<text x="${x(i)}" y="${h - 10}" text-anchor="middle">${d.week}</text>`).join("")}</svg>`;
+  return `<svg viewBox="0 0 ${w} ${h}"><text x="${pad.l}" y="14" fill="var(--text-muted)">Projected units</text>${[0, 1, 2, 3].map(i => { const value = Math.round(max - ((max - min) * i) / 3); return `<line class="chart-grid" x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + i * 55}" y2="${pad.t + i * 55}"/><text x="8" y="${pad.t + i * 55 + 4}" fill="var(--text-muted)">${fmt(value)}</text>`; }).join("")}<path d="${area}" fill="var(--accent-dim)"/><path d="${path("arima")}" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-dasharray="5 5"/><path d="${path("xgboost")}" fill="none" stroke="var(--blue)" stroke-width="1.5"/><path d="${path("ensemble")}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>${cleanData.map((d, i) => `<line x1="${x(i)}" x2="${x(i)}" y1="${pad.t}" y2="${h - pad.b}" class="chart-hit-line"/>`).join("")}${points}${cleanData.map((d, i) => `<text x="${x(i)}" y="${h - 10}" text-anchor="middle">${d.week}</text>`).join("")}</svg>`;
 }
 
 function areaChart(data = null) {
   if (data && state.salesRecords.length) {
     const w = 520, h = 220, p = 34;
-    const confidence = data.map((d, index) => ({ week: d.week, band: Math.max(0, Math.round(((d.upper - d.lower) / Math.max(1, d.ensemble)) * 100)), index }));
+    const confidence = data.map(safeForecastPoint).map((d, index) => ({ week: d.week, band: Math.max(0, Math.round(((d.upper - d.lower) / Math.max(1, d.ensemble)) * 100)), index }));
     const max = Math.max(20, ...confidence.map(point => point.band));
     const x = i => p + i * ((w - p * 2) / Math.max(1, confidence.length - 1));
     const y = v => h - p - (v / max) * (h - p * 2);
