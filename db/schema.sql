@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS planning_forecast_results (
   confidence_level NUMERIC NOT NULL DEFAULT 0.8,
   confidence NUMERIC NOT NULL DEFAULT 0.8,
   model_version TEXT NOT NULL DEFAULT 'll-exp-smooth-v1',
-  model_name TEXT NOT NULL DEFAULT 'LiquidityLens Ensemble',
+  model_name TEXT NOT NULL DEFAULT 'LiquidityLink Ensemble',
   features JSONB NOT NULL DEFAULT '{}'::jsonb,
   generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, sku_id, location_id, forecast_date, horizon_days, model_version)

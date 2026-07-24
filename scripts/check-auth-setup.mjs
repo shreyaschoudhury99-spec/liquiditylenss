@@ -54,7 +54,7 @@ status(exists("db/schema.sql"), "Postgres schema exists");
 status(exists("node_modules"), "node_modules installed", "run npm install");
 status(exists(".env"), ".env exists", "copy .env.example to .env and fill values");
 status(Boolean(env.DATABASE_URL), "DATABASE_URL set");
-status(await checkPort(databasePort), `Postgres listening on port ${databasePort}`, "install/start Postgres and create the liquiditylens database");
+status(await checkPort(databasePort), `Postgres listening on port ${databasePort}`, "install/start Postgres and create the liquiditylink database");
 status(Boolean(env.JWT_SECRET && !env.JWT_SECRET.includes("replace-with")), "JWT_SECRET set to a real secret");
 status(Boolean(env.COOKIE_SECRET && !env.COOKIE_SECRET.includes("replace-with")), "COOKIE_SECRET set to a real secret");
 status(Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET), "Google OAuth credentials set");

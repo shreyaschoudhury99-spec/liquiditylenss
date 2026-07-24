@@ -140,7 +140,7 @@ const buyerQuestions = [
   {
     question: "Why should I care?",
     headline: "Inventory mistakes are cash-flow mistakes.",
-    copy: "LiquidityLens helps retailers prevent stockouts, reduce excess inventory, and make replenishment decisions before margin is lost.",
+    copy: "LiquidityLink helps retailers prevent stockouts, reduce excess inventory, and make replenishment decisions before margin is lost.",
     visual: "A risk board showing forecasted demand, inventory exposure, and recommended actions by SKU.",
   },
   {
@@ -152,7 +152,7 @@ const buyerQuestions = [
   {
     question: "Why is AI better?",
     headline: "Forecasts improve when models see the full operating context.",
-    copy: "Instead of a static reorder point, LiquidityLens blends observed velocity, seasonality, confidence bands, inventory on hand, and price exposure.",
+    copy: "Instead of a static reorder point, LiquidityLink blends observed velocity, seasonality, confidence bands, inventory on hand, and price exposure.",
     visual: "Forecast bands comparing baseline, adjusted, and ensemble demand.",
   },
   {
@@ -165,13 +165,13 @@ const buyerQuestions = [
 
 const enterpriseFaqs = [
   ["How quickly can a retailer start seeing value?", "Most teams can run a pilot from CSV or Shopify data in days. Enterprise rollouts usually start with one region, one category, or one banner before expanding."],
-  ["Do we need perfect historical data?", "No. LiquidityLens flags limited history, widens confidence bands, and separates measured signals from assumptions so planners know where the model is certain."],
+  ["Do we need perfect historical data?", "No. LiquidityLink flags limited history, widens confidence bands, and separates measured signals from assumptions so planners know where the model is certain."],
   ["Does this replace planners?", "No. It gives planners earlier warnings, quantified risk, and clear action queues so they can spend less time hunting through reports."],
   ["Can executives trust the numbers?", "Every forecast is tied back to observed demand, inventory position, model confidence, and the business rule used to produce the recommendation."],
   ["What integrations are supported?", "CSV upload, Shopify, Clover, and Square are the current connection paths. The architecture is ready for ERPs, data warehouses, and private APIs."],
   ["How do pilots work?", "We define a target outcome, connect a limited data set, measure forecast accuracy and working-capital impact, then present an executive readout with expansion options."],
   ["What about data security?", "The product uses server-side secrets, authenticated sessions, access controls, and audit-oriented operational pages. Enterprise SSO, SOC 2 readiness, and custom retention policies can be added for larger deployments."],
-  ["How is LiquidityLens different from a BI dashboard?", "BI tools explain what already happened. LiquidityLens turns inventory data into forward-looking decisions, ranked risks, and replenishment actions."],
+  ["How is LiquidityLink different from a BI dashboard?", "BI tools explain what already happened. LiquidityLink turns inventory data into forward-looking decisions, ranked risks, and replenishment actions."],
 ];
 
 const providerFields = {
@@ -280,6 +280,9 @@ let state = {
     { id: 3, type: "info", text: "Weekly demand forecast updated. Risk score changed 68 to 76.", time: "3h ago", read: true },
   ],
   reportBusy: false,
+  demoBusy: false,
+  demoMessage: "",
+  demoMessageType: "info",
   profileBusy: false,
   passwordBusy: false,
   mfaChallengeId: "",
@@ -327,7 +330,7 @@ function icon(name) {
 }
 
 function logo() {
-  return `<div class="logo"><img class="logo-mark" src="assets/liquiditylens-logo.png?v=9" alt="" aria-hidden="true" /><span class="logo-title">LiquidityLens</span></div>`;
+  return `<div class="logo"><img class="logo-mark" src="assets/liquiditylink-logo.png?v=9" alt="" aria-hidden="true" /><span class="logo-title">LiquidityLink</span></div>`;
 }
 
 function esc(value) {
@@ -740,6 +743,7 @@ function marketingLayout(content) {
         ${marketingNav.map(([path, label]) => `<a href="${path}" data-route="${path}" class="${state.path === path ? "active" : ""}">${label}</a>`).join("")}
       </nav>
       <div class="marketing-actions">
+        <button class="btn-icon" data-theme type="button" aria-label="Switch to ${currentTheme() === "light" ? "dark" : "light"} theme">${icon(currentTheme() === "light" ? "moon" : "sun")}</button>
         <a class="btn-ghost" href="${signedIn ? "/dashboard" : "/login"}" ${signedIn ? 'data-route="/dashboard"' : ""}>${signedIn ? "Open app" : "Sign in"}</a>
         <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
       </div>
@@ -780,17 +784,74 @@ function marketingCards(cards) {
   </article>`).join("")}</div>`;
 }
 
-function marketingPage(title, copy, cards, eyebrow = "LiquidityLens") {
-  return `<section class="marketing-page-hero">
-    <p class="eyebrow">${esc(eyebrow)}</p>
-    <h1>${esc(title)}</h1>
-    <p>${esc(copy)}</p>
-    <div class="hero-actions">
-      <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
-      <a class="btn-ghost" href="/docs" data-route="/docs">Read documentation</a>
+function productFrame(title, art, caption = "") {
+  return `<figure class="product-frame">
+    <div class="browser-chrome"><span></span><span></span><span></span><em>${esc(title)}</em></div>
+    <div class="product-frame-art">${art}</div>
+    ${caption ? `<figcaption>${esc(caption)}</figcaption>` : ""}
+  </figure>`;
+}
+
+function dashboardPreview() {
+  return `<div class="screen-dashboard">
+    <div class="screen-kpis"><span><b>63</b><small>Risk score</small></span><span><b>$39K</b><small>Excess cost</small></span><span><b>18</b><small>Buy actions</small></span></div>
+    <div class="screen-grid">
+      <div class="screen-chart">${forecastMockup()}</div>
+      <div class="screen-list">${skuActionRows()}</div>
     </div>
-  </section>
-  ${marketingCards(cards)}`;
+  </div>`;
+}
+
+function skuActionRows() {
+  return `<div class="sku-action-list">
+    ${[
+      ["Trail Running Shoes M10", "Stockout risk 91%", "buy"],
+      ["Insulated Bottle 32oz", "Overstock risk 78%", "sell"],
+      ["Dry Bag 10L", "Transfer match nearby", "transfer"],
+      ["Trail Socks 3-Pack", "Inside operating band", "hold"],
+    ].map(([name, note, action]) => `<button class="sku-action-row" type="button">
+      <span><strong>${esc(name)}</strong><em>${esc(note)}</em></span><b class="badge badge--${action}">${action}</b>
+    </button>`).join("")}
+  </div>`;
+}
+
+function statBand(stats) {
+  return `<div class="stat-band">${stats.map(([value, label]) => `<div><strong>${esc(value)}</strong><span>${esc(label)}</span></div>`).join("")}</div>`;
+}
+
+function pageHero(eyebrow, title, copy, art, mood = "") {
+  return `<section class="marketing-page-hero page-hero-${mood}">
+    <div>
+      <p class="eyebrow">${esc(eyebrow)}</p>
+      <h1>${esc(title)}</h1>
+      <p>${esc(copy)}</p>
+      <div class="hero-actions">
+        <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
+        <a class="btn-ghost" href="/login">Open app</a>
+      </div>
+    </div>
+    ${art || ""}
+  </section>`;
+}
+
+function marketingPage(title, copy, cards, eyebrow = "LiquidityLink") {
+  return `${pageHero(eyebrow, title, copy, "", eyebrow.toLowerCase().replace(/\s+/g, "-"))}
+  <section class="mixed-card-band">${cards.map((card, index) => insightCard(card, index % 3 === 0 ? "bars" : index % 3 === 1 ? "gauge" : "rows")).join("")}</section>`;
+}
+
+function insightCard(card, visual = "bars") {
+  const visuals = {
+    bars: `<div class="mini-bars"><span></span><span></span><span></span><span></span></div>`,
+    gauge: `<div class="mini-gauge"><b>${esc(card.metric || "74")}</b><span></span></div>`,
+    rows: skuActionRows(),
+    map: marketplaceMockup(),
+  };
+  return `<article class="marketing-card visual-card">
+    ${card.kicker ? `<p class="eyebrow">${esc(card.kicker)}</p>` : ""}
+    <h3>${esc(card.title)}</h3>
+    <p>${esc(card.copy)}</p>
+    ${visuals[visual] || visuals.bars}
+  </article>`;
 }
 
 function executiveMockup() {
@@ -817,13 +878,13 @@ function homePage() {
   const trust = marketingCards([
     { kicker: "Security", title: "Enterprise controls from day one", copy: "Role-based access, server-side credentials, auditable sync status, and clear data ownership boundaries." },
     { kicker: "Pilot", title: "Start narrow, prove impact", copy: "Run a 30-day pilot on one category or region, measure forecast quality, then expand with confidence." },
-    { kicker: "Competition", title: "More action than BI", copy: "LiquidityLens does not stop at reporting. It ranks inventory risk and recommends what to do next." },
+    { kicker: "Competition", title: "More action than BI", copy: "LiquidityLink does not stop at reporting. It ranks inventory risk and recommends what to do next." },
   ]);
   return `<section class="marketing-hero">
     <div class="marketing-hero-copy">
       <p class="eyebrow">Inventory intelligence for enterprise retail</p>
       <h1>Prevent stockouts, overstocks, and cash-flow surprises before they happen.</h1>
-      <p>LiquidityLens gives retail leaders a predictive operating layer for demand, inventory risk, replenishment, supplier exposure, and marketplace coordination.</p>
+      <p>LiquidityLink gives retail leaders a predictive operating layer for demand, inventory risk, replenishment, supplier exposure, and marketplace coordination.</p>
       <div class="hero-actions">
         <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
         <a class="btn-ghost" href="/platform" data-route="/platform">See platform</a>
@@ -834,9 +895,9 @@ function homePage() {
         <span>Executive-ready reporting</span>
       </div>
     </div>
-    ${executiveMockup()}
+    ${productFrame("Live action queue", `<div class="hero-interactive"><div class="hero-toggle"><span>Understock</span><span>Overstock</span></div>${skuActionRows()}<div class="hero-forecast">${forecastMockup()}</div></div>`, "Hover the rows to preview the buy, sell, hold, and transfer decisions planners see in the app.")}
   </section>
-  ${marketingSection("Why it matters", "Inventory risk is now a board-level operating metric.", "Retail teams need earlier signals, not more dashboards. LiquidityLens connects demand, inventory, and cash exposure so every recommendation is tied to measurable business impact.", outcomes)}
+  ${marketingSection("Why it matters", "Inventory risk is now a board-level operating metric.", "Retail teams need earlier signals, not more dashboards. LiquidityLink connects demand, inventory, and cash exposure so every recommendation is tied to measurable business impact.", outcomes)}
   ${marketingSection("Buyer questions", "Every section answers what an enterprise buyer needs to know.", "The site now follows the decision path a retail executive actually takes before trusting a platform with operational data.", questions)}
   ${marketingSection("Trust", "Designed for pilots, procurement, and executive review.", "The message is built around measurable outcomes, transparent calculations, and expansion paths that work for large organizations.", trust)}
   ${enterpriseFaq()}
@@ -855,54 +916,54 @@ function enterpriseFaq() {
 }
 
 function platformPage() {
-  return marketingPage("A predictive operating layer for retail inventory.", "Unify sales, inventory, and supplier signals so every team can work from the same forward-looking plan.", [
-    { title: "Data ingestion", copy: "Connect Shopify, Clover, Square, CSV files, and private APIs into a normalized SKU and location model." },
-    { title: "Demand intelligence", copy: "Blend observed velocity, seasonality, inventory context, and confidence bands into operational forecasts." },
-    { title: "Decision queue", copy: "Translate forecast risk into buy, hold, sell, transfer, and outreach actions planners can execute." },
-    { title: "Executive reporting", copy: "Summarize inventory health, revenue exposure, cash impact, and risk trends for leadership." },
-  ], "Platform");
+  return `${pageHero("Platform", "A predictive operating layer for retail inventory.", "Unify sales, inventory, and supplier signals so every team can work from the same forward-looking plan.", productFrame("Dashboard", dashboardPreview(), "Dashboard, forecast, and SKU action views combined into one operating surface."), "platform")}
+  ${marketingSection("Operating model", "From source data to decision queue.", "LiquidityLink normalizes commerce and POS data, models forward demand, then ranks the actions most likely to protect revenue and cash.", `<div class="process-lane">${["Connect", "Normalize", "Forecast", "Prioritize", "Report"].map((step, i) => `<div><b>${String(i + 1).padStart(2, "0")}</b><strong>${step}</strong><span>${["Shopify, Clover, Square, CSV", "SKU, location, cost, price", "Demand bands and confidence", "Buy, sell, hold, transfer", "Executive-ready summaries"][i]}</span></div>`).join("")}</div>`)}
+  ${statBand([["8-week", "forecast horizon"], ["SKU + location", "planning grain"], ["Buy/sell/transfer", "action model"]])}`;
 }
 
 function featuresPage() {
-  return marketingPage("Features that turn inventory data into action.", "Everything is organized around decisions: what to buy, what to move, what to reduce, and where cash is exposed.", [
-    { title: "Stockout prediction", copy: "Identify items likely to miss demand before they become revenue leakage." },
-    { title: "Overstock detection", copy: "Rank excess inventory by value, carrying cost, and markdown urgency." },
-    { title: "Forecast confidence", copy: "Show planners when history is thin and when the model has enough evidence to be precise." },
-    { title: "Marketplace signals", copy: "Surface nearby retail partners and transfer opportunities when internal stock is imbalanced." },
-    { title: "Supplier and replenishment risk", copy: "Connect delayed replenishment, demand spikes, and stock position into one risk score." },
-    { title: "Downloadable reporting", copy: "Generate executive summaries for operating meetings, pilots, and budget conversations." },
-  ], "Features");
+  const features = [
+    ["Stockout prediction", "Identify items likely to miss demand before they become revenue leakage.", inventoryMockup()],
+    ["Overstock detection", "Rank excess inventory by value, carrying cost, and markdown urgency.", skuActionRows()],
+    ["Forecast confidence", "Show planners when history is thin and when the model has enough evidence to be precise.", forecastMockup()],
+    ["Marketplace signals", "Surface nearby retail partners and transfer opportunities when internal stock is imbalanced.", marketplaceMockup()],
+  ];
+  return `${pageHero("Features", "Features that turn inventory data into action.", "Everything is organized around decisions: what to buy, what to move, what to reduce, and where cash is exposed.", productFrame("Advanced analytics", dashboardPreview()), "features")}
+  <section class="feature-zigzag">${features.map(([title, copy, art], i) => `<article class="${i % 2 ? "flip" : ""}"><div><p class="eyebrow">Feature ${i + 1}</p><h2>${esc(title)}</h2><p>${esc(copy)}</p></div>${productFrame(title, art)}</article>`).join("")}</section>`;
 }
 
 function solutionsPage() {
-  return marketingPage("Solutions for every inventory decision maker.", "LiquidityLens gives each role the level of detail they need without forcing everyone into the same dashboard.", [
+  return `${pageHero("Solutions", "Solutions for every inventory decision maker.", "LiquidityLink gives each role the level of detail they need without forcing everyone into the same dashboard.", productFrame("Role-based workspace", dashboardPreview()), "solutions")}
+  <section class="role-matrix">${[
     { title: "Supply Chain Managers", copy: "Prioritize risk by location, SKU, supplier, and forecast window." },
     { title: "Inventory Planners", copy: "Move from spreadsheet checks to daily exception management." },
     { title: "Operations Directors", copy: "See regional exposure and coordinate stores before stockouts spread." },
     { title: "CFOs", copy: "Quantify working-capital impact, carrying cost, and avoidable revenue leakage." },
     { title: "Chief Supply Chain Officers", copy: "Standardize planning intelligence across banners, categories, and geographies." },
     { title: "CEOs", copy: "Understand inventory health as a growth, margin, and customer experience driver." },
-  ], "Solutions");
+  ].map((card, i) => insightCard({ ...card, kicker: i < 3 ? "Operator" : "Executive", metric: String(61 + i * 4) }, i % 3 === 0 ? "gauge" : i % 3 === 1 ? "rows" : "bars")).join("")}</section>`;
 }
 
 function industriesPage() {
-  return marketingPage("Built for retailers with complex demand and capital pressure.", "The model works best where inventory decisions affect cash, margin, availability, and customer trust.", [
+  return `${pageHero("Industries", "Built for retailers with complex demand and capital pressure.", "The model works best where inventory decisions affect cash, margin, availability, and customer trust.", productFrame("Category health", forecastMockup()), "industries")}
+  <section class="industry-board">${[
     { title: "Specialty retail", copy: "Manage seasonal categories, long-tail SKUs, and local demand variation." },
     { title: "Apparel and footwear", copy: "Track size curves, sell-through risk, and excess exposure before markdowns." },
     { title: "Outdoor and sporting goods", copy: "Plan for regional demand swings and event-driven seasonality." },
     { title: "Electronics and accessories", copy: "Balance high-value inventory with fast-moving demand changes." },
     { title: "Grocery and perishables", copy: "Reduce waste by linking demand signals to replenishment timing." },
     { title: "Multi-location operators", copy: "Use transfer recommendations before buying more inventory." },
-  ], "Industries");
+  ].map((card, i) => insightCard({ ...card, metric: `${12 + i * 7}%` }, i % 2 ? "bars" : "gauge")).join("")}</section>`;
 }
 
 function resourcesPage() {
-  return marketingPage("Resources for evaluating inventory intelligence.", "Buyer guides, pilot templates, and executive narratives that help teams decide where to start.", [
+  return `${pageHero("Resources", "Resources for evaluating inventory intelligence.", "Buyer guides, pilot templates, and executive narratives that help teams decide where to start.", "", "resources")}
+  <section class="editorial-grid">${[
     { title: "Pilot playbook", copy: "How to define scope, connect data, and measure impact in the first 30 days." },
     { title: "Inventory risk score guide", copy: "The components behind demand gaps, stock position, and revenue exposure." },
     { title: "Executive business case", copy: "A template for connecting forecast accuracy to cash flow and margin." },
     { title: "Integration checklist", copy: "What to prepare before connecting POS, commerce, and warehouse data." },
-  ], "Resources");
+  ].map((card, i) => `<article><div class="resource-thumb">${i % 2 ? inventoryMockup() : forecastMockup()}</div><p class="eyebrow">${i === 0 ? "Playbook" : i === 1 ? "Guide" : i === 2 ? "Template" : "Checklist"}</p><h2>${esc(card.title)}</h2><p>${esc(card.copy)}</p></article>`).join("")}</section>`;
 }
 
 function blogPage() {
@@ -923,14 +984,17 @@ function documentationPage() {
 }
 
 function securityPage() {
-  return marketingPage("Security built for enterprise evaluation.", "LiquidityLens is structured so procurement, IT, and operations can understand how data is handled before a pilot expands.", [
+  return `${pageHero("Security", "Security built for enterprise evaluation.", "LiquidityLink is structured so procurement, IT, and operations can understand how data is handled before a pilot expands.", productFrame("Admin controls", dashboardPreview()), "security")}
+  <section class="security-table">
+    ${[
     { title: "Access control", copy: "Authenticated sessions, role-oriented workspaces, and protected application routes." },
     { title: "Credential handling", copy: "Provider secrets and tokens stay server-side and are never hardcoded into the browser." },
     { title: "Audit readiness", copy: "Connection status, sync errors, and admin activity are visible for operational review." },
     { title: "Data minimization", copy: "The platform focuses on SKU, order, location, and inventory signals needed for planning." },
     { title: "Enterprise roadmap", copy: "SSO, SOC 2 readiness, custom retention, and private cloud deployment can be prioritized for larger accounts." },
     { title: "Transparent models", copy: "Forecast pages explain inputs, outputs, confidence, and assumptions instead of hiding decisions." },
-  ], "Security");
+    ].map(card => `<article><span>${icon("shield")}</span><div><h3>${esc(card.title)}</h3><p>${esc(card.copy)}</p></div><b>Planned / active</b></article>`).join("")}
+  </section>`;
 }
 
 function integrationsPage() {
@@ -945,16 +1009,16 @@ function integrationsPage() {
 }
 
 function aboutPage() {
-  return marketingPage("Built for retailers that cannot afford reactive inventory planning.", "LiquidityLens exists to make inventory decisions earlier, clearer, and easier to defend.", [
+  return marketingPage("Built for retailers that cannot afford reactive inventory planning.", "LiquidityLink exists to make inventory decisions earlier, clearer, and easier to defend.", [
     { title: "Mission", copy: "Help retailers convert operational uncertainty into measurable inventory action." },
     { title: "Advisor program", copy: "A structured path for operators, supply chain leaders, and finance executives to shape the product." },
     { title: "Customer success", copy: "Pilots focus on one category, one measurable target, and one executive readout." },
-    { title: "Competition wins", copy: "Where BI reports stop at visibility, LiquidityLens prioritizes decisions and action." },
+    { title: "Competition wins", copy: "Where BI reports stop at visibility, LiquidityLink prioritizes decisions and action." },
   ], "About");
 }
 
 function contactPage() {
-  return marketingPage("Talk to the LiquidityLens team.", "Use this page for enterprise evaluations, security reviews, partner integrations, or pilot scoping.", [
+  return marketingPage("Talk to the LiquidityLink team.", "Use this page for enterprise evaluations, security reviews, partner integrations, or pilot scoping.", [
     { title: "Sales", copy: "Discuss pricing, rollout scope, and category priorities." },
     { title: "Security", copy: "Review data handling, access controls, and enterprise requirements." },
     { title: "Partnerships", copy: "Explore integrations, marketplace participation, and private data connections." },
@@ -969,11 +1033,13 @@ function bookDemoPage() {
   </section>
   <section class="marketing-demo-grid">
     <form class="marketing-form" data-demo-form>
+      <input class="hidden" name="website" tabindex="-1" autocomplete="off" />
       <label>Work email<input class="input" name="email" type="email" required placeholder="you@company.com" /></label>
       <label>Company<input class="input" name="company" required placeholder="Retail organization" /></label>
-      <label>Store count<select class="input" name="stores"><option>1-5 stores</option><option>5-50 stores</option><option>50+ stores</option><option>Enterprise network</option></select></label>
-      <label>What do you want to improve?<textarea class="input" name="goal" rows="5" placeholder="Stockouts, excess inventory, cash flow, replenishment, marketplace coordination..."></textarea></label>
-      <button class="btn-primary" type="submit">Request demo</button>
+      <label>Store count<select class="input" name="stores" required><option value="">Choose range</option><option>1-5 stores</option><option>5-50 stores</option><option>50+ stores</option><option>Enterprise network</option></select></label>
+      <label>What do you want to improve?<textarea class="input" name="goal" rows="5" required placeholder="Stockouts, excess inventory, cash flow, replenishment, marketplace coordination..."></textarea></label>
+      <button class="btn-primary" type="submit" ${state.demoBusy ? "disabled" : ""}>${state.demoBusy ? spinner("Sending...") : "Request demo"}</button>
+      ${state.demoMessage ? `<p class="form-status form-status--${esc(state.demoMessageType)}">${esc(state.demoMessage)}</p>` : ""}
     </form>
     <article class="marketing-card">
       <p class="eyebrow">Pilot structure</p>
@@ -986,7 +1052,7 @@ function bookDemoPage() {
 function loginPage() {
   const mode = state.authMode;
   const isReset = mode === "reset";
-  const title = ({ signin: "Sign in to LiquidityLens", signup: "Create your LiquidityLens account", forgot: "Reset your password", reset: "Choose a new password", mfa: "Enter your verification code" })[mode];
+  const title = ({ signin: "Sign in to LiquidityLink", signup: "Create your LiquidityLink account", forgot: "Reset your password", reset: "Choose a new password", mfa: "Enter your verification code" })[mode];
   const copy = ({ signin: "Use your work account or continue with a connected identity provider.", signup: "Start with a secure workspace account for your retail team.", forgot: "Enter your email and we will send a reset link if an account exists.", reset: "Your new password must meet the production password policy.", mfa: `We sent a 6-digit code to ${state.mfaDestination || "your saved verification method"}.` })[mode];
   return `<section class="auth-page">
     <aside class="auth-left">
@@ -1003,7 +1069,7 @@ function loginPage() {
       <div class="auth-slideshow" aria-label="Product feature preview">
         ${demoSlides()}
       </div>
-      <p class="mono text-sm">LiquidityLens demo workspace</p>
+      <p class="mono text-sm">LiquidityLink demo workspace</p>
     </aside>
     <main class="auth-right">
       <button class="btn-icon auth-theme" data-theme type="button" aria-label="Switch to ${currentTheme() === "light" ? "dark" : "light"} theme">${icon(currentTheme() === "light" ? "moon" : "sun")}</button>
@@ -1244,8 +1310,8 @@ function integrationPanel() {
       <details class="connection-instructions">
         <summary>${icon("help")}<span>How do I connect Shopify?</span></summary>
         <ol class="instruction-list">
-          <li>Paste your Shopify store domain, for example <code>liquiditylens.myshopify.com</code>. Do not paste the Shopify admin settings URL.</li>
-          <li>Press <strong>Connect Shopify</strong>, then approve or install the LiquidityLens app in Shopify.</li>
+          <li>Paste your Shopify store domain, for example <code>liquiditylink.myshopify.com</code>. Do not paste the Shopify admin settings URL.</li>
+          <li>Press <strong>Connect Shopify</strong>, then approve or install the LiquidityLink app in Shopify.</li>
           <li>After Shopify sends you back here, press <strong>Sync now</strong> to import orders, products, and inventory.</li>
           <li>Make sure the Shopify app has <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>, and <code>read_locations</code>.</li>
           <li>If the dashboard still looks empty, create a completed test order in Shopify and press <strong>Sync now</strong> again.</li>
@@ -1281,7 +1347,7 @@ function integrationPanel() {
       </details>
       <div class="card connection-help">
         <p class="eyebrow">Clover data imported</p>
-        <p>LiquidityLens imports Clover items as inventory and Clover order line items as sales history.</p>
+        <p>LiquidityLink imports Clover items as inventory and Clover order line items as sales history.</p>
       </div>
       <div class="toolbar">
         <button class="btn-primary" type="submit" ${state.connectionsBusy === "clover" ? "disabled" : ""}>${state.connectionsBusy === "clover" ? spinner("Opening Clover...") : status.status === "needs_reauth" ? "Reconnect Clover" : "Connect Clover"}</button>
@@ -1383,7 +1449,7 @@ function marketplaceMessage() {
   const retailer = state.selectedRetailer;
   if (!retailer) return "";
   if (retailer.source === "OpenStreetMap") {
-    return `Public listing note for ${retailer.retailer}: this business is nearby, but private inventory and transfer requests require them to join LiquidityLens or connect their store. Use the website/phone if available for manual outreach.`;
+    return `Public listing note for ${retailer.retailer}: this business is nearby, but private inventory and transfer requests require them to join LiquidityLink or connect their store. Use the website/phone if available for manual outreach.`;
   }
   return `Hi ${retailer.retailer}, we're interested in discussing a transfer of ${retailer.product}. Can you confirm availability and pricing for ${retailer.qty} units?`;
 }
@@ -1487,7 +1553,7 @@ function listingCard(l, rankedListings = [l], index = 0) {
     <div class="listing-top"><strong>${esc(l.retailer)}</strong><span class="badge badge--info">${l.dist ?? "?"} mi</span></div>
     ${signalMarkup}
     <div><p class="text-md">${esc(l.product)}</p>${listingDetails(l, isDirectory)}</div>
-    <div class="listing-meta"><span class="badge badge--${l.urgency}">${isDirectory ? "directory" : l.urgency}</span><span class="source-pill">${esc(l.source || "LiquidityLens")}</span><span class="source-pill">match ${Math.round(listingRecommendationScore(l))}</span></div>
+    <div class="listing-meta"><span class="badge badge--${l.urgency}">${isDirectory ? "directory" : l.urgency}</span><span class="source-pill">${esc(l.source || "LiquidityLink")}</span><span class="source-pill">match ${Math.round(listingRecommendationScore(l))}</span></div>
     ${listingActions(l, isDirectory)}
   </article>`;
 }
@@ -1915,7 +1981,7 @@ function pricingPage() {
         <p class="eyebrow">Positioning</p>
         <h2 class="text-lg">Premium analytics that grows with the customer.</h2>
       </div>
-      <p>This pricing model lets LiquidityLens support small retailers while still leaving room for national accounts, custom model training, and enterprise services.</p>
+      <p>This pricing model lets LiquidityLink support small retailers while still leaving room for national accounts, custom model training, and enterprise services.</p>
     </section>
   `);
 }
@@ -2083,7 +2149,7 @@ function profilePage() {
         <div class="profile-avatar">${esc(initials)}</div>
         <div>
           <p class="eyebrow">Signed in as</p>
-          <h2 class="text-lg">${esc(`${user.firstName || ""} ${user.lastName || ""}`.trim() || "LiquidityLens user")}</h2>
+          <h2 class="text-lg">${esc(`${user.firstName || ""} ${user.lastName || ""}`.trim() || "LiquidityLink user")}</h2>
           <p class="muted">${esc(user.email || "")}</p>
         </div>
         <div class="account-facts">
@@ -2257,11 +2323,7 @@ function bind() {
   document.querySelectorAll("[data-topic]").forEach(el => el.addEventListener("click", () => { state.selectedTopic = el.dataset.topic; render(); }));
   document.querySelector("[data-post]")?.addEventListener("submit", postCommunity);
   document.querySelectorAll("[data-pricing-plan]").forEach(el => el.addEventListener("click", () => showToast(`${el.dataset.pricingPlan} checkout is ready for payment backend wiring.`, "success")));
-  document.querySelector("[data-demo-form]")?.addEventListener("submit", e => {
-    e.preventDefault();
-    showToast("Demo request captured. Payment and CRM backend wiring can be added next.", "success");
-    e.currentTarget.reset();
-  });
+  document.querySelector("[data-demo-form]")?.addEventListener("submit", submitDemoRequest);
   document.querySelector("[data-profile-form]")?.addEventListener("submit", updateProfile);
   document.querySelector("[data-password-form]")?.addEventListener("submit", changePassword);
   document.querySelector("[data-send-profile-reset]")?.addEventListener("click", sendProfileReset);
@@ -2270,7 +2332,26 @@ function bind() {
   document.querySelector("[data-mfa-confirm-form]")?.addEventListener("submit", confirmMfaSetup);
   document.querySelector("[data-disable-mfa]")?.addEventListener("click", disableMfa);
   document.querySelectorAll("[data-accordion]").forEach(el => el.addEventListener("click", () => el.closest(".accordion-item").classList.toggle("open")));
+  setupReveals();
   bindChartTips();
+}
+
+function setupReveals() {
+  const targets = [...document.querySelectorAll(".marketing-main > section, .marketing-main > .feature-zigzag > article, .marketing-card, .product-frame")];
+  if (!targets.length) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) {
+    targets.forEach(el => el.classList.add("revealed"));
+    return;
+  }
+  targets.forEach(el => el.classList.add("reveal"));
+  const observer = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      entry.target.classList.add("revealed");
+      observer.unobserve(entry.target);
+    }
+  }, { threshold: 0.14 });
+  targets.forEach(el => observer.observe(el));
 }
 
 function togglePasswordVisibility(button) {
@@ -2288,7 +2369,7 @@ async function authStatus() {
   try {
     response = await fetch("/api/auth/status", { credentials: "same-origin" });
   } catch {
-    throw new Error("The authentication server is not reachable. Start the LiquidityLens backend and open http://localhost:4174.");
+    throw new Error("The authentication server is not reachable. Start the LiquidityLink backend and open http://localhost:4174.");
   }
   const contentType = response.headers.get("content-type") || "";
   const data = contentType.includes("application/json") ? await response.json().catch(() => ({})) : {};
@@ -2312,6 +2393,35 @@ async function startSocialAuth(provider) {
   } catch (err) {
     state.authBusy = false;
     state.authMessage = err.message;
+    render();
+  }
+}
+
+async function submitDemoRequest(e) {
+  e.preventDefault();
+  const form = e.currentTarget;
+  const payload = Object.fromEntries(new FormData(form).entries());
+  state.demoBusy = true;
+  state.demoMessage = "";
+  render();
+  try {
+    const response = await fetch("/api/demo-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Could not send the demo request. Please try again.");
+    state.demoMessageType = "success";
+    state.demoMessage = "Demo request sent. We will follow up by email.";
+    showToast("Demo request sent.", "success");
+  } catch (err) {
+    state.demoMessageType = "error";
+    state.demoMessage = err.message;
+    showToast(err.message, "error");
+  } finally {
+    state.demoBusy = false;
     render();
   }
 }
@@ -2844,7 +2954,7 @@ function sendMessage(e) {
     state.marketplaceBusy = false;
     const isDirectory = state.selectedRetailer.source === "OpenStreetMap";
     state.messageSent = isDirectory
-      ? `Saved outreach note for ${retailer}. Use their listed website or phone for manual contact until they join LiquidityLens.`
+      ? `Saved outreach note for ${retailer}. Use their listed website or phone for manual contact until they join LiquidityLink.`
       : `Request sent to ${retailer}. They typically respond within 24 hours.`;
     render();
     showToast(isDirectory ? `Outreach note saved for ${retailer}.` : `Transaction request sent to ${retailer}.`, "success");
@@ -3005,7 +3115,7 @@ async function disableMfa() {
 }
 
 function openHow() {
-  modalRoot.innerHTML = `<div class="modal-overlay" data-modal-close><article class="modal-card" role="dialog" aria-modal="true"><button class="btn-icon modal-close" data-modal-x aria-label="Close">${icon("x")}</button><h2 class="text-xl">How LiquidityLens works</h2><ol class="steps"><li><div><strong>Connect your store</strong><p>Link your POS or ERP system in under 2 minutes using OAuth or API keys.</p></div></li><li><div><strong>Import your data</strong><p>LiquidityLens pulls your sales history, current inventory levels, and product catalog.</p></div></li><li><div><strong>Get your forecast</strong><p>ARIMA and XGBoost models generate an 8-week demand forecast blended into one ensemble output.</p></div></li><li><div><strong>Act on recommendations</strong><p>Each SKU gets a clear action: buy, sell, hold, or transfer, with quantities and urgency.</p></div></li><li><div><strong>Track your savings</strong><p>See recovered revenue, avoided stockouts, and reduced markdowns in the executive report.</p></div></li></ol></article></div>`;
+  modalRoot.innerHTML = `<div class="modal-overlay" data-modal-close><article class="modal-card" role="dialog" aria-modal="true"><button class="btn-icon modal-close" data-modal-x aria-label="Close">${icon("x")}</button><h2 class="text-xl">How LiquidityLink works</h2><ol class="steps"><li><div><strong>Connect your store</strong><p>Link your POS or ERP system in under 2 minutes using OAuth or API keys.</p></div></li><li><div><strong>Import your data</strong><p>LiquidityLink pulls your sales history, current inventory levels, and product catalog.</p></div></li><li><div><strong>Get your forecast</strong><p>ARIMA and XGBoost models generate an 8-week demand forecast blended into one ensemble output.</p></div></li><li><div><strong>Act on recommendations</strong><p>Each SKU gets a clear action: buy, sell, hold, or transfer, with quantities and urgency.</p></div></li><li><div><strong>Track your savings</strong><p>See recovered revenue, avoided stockouts, and reduced markdowns in the executive report.</p></div></li></ol></article></div>`;
   modalRoot.querySelector("[data-modal-close]").addEventListener("click", e => { if (e.target.dataset.modalClose !== undefined || e.target.closest("[data-modal-x]")) modalRoot.innerHTML = ""; });
 }
 
@@ -3020,7 +3130,7 @@ function downloadReport() {
       return counts;
     }, {});
     const csv = [
-      ["LiquidityLens Executive Report", new Date().toLocaleDateString("en-US", { day: "2-digit", month: "long", year: "numeric" })],
+      ["LiquidityLink Executive Report", new Date().toLocaleDateString("en-US", { day: "2-digit", month: "long", year: "numeric" })],
       [],
       ["Inventory Health Summary"],
       ...summaryRows,
@@ -3028,11 +3138,11 @@ function downloadReport() {
       ["Data Source", state.salesRecords.length ? `${state.salesRecords.length} synced sales rows` : "Starter sample data"],
       ["Inventory Source", state.inventoryItems.length ? `${state.inventoryItems.length} synced inventory items` : "Estimated from sample data"],
       ["SKU Action Summary", `Buy: ${actionCounts.buy || 0} SKUs`, `Sell: ${actionCounts.sell || 0} SKUs`, `Transfer: ${actionCounts.transfer || 0} SKUs`, `Hold: ${actionCounts.hold || 0} SKUs`],
-      ["Generated by LiquidityLens", "Confidential"],
+      ["Generated by LiquidityLink", "Confidential"],
     ].map(r => r.map(c => `"${String(c).replaceAll('"', '""')}"`).join(",")).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    a.download = `LiquidityLens-Report-${iso}.csv`;
+    a.download = `LiquidityLink-Report-${iso}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
     state.reportBusy = false;

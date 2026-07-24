@@ -1,8 +1,8 @@
-name = "LiquidityLens"
+name = "LiquidityLink"
 client_id = "b56cbb51dac7c5101410dc4950c82708"
 application_url = "https://liquiditylens-f536.onrender.com"
 embedded = false
-handle = "liquiditylens"
+handle = "liquiditylink"
 
 [build]
 automatically_update_urls_on_dev = false

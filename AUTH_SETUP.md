@@ -1,4 +1,4 @@
-# LiquidityLens Auth Setup
+# LiquidityLink Auth Setup
 
 The app cannot sign users in when opened as `file:///.../index.html`.
 Email/password, Google, and Microsoft all require the Express backend, a Postgres database, and environment variables.
@@ -49,7 +49,7 @@ You need:
 ```env
 PORT=4174
 APP_BASE_URL=http://localhost:4174
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/liquiditylens
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/liquiditylink
 JWT_SECRET=<long random string>
 COOKIE_SECRET=<another long random string>
 GOOGLE_CLIENT_ID=<from Google Cloud>
@@ -66,10 +66,10 @@ openssl rand -base64 32
 
 ### 4. Set up Postgres
 
-Install/start Postgres, create a database named `liquiditylens`, then apply the schema:
+Install/start Postgres, create a database named `liquiditylink`, then apply the schema:
 
 ```sh
-createdb liquiditylens
+createdb liquiditylink
 psql "$DATABASE_URL" -f db/schema.sql
 ```
 

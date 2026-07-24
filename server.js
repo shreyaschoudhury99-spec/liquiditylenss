@@ -23,7 +23,8 @@ const refreshTokenMs = 7 * 24 * 60 * 60 * 1000;
 const resetTokenMs = 60 * 60 * 1000;
 const mfaTokenMs = 10 * 60 * 1000;
 const bcryptCost = 12;
-const marketplaceUserAgent = process.env.MARKETPLACE_USER_AGENT || `LiquidityLens/1.0 (${appBaseUrl})`;
+const marketplaceUserAgent = process.env.MARKETPLACE_USER_AGENT || `LiquidityLink/1.0 (${appBaseUrl})`;
+const demoRequestInbox = "liquiditylens1@gmail.com";
 
 if (process.env.SENDGRID_API_KEY) sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
@@ -501,7 +502,7 @@ async function ensurePlanningSchema() {
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS planning_inventory_product_date_unique_idx ON planning_inventory_levels (user_id, product_id, location_id, recorded_at)");
 
   await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES planning_products(id) ON DELETE CASCADE");
-  await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS model_name TEXT NOT NULL DEFAULT 'LiquidityLens Ensemble'");
+  await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS model_name TEXT NOT NULL DEFAULT 'LiquidityLink Ensemble'");
   await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS forecast_units NUMERIC NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS lower_bound_units NUMERIC NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS upper_bound_units NUMERIC NOT NULL DEFAULT 0");
@@ -528,6 +529,14 @@ const oauthLimiter = rateLimit({
     if (req.path.includes("/callback")) return res.redirect(`/login?error=${encodeURIComponent(message)}`);
     return error(res, 429, message, "RATE_LIMITED");
   },
+});
+
+const demoLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many demo requests from this network. Try again later.", code: "RATE_LIMITED" },
 });
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -641,12 +650,12 @@ async function sendMfaCode({ method, destination, code }) {
       await sgMail.send({
         to: destination,
         from: process.env.SENDGRID_FROM_EMAIL,
-        subject: "Your LiquidityLens verification code",
-        text: `Your LiquidityLens verification code is ${code}. It expires in 10 minutes.`,
-        html: `<p>Your LiquidityLens verification code is <strong>${code}</strong>.</p><p>This code expires in 10 minutes.</p>`,
+        subject: "Your LiquidityLink verification code",
+        text: `Your LiquidityLink verification code is ${code}. It expires in 10 minutes.`,
+        html: `<p>Your LiquidityLink verification code is <strong>${code}</strong>.</p><p>This code expires in 10 minutes.</p>`,
       });
     } else {
-      console.info(`LiquidityLens email 2FA code for ${destination}: ${code}`);
+      console.info(`LiquidityLink email 2FA code for ${destination}: ${code}`);
     }
     return;
   }
@@ -655,7 +664,7 @@ async function sendMfaCode({ method, destination, code }) {
     const body = new URLSearchParams({
       To: destination,
       From: process.env.TWILIO_FROM_PHONE,
-      Body: `Your LiquidityLens verification code is ${code}. It expires in 10 minutes.`,
+      Body: `Your LiquidityLink verification code is ${code}. It expires in 10 minutes.`,
     });
     const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString("base64");
     const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`, {
@@ -665,7 +674,7 @@ async function sendMfaCode({ method, destination, code }) {
     });
     if (!response.ok) throw new Error("Could not send SMS verification code.");
   } else {
-    console.info(`LiquidityLens phone 2FA code for ${destination}: ${code}`);
+    console.info(`LiquidityLink phone 2FA code for ${destination}: ${code}`);
   }
 }
 
@@ -780,7 +789,7 @@ async function ensureDefaultOrganization(userId) {
   const user = userResult.rows[0];
   if (!user) throw new Error("User not found");
 
-  const baseName = `${user.first_name || "LiquidityLens"} Workspace`;
+  const baseName = `${user.first_name || "LiquidityLink"} Workspace`;
   const baseSlug = slugify(baseName);
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const slug = attempt ? `${baseSlug}-${attempt + 1}` : baseSlug;
@@ -1356,7 +1365,7 @@ function holtForecast(weeklyValues, horizon = 8) {
 }
 
 async function persistPlanningOutputs(userId, analytics) {
-  await pool.query("DELETE FROM planning_forecast_results WHERE user_id = $1 AND model_name = 'LiquidityLens Ensemble'", [userId]);
+  await pool.query("DELETE FROM planning_forecast_results WHERE user_id = $1 AND model_name = 'LiquidityLink Ensemble'", [userId]);
   await pool.query("DELETE FROM planning_transfer_recommendations WHERE user_id = $1 AND status = 'open'", [userId]);
   for (const sku of analytics.skus.slice(0, 250)) {
     const product = (await pool.query("SELECT id FROM planning_products WHERE user_id = $1 AND sku = $2", [userId, sku.sku])).rows[0];
@@ -1367,7 +1376,7 @@ async function persistPlanningOutputs(userId, analytics) {
         `INSERT INTO planning_forecast_results
            (user_id, product_id, sku_id, location_id, forecast_date, horizon_days, point_forecast, forecast_units,
             lower_bound, lower_bound_units, upper_bound, upper_bound_units, confidence_level, confidence, model_name, features)
-         VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $6, $7, $7, $8, $8, $9, $9, 'LiquidityLens Ensemble', $10::jsonb)`,
+         VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $6, $7, $7, $8, $8, $9, $9, 'LiquidityLink Ensemble', $10::jsonb)`,
         [
           userId,
           product.id,
@@ -2626,6 +2635,54 @@ app.post("/api/auth/signup", authLimiter, asyncRoute(async (req, res) => {
   }
 }));
 
+app.post("/api/demo-request", demoLimiter, asyncRoute(async (req, res) => {
+  const email = normalizeEmail(req.body.email);
+  const company = String(req.body.company || "").trim();
+  const stores = String(req.body.stores || "").trim();
+  const goal = String(req.body.goal || "").trim();
+  const honeypot = String(req.body.website || "").trim();
+  const submittedAt = new Date();
+
+  if (honeypot) return res.json({ ok: true });
+  if (!isValidEmail(email)) return error(res, 400, "Enter a valid work email.", "INVALID_EMAIL");
+  if (!company) return error(res, 400, "Company is required.", "COMPANY_REQUIRED");
+  if (!stores) return error(res, 400, "Store count is required.", "STORES_REQUIRED");
+  if (!goal) return error(res, 400, "Tell us what you want to improve.", "GOAL_REQUIRED");
+  if (!process.env.SENDGRID_API_KEY) {
+    return error(res, 503, "Demo email is not configured yet. Add SENDGRID_API_KEY in Render, then retry.", "EMAIL_NOT_CONFIGURED");
+  }
+
+  const fromEmail = process.env.SENDGRID_FROM_EMAIL || "no-reply@liquiditylink.example";
+  const lines = [
+    "New LiquidityLink demo request",
+    "",
+    `Work email: ${email}`,
+    `Company: ${company}`,
+    `Store count: ${stores}`,
+    `Goal: ${goal}`,
+    `Submitted at: ${submittedAt.toISOString()}`,
+    `IP: ${req.ip || "unknown"}`,
+    `User agent: ${req.get("user-agent") || "unknown"}`,
+  ];
+  await sgMail.send({
+    to: demoRequestInbox,
+    from: fromEmail,
+    replyTo: email,
+    subject: `LiquidityLink demo request from ${company}`,
+    text: lines.join("\n"),
+    html: `<h2>New LiquidityLink demo request</h2><table>${[
+      ["Work email", email],
+      ["Company", company],
+      ["Store count", stores],
+      ["Goal", goal],
+      ["Submitted at", submittedAt.toISOString()],
+      ["IP", req.ip || "unknown"],
+      ["User agent", req.get("user-agent") || "unknown"],
+    ].map(([label, value]) => `<tr><th align="left" style="padding:6px 12px 6px 0;">${label}</th><td style="padding:6px 0;">${String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char])}</td></tr>`).join("")}</table>`,
+  });
+  res.json({ ok: true });
+}));
+
 app.post("/api/auth/signin", authLimiter, asyncRoute(async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const password = String(req.body.password || "");
@@ -2782,9 +2839,9 @@ app.post("/api/auth/forgot-password", authLimiter, asyncRoute(async (req, res) =
       await sgMail.send({
         to: user.email,
         from: process.env.SENDGRID_FROM_EMAIL,
-        subject: "Reset your LiquidityLens password",
+        subject: "Reset your LiquidityLink password",
         text: `Hi ${user.first_name}, reset your password here: ${resetUrl}`,
-        html: `<p>Hi ${user.first_name},</p><p><a href="${resetUrl}">Reset your LiquidityLens password</a>. This link expires in 1 hour.</p>`,
+        html: `<p>Hi ${user.first_name},</p><p><a href="${resetUrl}">Reset your LiquidityLink password</a>. This link expires in 1 hour.</p>`,
       });
     } else {
       console.info(`Password reset link for ${user.email}: ${resetUrl}`);
@@ -2889,7 +2946,7 @@ app.get("/api/planning/data-quality", authUser, asyncRoute(async (req, res) => {
 app.get("/api/planning/export.csv", authUser, asyncRoute(async (req, res) => {
   const analytics = await buildPlanningAnalytics(req.user.sub, { locationId: req.query.locationId || null });
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", "attachment; filename=\"liquiditylens-planning-export.csv\"");
+  res.setHeader("Content-Disposition", "attachment; filename=\"liquiditylink-planning-export.csv\"");
   res.send(planningCsv(analytics.skus));
 }));
 
@@ -3375,7 +3432,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
       .sort((a, b) => a.dist - b.dist || a.retailer.localeCompare(b.retailer))
       .slice(0, 24);
     let source = "OpenStreetMap";
-    let note = "These are public nearby business listings. Private inventory and transfer data is available only after a business connects to LiquidityLens.";
+    let note = "These are public nearby business listings. Private inventory and transfer data is available only after a business connects to LiquidityLink.";
 
     if (!businesses.length) {
       const fallbackBusinesses = await searchNearbyNominatimBusinesses({
@@ -3391,7 +3448,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
         businesses = fallbackBusinesses.slice(0, 24);
         effectiveRadiusMiles = radiusMiles;
         source = "OpenStreetMap Search";
-        note = "Showing public directory search results because the nearby map index returned no matching shops. Private inventory is available only after a business connects to LiquidityLens.";
+        note = "Showing public directory search results because the nearby map index returned no matching shops. Private inventory is available only after a business connects to LiquidityLink.";
       }
     }
 
@@ -3405,7 +3462,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
       businesses,
       source,
       note: limitedBroadSearch && source === "OpenStreetMap"
-        ? `Showing public listings within ${effectiveRadiusMiles} miles for this broad search. Pick a category or enter a more specific city/state to search farther. Private inventory is available only after a business connects to LiquidityLens.`
+        ? `Showing public listings within ${effectiveRadiusMiles} miles for this broad search. Pick a category or enter a more specific city/state to search farther. Private inventory is available only after a business connects to LiquidityLink.`
         : note,
     });
   } catch (err) {
@@ -3428,7 +3485,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
         count: fallbackBusinesses.length,
         businesses: fallbackBusinesses.slice(0, 24),
         source: "OpenStreetMap Search",
-        note: "The live map index was temporarily unavailable, so LiquidityLens used public directory search results. Private inventory is available only after a business connects to LiquidityLens.",
+        note: "The live map index was temporarily unavailable, so LiquidityLink used public directory search results. Private inventory is available only after a business connects to LiquidityLink.",
       });
     }
     return error(res, 502, "Could not load nearby businesses from the public directory. Try a smaller radius, pick a category, or enter the city plus state.", "MARKETPLACE_LOOKUP_FAILED");
@@ -3905,30 +3962,30 @@ for (const provider of Object.keys(oauthProviders)) {
 
 function metaForPath(pathname) {
   const pages = {
-    "/": ["LiquidityLens | Inventory Intelligence", "Forecast demand, detect stockout risk, and coordinate inventory transfers from a single retail operations workspace."],
-    "/platform": ["Platform | LiquidityLens", "Inventory intelligence, forecasting, supplier risk, and executive reporting built for retail operators."],
-    "/features": ["Features | LiquidityLens", "Forecast accuracy, replenishment signals, risk scoring, marketplace matching, and reporting for modern retail teams."],
-    "/solutions": ["Solutions | LiquidityLens", "Inventory planning workflows for supply chain, operations, finance, and executive teams."],
-    "/industries": ["Industries | LiquidityLens", "Demand forecasting and inventory optimization for apparel, grocery, electronics, home, health, and specialty retail."],
-    "/dashboard": ["LiquidityLens Dashboard", "Inventory risk score, revenue exposure, and SKU recommendations for retail operators."],
-    "/connect": ["Connect Store | LiquidityLens", "Connect POS, ERP, or CSV inventory data to start forecasting."],
-    "/forecasts": ["Forecasts | LiquidityLens", "Demand forecasts with confidence bands and model comparison."],
-    "/inventory": ["Inventory | LiquidityLens", "SKU-level buy, sell, hold, and transfer recommendations."],
-    "/analytics": ["Advanced Analytics | LiquidityLens", "Track GMROI, service levels, reorder points, safety stock, ABC classes, and SKU diagnostics from connected sales and inventory data."],
-    "/marketplace": ["Marketplace | LiquidityLens", "Find nearby retailers with matching inventory excess or shortage signals."],
-    "/community": ["Community | LiquidityLens", "Coordinate markdowns, delivery routes, and bulk buys with retail peers."],
-    "/pricing": ["Pricing | LiquidityLens", "Tiered LiquidityLens subscription plans for retailers from single-store teams to enterprise networks."],
-    "/resources": ["Resources | LiquidityLens", "Guides, frameworks, and operating playbooks for inventory risk teams."],
-    "/blog": ["Blog | LiquidityLens", "Inventory intelligence essays, forecasting methods, and retail operations analysis."],
-    "/docs": ["Documentation | LiquidityLens", "Implementation guides for connecting retail data and interpreting LiquidityLens analytics."],
-    "/security": ["Security | LiquidityLens", "Enterprise security, privacy, and data governance for retail inventory systems."],
-    "/integrations": ["Integrations | LiquidityLens", "Connect Shopify, Clover, Square, CSV, and retail data systems to LiquidityLens."],
-    "/about": ["About | LiquidityLens", "LiquidityLens helps retailers prevent stockouts, reduce excess inventory, and improve working capital."],
-    "/contact": ["Contact | LiquidityLens", "Talk to LiquidityLens about inventory intelligence, pilots, and enterprise deployments."],
-    "/book-demo": ["Book Demo | LiquidityLens", "Book a LiquidityLens demo for your retail planning, operations, or finance team."],
-    "/reports": ["Reports | LiquidityLens", "Executive inventory health reports for finance and operations teams."],
-    "/profile": ["Profile | LiquidityLens", "Manage your LiquidityLens account profile, password, and active session."],
-    "/login": ["Sign In | LiquidityLens", "Secure access to LiquidityLens inventory intelligence."],
+    "/": ["LiquidityLink | Inventory Intelligence", "Forecast demand, detect stockout risk, and coordinate inventory transfers from a single retail operations workspace."],
+    "/platform": ["Platform | LiquidityLink", "Inventory intelligence, forecasting, supplier risk, and executive reporting built for retail operators."],
+    "/features": ["Features | LiquidityLink", "Forecast accuracy, replenishment signals, risk scoring, marketplace matching, and reporting for modern retail teams."],
+    "/solutions": ["Solutions | LiquidityLink", "Inventory planning workflows for supply chain, operations, finance, and executive teams."],
+    "/industries": ["Industries | LiquidityLink", "Demand forecasting and inventory optimization for apparel, grocery, electronics, home, health, and specialty retail."],
+    "/dashboard": ["LiquidityLink Dashboard", "Inventory risk score, revenue exposure, and SKU recommendations for retail operators."],
+    "/connect": ["Connect Store | LiquidityLink", "Connect POS, ERP, or CSV inventory data to start forecasting."],
+    "/forecasts": ["Forecasts | LiquidityLink", "Demand forecasts with confidence bands and model comparison."],
+    "/inventory": ["Inventory | LiquidityLink", "SKU-level buy, sell, hold, and transfer recommendations."],
+    "/analytics": ["Advanced Analytics | LiquidityLink", "Track GMROI, service levels, reorder points, safety stock, ABC classes, and SKU diagnostics from connected sales and inventory data."],
+    "/marketplace": ["Marketplace | LiquidityLink", "Find nearby retailers with matching inventory excess or shortage signals."],
+    "/community": ["Community | LiquidityLink", "Coordinate markdowns, delivery routes, and bulk buys with retail peers."],
+    "/pricing": ["Pricing | LiquidityLink", "Tiered LiquidityLink subscription plans for retailers from single-store teams to enterprise networks."],
+    "/resources": ["Resources | LiquidityLink", "Guides, frameworks, and operating playbooks for inventory risk teams."],
+    "/blog": ["Blog | LiquidityLink", "Inventory intelligence essays, forecasting methods, and retail operations analysis."],
+    "/docs": ["Documentation | LiquidityLink", "Implementation guides for connecting retail data and interpreting LiquidityLink analytics."],
+    "/security": ["Security | LiquidityLink", "Enterprise security, privacy, and data governance for retail inventory systems."],
+    "/integrations": ["Integrations | LiquidityLink", "Connect Shopify, Clover, Square, CSV, and retail data systems to LiquidityLink."],
+    "/about": ["About | LiquidityLink", "LiquidityLink helps retailers prevent stockouts, reduce excess inventory, and improve working capital."],
+    "/contact": ["Contact | LiquidityLink", "Talk to LiquidityLink about inventory intelligence, pilots, and enterprise deployments."],
+    "/book-demo": ["Book Demo | LiquidityLink", "Book a LiquidityLink demo for your retail planning, operations, or finance team."],
+    "/reports": ["Reports | LiquidityLink", "Executive inventory health reports for finance and operations teams."],
+    "/profile": ["Profile | LiquidityLink", "Manage your LiquidityLink account profile, password, and active session."],
+    "/login": ["Sign In | LiquidityLink", "Secure access to LiquidityLink inventory intelligence."],
   };
   return pages[pathname] || pages["/"];
 }
@@ -3947,33 +4004,47 @@ function renderShell(req) {
     <meta property="og:description" content="${description}" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="${canonical}" />
-    <meta property="og:image" content="${appBaseUrl}/assets/liquiditylens-logo.png" />
+    <meta property="og:image" content="${appBaseUrl}/assets/liquiditylink-logo.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="${appBaseUrl}/assets/liquiditylens-logo.png" />
+    <meta name="twitter:image" content="${appBaseUrl}/assets/liquiditylink-logo.png" />
     <link rel="canonical" href="${canonical}" />
-    <link rel="icon" href="/assets/liquiditylens-logo.png" />
+    <link rel="icon" href="/assets/liquiditylink-logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css?v=11" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
-    <div id="app"><main class="ssr-fallback"><h1>${title.replace(" | LiquidityLens", "")}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
+    <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
     <script src="/app.js?v=11"></script>
   </body>
 </html>`;
 }
 
-app.use(express.static(__dirname));
+app.use((req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") return next();
+  const pathname = decodeURIComponent(new URL(req.originalUrl, appBaseUrl).pathname).replace(/^\/+/, "");
+  if (!pathname || pathname.startsWith("api/")) return next();
+  const allowed = new Set(["index.html", "app.js", "styles.css", "_redirects"]);
+  if (allowed.has(pathname) || pathname.startsWith("assets/") || pathname.startsWith("public/")) return next();
+  if (path.extname(pathname)) return res.status(404).type("text/plain").send("Not found");
+  return next();
+});
+
+app.use(express.static(__dirname, {
+  index: false,
+  dotfiles: "ignore",
+  extensions: false,
+}));
 app.get("*", (req, res) => res.send(renderShell(req)));
 
 app.use((err, _req, res, _next) => {
   console.error(err);
   if (isDatabaseConnectionError(err)) {
     return res.status(503).json({
-      error: "The database is not reachable. Start Postgres, create the liquiditylens database, and run db/schema.sql.",
+      error: "The database is not reachable. Start Postgres, create the liquiditylink database, and run db/schema.sql.",
       code: "DATABASE_UNAVAILABLE",
     });
   }
@@ -3984,6 +4055,6 @@ ensureSchema()
   .catch(err => console.error("Database schema setup failed:", err))
   .finally(() => {
     app.listen(port, () => {
-      console.log(`LiquidityLens running at ${appBaseUrl}`);
+      console.log(`LiquidityLink running at ${appBaseUrl}`);
     });
   });
