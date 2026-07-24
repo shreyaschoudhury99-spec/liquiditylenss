@@ -234,6 +234,7 @@ let state = {
   lastUpdated: "Updated 14m ago",
   refreshing: false,
   selectedProvider: "shopify",
+  marketingForecastModel: localStorage.getItem("ll_marketing_forecast_model") || "ensemble",
   checklist: { pos: true, categories: true, sales: false, inventory: false, analysis: false },
   providerBusy: false,
   checklistBusy: "",
@@ -1098,10 +1099,18 @@ function securityControlsVisual() {
 }
 
 function cleanForecastVisual() {
+  const models = [
+    ["holt", "Holt trend"],
+    ["arima", "ARIMA"],
+    ["xgboost", "XGBoost"],
+    ["montecarlo", "Monte Carlo"],
+    ["ensemble", "Ensemble"],
+  ];
+  const active = models.some(([key]) => key === state.marketingForecastModel) ? state.marketingForecastModel : "ensemble";
   return `<div class="clean-forecast-visual">
     <div class="chart-label"><strong>Forecast lab</strong><span>baseline, boosted trees, and ensemble</span></div>
-    ${forecastMockup()}
-    <div class="model-pill-row">${["Holt trend", "ARIMA", "XGBoost", "Monte Carlo", "Ensemble"].map((model, index) => `<span class="${index === 4 ? "active" : ""}">${esc(model)}</span>`).join("")}</div>
+    ${forecastMockup(active)}
+    <div class="model-pill-row">${models.map(([key, label]) => `<button class="${key === active ? "active" : ""}" data-forecast-model="${key}" type="button">${esc(label)}</button>`).join("")}</div>
   </div>`;
 }
 
@@ -1596,34 +1605,51 @@ function demoSlides() {
   </figure>`).join("");
 }
 
-function forecastMockup() {
-  const marketingPoints = [
-    [45, 162, "W1 · Ensemble", "163K units projected; baseline 142K; confidence band 148K-178K."],
-    [185, 111, "W3 · Ensemble", "172K units projected; demand is lifting faster than the baseline."],
-    [330, 86, "W6 · Ensemble", "181K units projected; +5K vs baseline with transfer planning recommended."],
-    [480, 52, "W8 · Ensemble", "184K units projected; strongest signal for replenishment timing."],
-    [45, 185, "W1 · Baseline", "142K baseline units from recurring cycles."],
-    [330, 112, "W6 · Baseline", "176K baseline units before inventory adjustment."],
-    [480, 76, "W8 · Baseline", "178K baseline units; ensemble remains higher."],
-  ];
-  return `<svg viewBox="0 0 520 250" role="img" aria-label="Forecast chart demo">
-    <rect width="520" height="250" rx="8" fill="var(--bg-elevated)"/>
-    <text x="40" y="26" fill="var(--text-primary)" font-weight="700">8-week demand forecast</text>
-    <text x="40" y="44" fill="var(--text-muted)">Units sold by week · ensemble vs baseline</text>
-    ${[45, 90, 135, 180].map(y => `<line x1="40" x2="485" y1="${y}" y2="${y}" class="chart-grid"/>`).join("")}
-    ${[200, 150, 100, 50].map((v, i) => `<text x="14" y="${49 + i * 45}" fill="var(--text-muted)">${v}</text>`).join("")}
-    <path d="M45 162 C110 132 135 142 185 111 C240 78 285 118 330 86 C390 42 430 78 480 52" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round"/>
-    <path d="M45 185 C125 150 160 176 220 132 C280 96 320 142 380 102 C430 72 450 98 480 76" fill="none" stroke="var(--blue)" stroke-width="3" stroke-linecap="round"/>
-    ${marketingPoints.map(([x, y, label, detail], index) => {
-      const ensemble = String(label).includes("Ensemble");
-      const tip = `<strong>${label}</strong><span>${detail}</span><span>Inspect points across marketing and app charts for the same forecast detail pattern.</span>`;
-      return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}"><circle cx="${x}" cy="${y}" r="13" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x}" cy="${y}" r="${index === 2 ? 11 : 4}" fill="${ensemble ? "var(--accent)" : "var(--blue)"}"/></g>`;
+function forecastMockup(activeModel = "ensemble") {
+  const models = {
+    holt: { label: "Holt trend", color: "var(--green)", note: "Smoothed short-history trend", values: [62, 86, 104, 126, 137, 146, 153, 158] },
+    arima: { label: "ARIMA", color: "var(--text-muted)", note: "Recurring demand baseline", values: [50, 62, 70, 82, 104, 118, 126, 137] },
+    xgboost: { label: "XGBoost", color: "var(--blue)", note: "Inventory and signal adjusted", values: [58, 82, 96, 116, 132, 141, 158, 166] },
+    montecarlo: { label: "Monte Carlo", color: "var(--yellow)", note: "Risk-weighted scenario median", values: [54, 74, 89, 110, 124, 134, 149, 156] },
+    ensemble: { label: "Ensemble", color: "var(--accent)", note: "Recommended operating forecast", values: [68, 91, 107, 132, 143, 156, 172, 184] },
+  };
+  const active = models[activeModel] ? activeModel : "ensemble";
+  const baseline = models.arima;
+  const selected = models[active];
+  const w = 520, h = 230;
+  const pad = { l: 44, r: 24, t: 54, b: 34 };
+  const allValues = [...baseline.values, ...selected.values];
+  const min = Math.max(0, Math.min(...allValues) - 18);
+  const max = Math.max(...allValues) + 24;
+  const x = index => pad.l + index * ((w - pad.l - pad.r) / 7);
+  const y = value => h - pad.b - ((value - min) / (max - min)) * (h - pad.t - pad.b);
+  const pathFor = values => values.map((value, index) => `${index ? "L" : "M"}${x(index)},${y(value)}`).join(" ");
+  const bandTop = selected.values.map(value => Math.round(value * 1.1));
+  const bandBottom = selected.values.map(value => Math.round(value * 0.9));
+  const area = `${bandTop.map((value, index) => `${index ? "L" : "M"}${x(index)},${y(value)}`).join(" ")} ${[...bandBottom].reverse().map((value, reverseIndex) => `L${x(7 - reverseIndex)},${y(value)}`).join(" ")} Z`;
+  const points = selected.values.map((value, index) => {
+    const tip = `<strong>Wk ${index + 1} · ${selected.label}</strong><span>Projected demand: ${fmt(value)}K units</span><span>${selected.note}</span><span>Confidence band: ${fmt(Math.round(value * 0.9))}K-${fmt(Math.round(value * 1.1))}K</span>`;
+    return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}"><circle cx="${x(index)}" cy="${y(value)}" r="13" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x(index)}" cy="${y(value)}" r="${index === 5 ? 8 : 4}" fill="${selected.color}"/></g>`;
+  }).join("");
+  return `<svg class="forecast-mockup-svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="${attr(`${selected.label} forecast chart demo`)}">
+    <rect width="${w}" height="${h}" rx="8" fill="var(--bg-elevated)"/>
+    <text x="${pad.l}" y="28" fill="var(--text-primary)" font-weight="700">8-week demand forecast</text>
+    <text x="${pad.l}" y="46" fill="var(--text-muted)">${selected.label} · ${selected.note}</text>
+    ${[0, 1, 2, 3].map(i => {
+      const gy = pad.t + i * 38;
+      const value = Math.round(max - ((max - min) * i) / 3);
+      return `<line x1="${pad.l}" x2="${w - pad.r}" y1="${gy}" y2="${gy}" class="chart-grid"/><text x="14" y="${gy + 4}" fill="var(--text-muted)">${value}</text>`;
     }).join("")}
-    <rect x="330" y="28" width="126" height="45" rx="6" fill="var(--bg-surface)" stroke="var(--border-default)"/>
-    <text x="344" y="48" fill="var(--text-primary)">Wk 6: 181K</text>
-    <text x="344" y="64" fill="var(--text-muted)">+5K vs baseline</text>
-    <text x="55" y="226" fill="var(--text-muted)">W1</text><text x="178" y="226" fill="var(--text-muted)">W3</text><text x="300" y="226" fill="var(--text-muted)">W5</text><text x="458" y="226" fill="var(--text-muted)">W8</text>
-    <circle cx="40" cy="238" r="4" fill="var(--accent)"/><text x="50" y="242" fill="var(--text-muted)">Ensemble</text><circle cx="142" cy="238" r="4" fill="var(--blue)"/><text x="152" y="242" fill="var(--text-muted)">Baseline</text>
+    <path d="${area}" fill="var(--accent-dim)" opacity=".55"/>
+    ${active !== "arima" ? `<path d="${pathFor(baseline.values)}" fill="none" stroke="var(--text-muted)" stroke-width="2" stroke-dasharray="5 6" stroke-linecap="round" opacity=".58"/>` : ""}
+    <path d="${pathFor(selected.values)}" fill="none" stroke="${selected.color}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    ${points}
+    <rect x="${w - 182}" y="16" width="150" height="44" rx="7" fill="var(--bg-surface)" stroke="var(--border-default)"/>
+    <text x="${w - 168}" y="36" fill="var(--text-primary)">Wk 6: ${fmt(selected.values[5])}K</text>
+    <text x="${w - 168}" y="52" fill="var(--text-muted)">${active === "arima" ? "baseline model" : `${selected.values[5] - baseline.values[5] >= 0 ? "+" : ""}${fmt(selected.values[5] - baseline.values[5])}K vs ARIMA`}</text>
+    ${[0, 2, 4, 7].map(index => `<text x="${x(index)}" y="${h - 11}" text-anchor="middle" fill="var(--text-muted)">W${index + 1}</text>`).join("")}
+    <circle cx="${pad.l}" cy="${h - 22}" r="4" fill="${selected.color}"/><text x="${pad.l + 10}" y="${h - 18}" fill="var(--text-muted)">${selected.label}</text>
+    ${active !== "arima" ? `<circle cx="${pad.l + 128}" cy="${h - 22}" r="4" fill="var(--text-muted)"/><text x="${pad.l + 138}" y="${h - 18}" fill="var(--text-muted)">ARIMA</text>` : ""}
   </svg>`;
 }
 
@@ -2716,7 +2742,7 @@ function adminPage() {
       <article class="card">
         <p class="eyebrow">Marketing leads</p>
         <h2 class="text-lg">Demo requests</h2>
-        <p class="muted admin-card-note">Book Demo form submissions are stored here and emailed when SendGrid is configured.</p>
+        <p class="muted admin-card-note">Book Demo form submissions are private to shreyaschoudhury23@gmail.com and are emailed there when SendGrid is configured.</p>
         <div class="table-wrap"><table><thead><tr><th>Company</th><th>Stores</th><th>Goal</th><th>Status</th></tr></thead><tbody>${demoRows}</tbody></table></div>
       </article>
       <article class="card">
@@ -2940,6 +2966,11 @@ function bind() {
   document.querySelectorAll("[data-topic]").forEach(el => el.addEventListener("click", () => { state.selectedTopic = el.dataset.topic; render(); }));
   document.querySelector("[data-post]")?.addEventListener("submit", postCommunity);
   document.querySelectorAll("[data-pricing-plan]").forEach(el => el.addEventListener("click", () => showToast(`${el.dataset.pricingPlan} checkout is ready for payment backend wiring.`, "success")));
+  document.querySelectorAll("[data-forecast-model]").forEach(el => el.addEventListener("click", () => {
+    state.marketingForecastModel = el.dataset.forecastModel || "ensemble";
+    localStorage.setItem("ll_marketing_forecast_model", state.marketingForecastModel);
+    render();
+  }));
   document.querySelectorAll("[data-queue-tab]").forEach(el => el.addEventListener("click", handleQueueTab));
   document.querySelectorAll("[data-queue-detail]").forEach(el => el.addEventListener("click", handleQueueRowPreview));
   document.querySelectorAll("[data-traction-detail]").forEach(el => el.addEventListener("click", () => showToast(el.dataset.tractionDetail, "info")));
@@ -2988,7 +3019,7 @@ async function loadLiveStatistics() {
 }
 
 function setupReveals() {
-  const targets = [...document.querySelectorAll(".marketing-main > section, .marketing-main > .feature-zigzag > article, .marketing-card, .product-frame")];
+  const targets = [...document.querySelectorAll(".marketing-main > section, .marketing-main > .feature-zigzag > article, .marketing-card, .product-frame, .chart, .chart-block, .screen-chart, .hero-forecast")];
   if (!targets.length) return;
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) {
     targets.forEach(el => el.classList.add("revealed"));
@@ -3263,7 +3294,7 @@ async function loadEnterpriseData() {
       apiAuthedGet("/api/settings"),
       apiAuthedGet("/api/api-keys"),
       apiAuthedGet("/api/activity?limit=25"),
-      apiAuthedGet("/api/demo-requests?limit=25"),
+      apiAuthedGet("/api/demo-requests?limit=25").catch(err => err.code === "DEMO_REQUESTS_PRIVATE" ? { data: { demoRequests: [] } } : Promise.reject(err)),
     ]);
     const workspacePayload = apiPayload(workspacesResponse);
     const workspaces = (workspacePayload.workspaces || []).map(normalizeWorkspace);

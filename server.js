@@ -24,7 +24,8 @@ const resetTokenMs = 60 * 60 * 1000;
 const mfaTokenMs = 10 * 60 * 1000;
 const bcryptCost = 12;
 const marketplaceUserAgent = process.env.MARKETPLACE_USER_AGENT || `LiquidityLink/1.0 (${appBaseUrl})`;
-const demoRequestInbox = process.env.DEMO_REQUEST_INBOX || "liquiditylink@gmail.com";
+const demoRequestOwnerEmail = String(process.env.DEMO_REQUEST_OWNER_EMAIL || "shreyaschoudhury23@gmail.com").trim().toLowerCase();
+const demoRequestInbox = demoRequestOwnerEmail;
 const instagramFallbackFollowers = process.env.INSTAGRAM_FOLLOWERS_FALLBACK || "250+";
 let liveStatsCache = { expiresAt: 0, data: null };
 
@@ -2835,8 +2836,9 @@ app.get("/api/live-statistics", asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/demo-requests", authUser, asyncRoute(async (req, res) => {
-  const org = await ensureDefaultOrganization(req.user.sub);
-  if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can view demo requests.", "FORBIDDEN");
+  if (normalizeEmail(req.user.email) !== demoRequestOwnerEmail) {
+    return error(res, 403, "Demo requests are private to the LiquidityLink owner inbox.", "DEMO_REQUESTS_PRIVATE");
+  }
   const { limit, offset, page } = parsePagination(req, 25, 100);
   const result = await pool.query(
     `SELECT id, email, company, stores, goal, email_delivery, created_at
@@ -4248,13 +4250,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=23" />
+    <link rel="stylesheet" href="/styles.css?v=24" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=23"></script>
+    <script src="/app.js?v=24"></script>
   </body>
 </html>`;
 }

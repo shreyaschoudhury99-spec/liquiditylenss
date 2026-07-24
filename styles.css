@@ -1813,17 +1813,27 @@ a { color: inherit; text-decoration: none; }
   gap: var(--space-2);
 }
 .role-tabs span,
-.model-pill-row span {
+.model-pill-row span,
+.model-pill-row button {
   padding: 8px 12px;
   border-radius: 999px;
   border: 1px solid var(--border-default);
   color: var(--text-secondary);
   background: var(--bg-base);
+  font: inherit;
+  cursor: pointer;
 }
 .role-tabs span.active,
-.model-pill-row span.active {
+.model-pill-row span.active,
+.model-pill-row button.active {
   color: var(--text-primary);
   background: var(--accent);
+}
+.model-pill-row button:hover,
+.model-pill-row button:focus-visible {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-default));
+  outline: none;
 }
 .role-flow {
   display: flex;
@@ -1899,6 +1909,19 @@ a { color: inherit; text-decoration: none; }
   display: block;
   width: 100%;
   height: auto;
+}
+.product-frame-art .clean-forecast-visual > svg,
+.forecast-mockup-svg {
+  max-height: clamp(210px, 26vw, 360px);
+}
+.clean-forecast-visual {
+  min-height: auto;
+}
+.product-frame-art .clean-forecast-visual {
+  align-content: center;
+}
+.product-frame-art .forecast-mockup-svg {
+  align-self: center;
 }
 .sku-action-list {
   display: grid;
@@ -2676,7 +2699,13 @@ a { color: inherit; text-decoration: none; }
 .reveal {
   opacity: 0;
   transform: translateY(18px);
-  transition: opacity 0.55s ease, transform 0.55s ease;
+  transition: opacity 0.55s ease, transform 0.55s cubic-bezier(.2,.9,.2,1);
+}
+.chart.reveal,
+.chart-block.reveal,
+.screen-chart.reveal,
+.hero-forecast.reveal {
+  transform: translateY(22px) scale(.975);
 }
 .reveal.revealed,
 .revealed {
