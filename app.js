@@ -3524,6 +3524,17 @@ async function inviteUser(e) {
   e.preventDefault();
   const form = e.currentTarget;
   const values = Object.fromEntries(new FormData(form).entries());
+  const invitedEmail = String(values.email || "").trim().toLowerCase();
+  const currentEmail = String(state.authUser?.email || "").trim().toLowerCase();
+  if (invitedEmail && currentEmail && invitedEmail === currentEmail) {
+    const message = "You cannot invite yourself. Use a different teammate email.";
+    state.inviteBusy = false;
+    state.inviteMessageType = "error";
+    state.inviteMessage = message;
+    render();
+    showToast(message, "error");
+    return;
+  }
   state.inviteBusy = true;
   state.inviteMessage = "";
   render();

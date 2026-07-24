@@ -3170,6 +3170,9 @@ app.post("/api/users", authUser, asyncRoute(async (req, res) => {
   if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can invite users.", "FORBIDDEN");
   const email = normalizeEmail(req.body.email);
   if (!isValidEmail(email)) return error(res, 400, "Enter a valid email address.", "INVALID_EMAIL");
+  if (email === normalizeEmail(req.user.email)) {
+    return error(res, 400, "You cannot invite yourself. Invite a different teammate email.", "SELF_INVITE_BLOCKED");
+  }
   const firstName = String(req.body.firstName || "Invited").trim().slice(0, 80) || "Invited";
   const lastName = String(req.body.lastName || "User").trim().slice(0, 80) || "User";
   const roleName = ["admin", "analyst", "member", "viewer"].includes(req.body.roleName) ? req.body.roleName : "viewer";
@@ -3196,6 +3199,7 @@ app.post("/api/users", authUser, asyncRoute(async (req, res) => {
 app.put("/api/users/:id", authUser, asyncRoute(async (req, res) => {
   const org = await ensureDefaultOrganization(req.user.sub);
   if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can update users.", "FORBIDDEN");
+  if (req.params.id === req.user.sub) return error(res, 400, "You cannot change your own role.", "SELF_ROLE_UPDATE_BLOCKED");
   const roleName = ["admin", "analyst", "member", "viewer"].includes(req.body.roleName) ? req.body.roleName : null;
   if (!roleName) return error(res, 400, "Choose a valid role.", "INVALID_ROLE");
   const result = await pool.query(
@@ -4111,13 +4115,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=21" />
+    <link rel="stylesheet" href="/styles.css?v=22" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=21"></script>
+    <script src="/app.js?v=22"></script>
   </body>
 </html>`;
 }
