@@ -802,17 +802,51 @@ function dashboardPreview() {
   </div>`;
 }
 
-function skuActionRows() {
+function queueRows(mode = "understock") {
+  const rows = {
+    understock: [
+      ["Trail Running Shoes M10", "Stockout risk 91% · 8 days cover", "buy"],
+      ["Merino Base Layer L", "Lead-time gap 74% · supplier ETA 21 days", "buy"],
+      ["Headlamp 350 Lumen", "Forecast demand +38% next 4 weeks", "buy"],
+      ["Dry Bag 10L", "North store shortage · West has excess", "transfer"],
+    ],
+    overstock: [
+      ["Insulated Bottle 32oz", "Overstock risk 78% · $18K tied up", "sell"],
+      ["Packable Rain Jacket S", "Markdown window closing · 64 days cover", "sell"],
+      ["Camp Towel Large", "Slow velocity · 3.2x target cover", "discount"],
+      ["Fleece Pullover XL", "Transfer 80 units to ecommerce demand", "transfer"],
+    ],
+  };
+  return rows[mode] || rows.understock;
+}
+
+function skuActionRows(rows = queueRows("understock")) {
   return `<div class="sku-action-list">
-    ${[
-      ["Trail Running Shoes M10", "Stockout risk 91%", "buy"],
-      ["Insulated Bottle 32oz", "Overstock risk 78%", "sell"],
-      ["Dry Bag 10L", "Transfer match nearby", "transfer"],
-      ["Trail Socks 3-Pack", "Inside operating band", "hold"],
-    ].map(([name, note, action]) => `<button class="sku-action-row" type="button">
+    ${rows.map(([name, note, action]) => `<button class="sku-action-row" type="button">
       <span><strong>${esc(name)}</strong><em>${esc(note)}</em></span><b class="badge badge--${action}">${action}</b>
     </button>`).join("")}
   </div>`;
+}
+
+function queuePanel(mode = "understock", caption = "Understock mode highlights stockout exposure; overstock mode switches to cash, markdown, and transfer candidates.") {
+  return `<div class="queue-panel" data-queue-panel>
+    <div class="hero-toggle" role="tablist" aria-label="Inventory queue mode">
+      ${["understock", "overstock"].map(tab => `<button class="${tab === mode ? "active" : ""}" data-queue-tab="${tab}" type="button" role="tab" aria-selected="${tab === mode}">${tab === "understock" ? "Understock" : "Overstock"}</button>`).join("")}
+    </div>
+    <div data-queue-rows>${skuActionRows(queueRows(mode))}</div>
+    <p class="chart-caption">${esc(caption)}</p>
+  </div>`;
+}
+
+function pageInteractive(title, copy, mode = "understock") {
+  return `<section class="interactive-band">
+    <div>
+      <p class="eyebrow">Interactive model</p>
+      <h2>${esc(title)}</h2>
+      <p>${esc(copy)}</p>
+    </div>
+    ${productFrame("Action queue", `${queuePanel(mode)}<div class="hero-forecast">${forecastMockup()}</div>`, "Switch the queue mode to see the recommendation list and forecast context change together.")}
+  </section>`;
 }
 
 function statBand(stats) {
@@ -841,10 +875,13 @@ function marketingPage(title, copy, cards, eyebrow = "LiquidityLink") {
 
 function insightCard(card, visual = "bars") {
   const visuals = {
-    bars: `<div class="mini-bars"><span></span><span></span><span></span><span></span></div>`,
-    gauge: `<div class="mini-gauge"><b>${esc(card.metric || "74")}</b><span></span></div>`,
-    rows: skuActionRows(),
+    bars: chartBlock("Weekly demand index", "units", [["W1", 42], ["W2", 68], ["W3", 56], ["W4", 88]], "Bars show indexed demand by week; taller bars indicate stronger expected pull."),
+    gauge: gaugeBlock(card.metric || "74", card.measure || "Inventory Health Score", "out of 100", card.caption || "Scores above 70 indicate a healthier operating band."),
+    rows: skuActionRows(card.rows || queueRows("understock")),
     map: marketplaceMockup(),
+    cash: cashExposureVisual(),
+    routes: transferRouteVisual(),
+    growth: growthImpactVisual(),
   };
   return `<article class="marketing-card visual-card">
     ${card.kicker ? `<p class="eyebrow">${esc(card.kicker)}</p>` : ""}
@@ -852,6 +889,43 @@ function insightCard(card, visual = "bars") {
     <p>${esc(card.copy)}</p>
     ${visuals[visual] || visuals.bars}
   </article>`;
+}
+
+function gaugeBlock(value, label, scale, caption) {
+  return `<div class="chart-block"><div class="chart-label"><strong>${esc(label)}</strong><span>${esc(scale)}</span></div><div class="mini-gauge" style="--score:${Math.max(0, Math.min(100, Number(value) || 0))}%"><b>${esc(value)}</b><span></span></div><p class="chart-caption">${esc(caption)}</p></div>`;
+}
+
+function chartBlock(label, unit, points, caption) {
+  const max = Math.max(1, ...points.map(point => Number(point[1]) || 0));
+  return `<div class="chart-block"><div class="chart-label"><strong>${esc(label)}</strong><span>${esc(unit)}</span></div><div class="mini-bars">${points.map(([name, value]) => `<span style="height:${Math.max(8, (value / max) * 100)}%"><b>${esc(value)}</b><em>${esc(name)}</em></span>`).join("")}</div><p class="chart-caption">${esc(caption)}</p></div>`;
+}
+
+function cashExposureVisual() {
+  return `<div class="persona-visual"><div class="chart-label"><strong>Working-capital exposure</strong><span>dollars by SKU</span></div>${[
+    ["Rain Jacket S", "$42K tied up", "sell"],
+    ["Bottle 32oz", "$18K markdown risk", "sell"],
+    ["Camp Towel", "$9K carrying cost", "discount"],
+  ].map(row => `<div class="persona-row"><span><strong>${row[0]}</strong><em>${row[1]}</em></span><b class="badge badge--${row[2]}">${row[2]}</b></div>`).join("")}<p class="chart-caption">CFO view translates inventory exceptions into cash exposure and margin protection.</p></div>`;
+}
+
+function transferRouteVisual() {
+  return `<div class="persona-visual"><div class="chart-label"><strong>Transfer routes</strong><span>units by location</span></div>${[
+    ["West DC → North Store", "80 units · Dry Bag 10L", "transfer"],
+    ["Ecommerce → Downtown", "45 units · Headlamp 350", "transfer"],
+    ["South Store → Airport", "30 units · Trail Socks", "hold"],
+  ].map(row => `<div class="persona-row"><span><strong>${row[0]}</strong><em>${row[1]}</em></span><b class="badge badge--${row[2]}">${row[2]}</b></div>`).join("")}<p class="chart-caption">CSCO view emphasizes banner, store, and route-level standardization.</p></div>`;
+}
+
+function growthImpactVisual() {
+  return chartBlock("Category revenue impact", "forecast lift", [["Footwear", 22], ["Outdoor", 17], ["Apparel", 11], ["Home", 7]], "CEO view rolls SKU health into growth and margin impact by category.");
+}
+
+function pricingModelVisual() {
+  return `<div class="pricing-visual">
+    <div class="chart-label"><strong>Pilot economics</strong><span>illustrative monthly range</span></div>
+    ${[["Small", "$199-$499", "CSV / Shopify pilot"], ["Regional", "$1K-$5K", "Multi-store risk modeling"], ["Enterprise", "$10K+", "Custom analytics + support"]].map(([tier, price, note]) => `<div class="persona-row"><span><strong>${tier}</strong><em>${note}</em></span><b>${price}</b></div>`).join("")}
+    <p class="chart-caption">Pricing is shown as a sales-led range because deployment scope changes with store count, data sources, and analytics depth.</p>
+  </div>`;
 }
 
 function executiveMockup() {
@@ -895,8 +969,9 @@ function homePage() {
         <span>Executive-ready reporting</span>
       </div>
     </div>
-    ${productFrame("Live action queue", `<div class="hero-interactive"><div class="hero-toggle"><span>Understock</span><span>Overstock</span></div>${skuActionRows()}<div class="hero-forecast">${forecastMockup()}</div></div>`, "Hover the rows to preview the buy, sell, hold, and transfer decisions planners see in the app.")}
+    ${productFrame("Live action queue", `<div class="hero-interactive">${queuePanel()}<div class="hero-forecast">${forecastMockup()}</div></div>`, "Switch Understock and Overstock to preview how the live queue changes planner priorities.")}
   </section>
+  ${pageInteractive("A planner can move between shortage risk and excess recovery.", "The full-width queue demonstrates the same operating motion inside the app: switch the mode, review the ranked SKUs, then act with context.", "understock")}
   ${marketingSection("Why it matters", "Inventory risk is now a board-level operating metric.", "Retail teams need earlier signals, not more dashboards. LiquidityLink connects demand, inventory, and cash exposure so every recommendation is tied to measurable business impact.", outcomes)}
   ${marketingSection("Buyer questions", "Every section answers what an enterprise buyer needs to know.", "The site now follows the decision path a retail executive actually takes before trusting a platform with operational data.", questions)}
   ${marketingSection("Trust", "Designed for pilots, procurement, and executive review.", "The message is built around measurable outcomes, transparent calculations, and expansion paths that work for large organizations.", trust)}
@@ -917,6 +992,7 @@ function enterpriseFaq() {
 
 function platformPage() {
   return `${pageHero("Platform", "A predictive operating layer for retail inventory.", "Unify sales, inventory, and supplier signals so every team can work from the same forward-looking plan.", productFrame("Dashboard", dashboardPreview(), "Dashboard, forecast, and SKU action views combined into one operating surface."), "platform")}
+  ${pageInteractive("Switch from shortage response to overstock recovery.", "The same operating layer can move from urgent replenishment to cash-release planning without changing tools.", "overstock")}
   ${marketingSection("Operating model", "From source data to decision queue.", "LiquidityLink normalizes commerce and POS data, models forward demand, then ranks the actions most likely to protect revenue and cash.", `<div class="process-lane">${["Connect", "Normalize", "Forecast", "Prioritize", "Report"].map((step, i) => `<div><b>${String(i + 1).padStart(2, "0")}</b><strong>${step}</strong><span>${["Shopify, Clover, Square, CSV", "SKU, location, cost, price", "Demand bands and confidence", "Buy, sell, hold, transfer", "Executive-ready summaries"][i]}</span></div>`).join("")}</div>`)}
   ${statBand([["8-week", "forecast horizon"], ["SKU + location", "planning grain"], ["Buy/sell/transfer", "action model"]])}`;
 }
@@ -929,23 +1005,27 @@ function featuresPage() {
     ["Marketplace signals", "Surface nearby retail partners and transfer opportunities when internal stock is imbalanced.", marketplaceMockup()],
   ];
   return `${pageHero("Features", "Features that turn inventory data into action.", "Everything is organized around decisions: what to buy, what to move, what to reduce, and where cash is exposed.", productFrame("Advanced analytics", dashboardPreview()), "features")}
+  ${pageInteractive("Compare actions before planners commit.", "Use the queue mode to switch between lost-sales prevention and markdown/cash-release workflows.", "understock")}
   <section class="feature-zigzag">${features.map(([title, copy, art], i) => `<article class="${i % 2 ? "flip" : ""}"><div><p class="eyebrow">Feature ${i + 1}</p><h2>${esc(title)}</h2><p>${esc(copy)}</p></div>${productFrame(title, art)}</article>`).join("")}</section>`;
 }
 
 function solutionsPage() {
+  const cards = [
+    { title: "Supply Chain Managers", copy: "Prioritize risk by location, SKU, supplier, and forecast window.", kicker: "Operator", metric: "61", measure: "Network Risk Score", caption: "Lower scores indicate more urgent location and supplier exposure." },
+    { title: "Inventory Planners", copy: "Move from spreadsheet checks to daily exception management.", kicker: "Operator", rows: queueRows("understock") },
+    { title: "Operations Directors", copy: "See regional exposure and coordinate stores before stockouts spread.", kicker: "Operator", metric: "73", measure: "Regional Service Score", caption: "This score tracks store-level fulfillment readiness out of 100." },
+    { title: "CFOs", copy: "Quantify working-capital impact, carrying cost, and avoidable revenue leakage.", kicker: "Executive" },
+    { title: "Chief Supply Chain Officers", copy: "Standardize planning intelligence across banners, categories, and geographies.", kicker: "Executive" },
+    { title: "CEOs", copy: "Understand inventory health as a growth, margin, and customer experience driver.", kicker: "Executive" },
+  ];
   return `${pageHero("Solutions", "Solutions for every inventory decision maker.", "LiquidityLink gives each role the level of detail they need without forcing everyone into the same dashboard.", productFrame("Role-based workspace", dashboardPreview()), "solutions")}
-  <section class="role-matrix">${[
-    { title: "Supply Chain Managers", copy: "Prioritize risk by location, SKU, supplier, and forecast window." },
-    { title: "Inventory Planners", copy: "Move from spreadsheet checks to daily exception management." },
-    { title: "Operations Directors", copy: "See regional exposure and coordinate stores before stockouts spread." },
-    { title: "CFOs", copy: "Quantify working-capital impact, carrying cost, and avoidable revenue leakage." },
-    { title: "Chief Supply Chain Officers", copy: "Standardize planning intelligence across banners, categories, and geographies." },
-    { title: "CEOs", copy: "Understand inventory health as a growth, margin, and customer experience driver." },
-  ].map((card, i) => insightCard({ ...card, kicker: i < 3 ? "Operator" : "Executive", metric: String(61 + i * 4) }, i % 3 === 0 ? "gauge" : i % 3 === 1 ? "rows" : "bars")).join("")}</section>`;
+  ${pageInteractive("Each role can inspect the same signal differently.", "Switch the action queue to see how planners and executives move between shortage and surplus priorities.", "understock")}
+  <section class="role-matrix">${cards.map((card, i) => insightCard(card, i === 3 ? "cash" : i === 4 ? "routes" : i === 5 ? "growth" : i % 3 === 0 ? "gauge" : i % 3 === 1 ? "rows" : "bars")).join("")}</section>`;
 }
 
 function industriesPage() {
   return `${pageHero("Industries", "Built for retailers with complex demand and capital pressure.", "The model works best where inventory decisions affect cash, margin, availability, and customer trust.", productFrame("Category health", forecastMockup()), "industries")}
+  ${pageInteractive("Tune the queue to each category's risk profile.", "Seasonal industries need both understock protection and overstock cleanup in the same planning rhythm.", "overstock")}
   <section class="industry-board">${[
     { title: "Specialty retail", copy: "Manage seasonal categories, long-tail SKUs, and local demand variation." },
     { title: "Apparel and footwear", copy: "Track size curves, sell-through risk, and excess exposure before markdowns." },
@@ -985,6 +1065,7 @@ function documentationPage() {
 
 function securityPage() {
   return `${pageHero("Security", "Security built for enterprise evaluation.", "LiquidityLink is structured so procurement, IT, and operations can understand how data is handled before a pilot expands.", productFrame("Admin controls", dashboardPreview()), "security")}
+  ${pageInteractive("Review connected data without exposing secrets.", "The interactive view uses planning outputs while provider tokens stay server-side.", "understock")}
   <section class="security-table">
     ${[
     { title: "Access control", copy: "Authenticated sessions, role-oriented workspaces, and protected application routes." },
@@ -1160,19 +1241,26 @@ function demoSlides() {
 function forecastMockup() {
   return `<svg viewBox="0 0 520 250" role="img" aria-label="Forecast chart demo">
     <rect width="520" height="250" rx="8" fill="var(--bg-elevated)"/>
+    <text x="40" y="26" fill="var(--text-primary)" font-weight="700">8-week demand forecast</text>
+    <text x="40" y="44" fill="var(--text-muted)">Units sold by week · ensemble vs baseline</text>
     ${[45, 90, 135, 180].map(y => `<line x1="40" x2="485" y1="${y}" y2="${y}" class="chart-grid"/>`).join("")}
+    ${[200, 150, 100, 50].map((v, i) => `<text x="14" y="${49 + i * 45}" fill="var(--text-muted)">${v}</text>`).join("")}
     <path d="M45 162 C110 132 135 142 185 111 C240 78 285 118 330 86 C390 42 430 78 480 52" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round"/>
     <path d="M45 185 C125 150 160 176 220 132 C280 96 320 142 380 102 C430 72 450 98 480 76" fill="none" stroke="var(--blue)" stroke-width="3" stroke-linecap="round"/>
     <circle cx="330" cy="86" r="11" fill="var(--accent)"/>
     <rect x="330" y="28" width="126" height="45" rx="6" fill="var(--bg-surface)" stroke="var(--border-default)"/>
     <text x="344" y="48" fill="var(--text-primary)">Wk 6: 181K</text>
     <text x="344" y="64" fill="var(--text-muted)">+5K vs baseline</text>
+    <text x="55" y="226" fill="var(--text-muted)">W1</text><text x="178" y="226" fill="var(--text-muted)">W3</text><text x="300" y="226" fill="var(--text-muted)">W5</text><text x="458" y="226" fill="var(--text-muted)">W8</text>
+    <circle cx="40" cy="238" r="4" fill="var(--accent)"/><text x="50" y="242" fill="var(--text-muted)">Ensemble</text><circle cx="142" cy="238" r="4" fill="var(--blue)"/><text x="152" y="242" fill="var(--text-muted)">Baseline</text>
   </svg>`;
 }
 
 function inventoryMockup() {
   return `<svg viewBox="0 0 520 250" role="img" aria-label="Inventory recommendations demo">
     <rect width="520" height="250" rx="8" fill="var(--bg-elevated)"/>
+    <text x="34" y="27" fill="var(--text-primary)" font-weight="700">SKU recommendation queue</text>
+    <text x="34" y="45" fill="var(--text-muted)">Risk percent, action tag, and planner priority</text>
     ${[
       ["Trail Running Shoes", "91% stockout", "buy", "var(--red)"],
       ["Insulated Bottle", "78% overstock", "sell", "var(--yellow)"],
@@ -1191,6 +1279,8 @@ function inventoryMockup() {
 function marketplaceMockup() {
   return `<svg viewBox="0 0 520 250" role="img" aria-label="Partner marketplace demo">
     <rect width="520" height="250" rx="8" fill="var(--bg-elevated)"/>
+    <text x="28" y="28" fill="var(--text-primary)" font-weight="700">Nearby transfer marketplace</text>
+    <text x="28" y="46" fill="var(--text-muted)">Distance and inventory match score by partner</text>
     <path d="M42 205 C112 105 170 160 238 88 C304 19 365 110 480 50" fill="none" stroke="var(--border-strong)" stroke-width="2" stroke-dasharray="6 8"/>
     ${[[252,122,"var(--accent)","Northstar"],[352,76,"var(--green)","38 mi"],[168,156,"var(--blue)","22 mi"],[410,155,"var(--yellow)","14 mi"]].map(([x,y,color,label]) => `<circle cx="${x}" cy="${y}" r="23" fill="${color}" opacity=".18"/><circle cx="${x}" cy="${y}" r="10" fill="${color}"/><text x="${x + 19}" y="${y - 13}" fill="var(--text-primary)">${label}</text>`).join("")}
     <rect x="290" y="158" width="158" height="45" rx="6" fill="var(--bg-surface)" stroke="var(--border-default)"/>
@@ -1229,7 +1319,7 @@ function dashboard() {
     <div class="toolbar-spread"><p class="muted">${esc(dataSourceCopy)}</p><button class="btn-primary" data-refresh type="button" ${state.refreshing ? "disabled" : ""}>${state.refreshing ? spinner("Refreshing...") : `${icon("chart-line")}Refresh analysis`}</button></div>
     <section class="kpi-grid">${cards.map((c, i) => kpiCard(c, i)).join("")}</section>
     <section class="grid-2">
-      <article class="card"><div class="toolbar-spread"><div><p class="eyebrow">Forecast</p><h2 class="text-lg">8-week demand outlook</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>XGBoost</span><span><i style="background:var(--text-muted)"></i>ARIMA</span></div></div><div class="chart">${lineChart(chartData, 820, 280)}</div></article>
+      <article class="card"><div class="toolbar-spread"><div><p class="eyebrow">Forecast</p><h2 class="text-lg">8-week demand outlook</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>XGBoost</span><span><i style="background:var(--text-muted)"></i>ARIMA</span></div></div><div class="chart">${lineChart(chartData, 820, 280)}</div><p class="chart-caption"><strong>Demand forecast</strong> Weekly unit projection by model; the shaded band shows lower and upper confidence bounds.</p></article>
       <article class="card"><p class="eyebrow">Recommendations</p><h2 class="text-lg">Action queue</h2><div class="report-list">${products.slice(0, 5).map(s => `<div class="report-row"><span>${esc(s.product)}</span><span class="badge badge--${s.action}">${s.action}</span></div>`).join("")}</div></article>
     </section>
   `);
@@ -1405,8 +1495,8 @@ function forecastsPage() {
       <article class="card"><p class="eyebrow">${state.salesRecords.length ? "Adjusted forecast" : "XGBoost"}</p><div class="metric-value">${fmt(summary.xgboost)}</div><p class="muted">${esc(summary.xgbLabel)}</p></article>
       <article class="card card--accent"><p class="eyebrow">Ensemble</p><div class="metric-value">${fmt(summary.ensemble)}</div><p class="muted">${esc(summary.ensembleLabel)}</p></article>
     </section>
-    <section class="card"><div class="toolbar-spread"><div><p class="eyebrow">8-week demand forecast</p><h2 class="text-lg">Forecast blend</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>Adjusted</span><span><i style="background:var(--text-muted)"></i>Baseline</span></div></div><div id="forecastChart" class="chart">${lineChart(chartData, 900, 280)}</div></section>
-    <section class="grid-2"><article class="card"><p class="eyebrow">${state.salesRecords.length ? "Forecast confidence" : "Monte Carlo simulation"}</p><div id="mcChart" class="chart chart-small">${areaChart(chartData)}</div><p class="chart-caption"><strong>Uncertainty band</strong> ${state.salesRecords.length < 20 ? "Limited order history widens the range; treat the forecast as directional." : "Range is estimated from observed weekly demand variance."}</p></article><article class="card"><p class="eyebrow">Seasonal demand</p><div id="seasonChart" class="chart chart-tiny">${barChart(seasonalDemandData())}</div></article></section>
+    <section class="card"><div class="toolbar-spread"><div><p class="eyebrow">8-week demand forecast</p><h2 class="text-lg">Forecast blend</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>Adjusted</span><span><i style="background:var(--text-muted)"></i>Baseline</span></div></div><div id="forecastChart" class="chart">${lineChart(chartData, 900, 280)}</div><p class="chart-caption"><strong>Unit forecast</strong> The x-axis is forecast week and the y-axis is projected demand units.</p></section>
+    <section class="grid-2"><article class="card"><p class="eyebrow">${state.salesRecords.length ? "Forecast confidence" : "Monte Carlo simulation"}</p><div id="mcChart" class="chart chart-small">${areaChart(chartData)}</div><p class="chart-caption"><strong>Uncertainty band</strong> ${state.salesRecords.length < 20 ? "Limited order history widens the range; treat the forecast as directional." : "Range is estimated from observed weekly demand variance."}</p></article><article class="card"><p class="eyebrow">Seasonal demand</p><div id="seasonChart" class="chart chart-tiny">${barChart(seasonalDemandData())}</div><p class="chart-caption"><strong>Monthly demand</strong> Bars show units by month so buyers can see seasonal lift and troughs.</p></article></section>
     <section class="card"><p class="eyebrow">How each model works</p><div class="accordion">${modelNotes}</div></section>
   `);
 }
@@ -1926,8 +2016,8 @@ function analyticsDecisionVisuals(data) {
   const excess = [...skus].filter(item => Number(item.excessCost) > 0).sort((a,b) => b.excessCost-a.excessCost).slice(0, 6);
   const maxExcess = Math.max(1, ...excess.map(item => Number(item.excessCost) || 0));
   return `<section class="analytics-visual-grid">
-    <article class="card"><p class="eyebrow">Risk heatmap</p><h2 class="text-lg">SKU risk across the next 8 weeks</h2><div class="risk-heatmap">${skus.map(item => `<div class="heat-row"><strong title="${attr(item.product)}">${esc(item.sku)}</strong>${Array.from({length:8},(_,week) => { const risk=Math.min(100, Number(item.riskScore||0)*(0.72+week*0.04)); return `<span class="heat-cell" style="--risk:${risk}%" title="Week ${week+1}: ${Math.round(risk)}% risk"></span>`; }).join("")}</div>`).join("")}</div></article>
-    <article class="card"><p class="eyebrow">Excess cost waterfall</p><h2 class="text-lg">What is driving carrying cost</h2>${excess.length ? `<div class="waterfall">${excess.map(item => `<div class="waterfall-row"><span>${esc(item.product)}</span><i style="width:${Math.max(4,(item.excessCost/maxExcess)*100)}%"></i><strong>${moneyShort(item.excessCost)}</strong></div>`).join("")}</div>` : `<p class="muted">Insufficient cost data. Sync Shopify inventory-item cost or add costs manually.</p>`}</article>
+    <article class="card"><p class="eyebrow">Risk heatmap</p><h2 class="text-lg">SKU risk across the next 8 weeks</h2><div class="risk-heatmap">${skus.map(item => `<div class="heat-row"><strong title="${attr(item.product)}">${esc(item.sku)}</strong>${Array.from({length:8},(_,week) => { const risk=Math.min(100, Number(item.riskScore||0)*(0.72+week*0.04)); return `<span class="heat-cell" style="--risk:${risk}%" title="Week ${week+1}: ${Math.round(risk)}% risk"></span>`; }).join("")}</div>`).join("")}</div><p class="chart-caption"><strong>Risk percent by week</strong> Darker cells indicate higher stockout or excess exposure for each SKU.</p></article>
+    <article class="card"><p class="eyebrow">Excess cost waterfall</p><h2 class="text-lg">What is driving carrying cost</h2>${excess.length ? `<div class="waterfall">${excess.map(item => `<div class="waterfall-row"><span>${esc(item.product)}</span><i style="width:${Math.max(4,(item.excessCost/maxExcess)*100)}%"></i><strong>${moneyShort(item.excessCost)}</strong></div>`).join("")}</div><p class="chart-caption"><strong>Carrying cost dollars</strong> Bar width is scaled to the largest excess-cost SKU in this view.</p>` : `<p class="muted">Insufficient cost data. Sync Shopify inventory-item cost or add costs manually.</p>`}</article>
     <article class="card scenario-card"><p class="eyebrow">Scenario planner</p><h2 class="text-lg">Discount elasticity what-if</h2><label class="field"><span>Discount <strong data-discount-output>10%</strong></span><input type="range" min="0" max="50" value="10" step="5" data-discount-slider></label><div class="scenario-result"><span>Estimated demand lift</span><strong data-demand-lift>8%</strong></div><p class="muted">Uses a configurable demonstration elasticity of 0.8 until promotion-response history is available.</p></article>
     <article class="card"><p class="eyebrow">Peer benchmark</p><h2 class="text-lg">Operating context</h2><div class="benchmark-list"><div><span>Service level</span><strong>${analyticsValue(data.summary?.serviceLevel, v => fmtPercent(v))}</strong><small>Peer target 95%</small></div><div><span>GMROI</span><strong>${analyticsValue(data.summary?.gmroi, v => fmtDecimal(v,2), "x")}</strong><small>Illustrative peer 2.5x</small></div><div><span>Turnover</span><strong>${analyticsValue(data.summary?.inventoryTurnover, v => fmtDecimal(v,2), "x")}</strong><small>Illustrative peer 4.0x</small></div></div><p class="muted">Peer values are labeled illustrative until a licensed anonymized benchmark dataset is connected.</p></article>
   </section>`;
@@ -1989,14 +2079,18 @@ function pricingPage() {
 function marketingPricingPage() {
   return `
     <section class="marketing-page-hero">
-      <p class="eyebrow">Pricing</p>
-      <h1>Pricing that scales with store complexity, not seat count.</h1>
-      <p>Choose the operating tier that matches your retail footprint today, then expand into optimization, integrations, marketplace coordination, and dedicated analytics support as your inventory network grows.</p>
-      <div class="hero-actions">
-        <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
-        <a class="btn-ghost" href="/contact" data-route="/contact">Talk to sales</a>
+      <div>
+        <p class="eyebrow">Pricing</p>
+        <h1>Pricing that scales with store complexity, not seat count.</h1>
+        <p>Choose the operating tier that matches your retail footprint today, then expand into optimization, integrations, marketplace coordination, and dedicated analytics support as your inventory network grows.</p>
+        <div class="hero-actions">
+          <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
+          <a class="btn-ghost" href="/contact" data-route="/contact">Talk to sales</a>
+        </div>
       </div>
+      ${productFrame("Pricing model", pricingModelVisual(), "This replaces the previous broken pricing graphic with a rendered, responsive in-app visual.")}
     </section>
+    ${pageInteractive("Pilot scope changes the commercial model.", "Switch the action queue while evaluating plans to connect pricing to the operating work each tier supports.", "overstock")}
     <section class="pricing-grid marketing-pricing-grid">
       ${pricingTiers.map(tier => `<article class="pricing-card ${tier.featured ? "pricing-card--featured" : ""}">
         ${tier.featured ? `<span class="badge badge--info pricing-featured-badge">Most relevant</span>` : ""}
@@ -2323,6 +2417,7 @@ function bind() {
   document.querySelectorAll("[data-topic]").forEach(el => el.addEventListener("click", () => { state.selectedTopic = el.dataset.topic; render(); }));
   document.querySelector("[data-post]")?.addEventListener("submit", postCommunity);
   document.querySelectorAll("[data-pricing-plan]").forEach(el => el.addEventListener("click", () => showToast(`${el.dataset.pricingPlan} checkout is ready for payment backend wiring.`, "success")));
+  document.querySelectorAll("[data-queue-tab]").forEach(el => el.addEventListener("click", handleQueueTab));
   document.querySelector("[data-demo-form]")?.addEventListener("submit", submitDemoRequest);
   document.querySelector("[data-profile-form]")?.addEventListener("submit", updateProfile);
   document.querySelector("[data-password-form]")?.addEventListener("submit", changePassword);
@@ -2332,6 +2427,7 @@ function bind() {
   document.querySelector("[data-mfa-confirm-form]")?.addEventListener("submit", confirmMfaSetup);
   document.querySelector("[data-disable-mfa]")?.addEventListener("click", disableMfa);
   document.querySelectorAll("[data-accordion]").forEach(el => el.addEventListener("click", () => el.closest(".accordion-item").classList.toggle("open")));
+  bindMarketingBackground();
   setupReveals();
   bindChartTips();
 }
@@ -2352,6 +2448,36 @@ function setupReveals() {
     }
   }, { threshold: 0.14 });
   targets.forEach(el => observer.observe(el));
+}
+
+function handleQueueTab(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const button = e.currentTarget;
+  const panel = button.closest("[data-queue-panel]");
+  const target = panel?.querySelector("[data-queue-rows]");
+  if (!panel || !target || button.classList.contains("active")) return;
+  panel.querySelectorAll("[data-queue-tab]").forEach(tab => {
+    const selected = tab === button;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+  });
+  target.innerHTML = skuActionRows(queueRows(button.dataset.queueTab));
+}
+
+function bindMarketingBackground() {
+  const site = document.querySelector(".marketing-site");
+  if (!site || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  let frame = 0;
+  site.addEventListener("pointermove", event => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      const rect = site.getBoundingClientRect();
+      site.style.setProperty("--glow-x", `${Math.round(((event.clientX - rect.left) / Math.max(1, rect.width)) * 100)}%`);
+      site.style.setProperty("--glow-y", `${Math.round(((event.clientY - rect.top) / Math.max(1, rect.height)) * 100)}%`);
+      frame = 0;
+    });
+  }, { passive: true });
 }
 
 function togglePasswordVisibility(button) {
@@ -3166,7 +3292,7 @@ function lineChart(data, w, h) {
   const y = v => h - pad.b - ((v - min) / (max - min)) * (h - pad.t - pad.b);
   const path = key => data.map((d, i) => `${i ? "L" : "M"}${x(i)},${y(d[key])}`).join(" ");
   const area = `${data.map((d, i) => `${i ? "L" : "M"}${x(i)},${y(d.upper)}`).join(" ")} ${[...data].reverse().map((d, i) => `L${x(data.length - 1 - i)},${y(d.lower)}`).join(" ")} Z`;
-  return `<svg viewBox="0 0 ${w} ${h}">${[0, 1, 2, 3].map(i => `<line class="chart-grid" x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + i * 55}" y2="${pad.t + i * 55}"/>`).join("")}<path d="${area}" fill="var(--accent-dim)"/><path d="${path("arima")}" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-dasharray="5 5"/><path d="${path("xgboost")}" fill="none" stroke="var(--blue)" stroke-width="1.5"/><path d="${path("ensemble")}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>${data.map((d, i) => {
+  return `<svg viewBox="0 0 ${w} ${h}"><text x="${pad.l}" y="14" fill="var(--text-muted)">Projected units</text>${[0, 1, 2, 3].map(i => { const value = Math.round(max - ((max - min) * i) / 3); return `<line class="chart-grid" x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + i * 55}" y2="${pad.t + i * 55}"/><text x="8" y="${pad.t + i * 55 + 4}" fill="var(--text-muted)">${fmt(value)}</text>`; }).join("")}<path d="${area}" fill="var(--accent-dim)"/><path d="${path("arima")}" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-dasharray="5 5"/><path d="${path("xgboost")}" fill="none" stroke="var(--blue)" stroke-width="1.5"/><path d="${path("ensemble")}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>${data.map((d, i) => {
     const variance = Math.round(((d.upper - d.lower) / Math.max(1, d.ensemble)) * 100);
     const tip = `<strong>${d.week} demand forecast</strong>
       <span>Ensemble: ${fmt(d.ensemble)} units</span>
@@ -3187,7 +3313,7 @@ function areaChart(data = null) {
     const d = confidence.map((point, i) => `${i ? "L" : "M"}${x(i)},${y(point.band)}`).join(" ");
     return `<svg viewBox="0 0 ${w} ${h}" aria-label="Forecast uncertainty by week"><path d="${d} L${w - p},${h - p} L${p},${h - p}Z" fill="var(--blue-dim)"/><path d="${d}" fill="none" stroke="var(--blue)" stroke-width="2"/>${confidence.map((point, i) => {
       const tip = `<strong>${point.week} forecast confidence</strong><span>Band width: ${point.band}%</span><span>${state.salesRecords.length < 12 ? "Needs more history for stronger confidence." : "Based on synced sales variance."}</span>`;
-      return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}"><circle cx="${x(i)}" cy="${y(point.band)}" r="12" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x(i)}" cy="${y(point.band)}" r="4" fill="var(--blue)"/></g><text x="${x(i)}" y="${h - 8}" text-anchor="middle">${point.week.replace("Wk ", "W")}</text>`;
+      return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}"><circle cx="${x(i)}" cy="${y(point.band)}" r="12" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x(i)}" cy="${y(point.band)}" r="4" fill="var(--blue)"/></g><text x="${x(i)}" y="${Math.max(18, y(point.band) - 10)}" text-anchor="middle" fill="var(--text-muted)">${point.band}%</text><text x="${x(i)}" y="${h - 8}" text-anchor="middle">${point.week.replace("Wk ", "W")}</text>`;
     }).join("")}</svg>`;
   }
   const w = 520, h = 220, p = 34, max = 28;
@@ -3198,7 +3324,7 @@ function areaChart(data = null) {
   return `<svg viewBox="0 0 ${w} ${h}"><path d="${d} L${w - p},${h - p} L${p},${h - p}Z" fill="var(--blue-dim)"/><path d="${d}" fill="none" stroke="var(--blue)" stroke-width="2"/><line x1="${thresholdX}" x2="${thresholdX}" y1="${p}" y2="${h - p}" stroke="var(--red)" stroke-dasharray="4 4"/><text x="${thresholdX + 8}" y="${p + 14}" fill="var(--red)">Risk threshold</text><text x="${p}" y="${p + 14}" fill="var(--blue)">Safe range</text><text x="${thresholdX + 70}" y="${p + 34}" fill="var(--red)">High risk</text>${monteCarloData.map((m, i) => {
     const zone = m.outcome >= 40 ? "High risk" : "Safe range";
     const tip = `<strong>${m.outcome >= 0 ? "+" : ""}${m.outcome}% demand outcome</strong><span>Probability: ${m.probability}%</span><span>Risk zone: ${zone}</span><span>Planning note: ${m.outcome >= 40 ? "Prepare transfer or emergency buy options." : "Covered by current stock buffer."}</span>`;
-    return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}"><circle cx="${x(i)}" cy="${y(m.probability)}" r="12" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x(i)}" cy="${y(m.probability)}" r="4" fill="var(--blue)"/></g>`;
+    return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}"><circle cx="${x(i)}" cy="${y(m.probability)}" r="12" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x(i)}" cy="${y(m.probability)}" r="4" fill="var(--blue)"/></g><text x="${x(i)}" y="${Math.max(18, y(m.probability) - 10)}" text-anchor="middle" fill="var(--text-muted)">${m.probability}%</text>`;
   }).join("")}</svg>`;
 }
 
@@ -3213,7 +3339,7 @@ function barChart(data = seasonalData) {
     const yPos = h - p - bh;
     const lift = avg ? Math.round(((m.demand - avg) / avg) * 100) : 0;
     const tip = `<strong>${m.month} seasonal demand</strong><span>Demand: ${fmt(m.demand)} units</span><span>${lift >= 0 ? "+" : ""}${lift}% vs annual average</span><span>${state.salesRecords.length ? "From synced order history." : current ? "Current month: watch stockouts weekly." : "Use for buying and transfer timing."}</span>`;
-    return `<g class="chart-bar" tabindex="0" data-chart-tip="${attr(tip)}"><rect x="${xPos - 3}" y="${p}" width="${bw + 6}" height="${h - p * 2}" fill="var(--bg-base)" opacity="0.001"/><rect x="${xPos}" y="${yPos}" width="${bw}" height="${bh}" rx="3" fill="var(--accent)" opacity="${current ? "1" : ".6"}" ${current ? 'filter="drop-shadow(0 0 8px var(--accent))"' : ""}/></g><text x="${xPos + bw / 2}" y="${h - 8}" text-anchor="middle">${m.month}</text>`;
+    return `<g class="chart-bar" tabindex="0" data-chart-tip="${attr(tip)}"><rect x="${xPos - 3}" y="${p}" width="${bw + 6}" height="${h - p * 2}" fill="var(--bg-base)" opacity="0.001"/><rect x="${xPos}" y="${yPos}" width="${bw}" height="${bh}" rx="3" fill="var(--accent)" opacity="${current ? "1" : ".6"}" ${current ? 'filter="drop-shadow(0 0 8px var(--accent))"' : ""}/></g><text x="${xPos + bw / 2}" y="${Math.max(14, yPos - 7)}" text-anchor="middle" fill="var(--text-muted)">${fmt(m.demand)}</text><text x="${xPos + bw / 2}" y="${h - 8}" text-anchor="middle">${m.month}</text>`;
   }).join("")}</svg>`;
 }
 
