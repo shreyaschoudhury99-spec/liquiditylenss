@@ -242,6 +242,9 @@ let state = {
   advancedAnalytics: null,
   enterprise: {
     overview: null,
+    workspaces: [],
+    pendingInvites: [],
+    activeWorkspaceId: localStorage.getItem("ll_active_workspace_id") || "",
     users: [],
     alerts: [],
     notifications: [],
@@ -387,6 +390,10 @@ function titleizeStoreSlug(value) {
 }
 
 function workspaceName() {
+  const activeWorkspace = state.enterprise?.workspaces?.find(workspace => workspace.id === state.enterprise.activeWorkspaceId);
+  if (activeWorkspace?.name) return activeWorkspace.name;
+  const overviewName = state.enterprise?.overview?.organization?.name;
+  if (overviewName) return overviewName;
   const shopify = state.connectionStatus?.shopify;
   if (shopify?.status === "connected" && shopify.externalAccount) {
     return displayNameFromShopifyAccount(shopify.externalAccount) || shopify.externalAccount;
@@ -860,14 +867,18 @@ function layout(content) {
   const unread = state.notifications.some(n => !n.read);
   const name = workspaceName();
   const initials = workspaceInitials();
+  const workspaceOptions = state.enterprise.workspaces?.length > 1
+    ? `<label class="workspace-switcher"><span>Workspace</span><select class="select" data-workspace-switch>${state.enterprise.workspaces.map(workspace => `<option value="${attr(workspace.id)}" ${workspace.id === state.enterprise.activeWorkspaceId ? "selected" : ""}>${esc(workspace.name)}</option>`).join("")}</select></label>`
+    : "";
+  const pendingCount = state.enterprise.pendingInvites?.length || 0;
   return `
     ${state.sidebarOpen ? `<div class="drawer-overlay" data-close-sidebar></div>` : ""}
     <aside class="sidebar ${state.sidebarOpen ? "open" : ""}">
       <div class="sidebar-top">${logo()}</div>
-      <div class="store-row"><div class="store-name">${esc(name)}</div><div class="online"><span class="dot"></span>online</div></div>
+      <div class="store-row"><div class="store-name">${esc(name)}</div><div class="online"><span class="dot"></span>online ${pendingCount ? `· ${fmt(pendingCount)} invite${pendingCount === 1 ? "" : "s"}` : ""}</div>${workspaceOptions}</div>
       <nav class="sidebar-nav" aria-label="Primary">${navItems.map(([path, label, name]) => `<a href="${path}" class="nav-link ${state.path === path ? "active" : ""}" data-route="${path}"><span class="nav-icon">${icon(name)}</span>${label}</a>`).join("")}</nav>
       <div class="sidebar-bottom">
-        <a class="bottom-link" href="/" data-route="/">${icon("globe-2")}<span>Public site</span></a>
+        <a class="bottom-link bottom-link--public" href="/" data-route="/">${icon("globe-2")}<span>Public site</span></a>
         <button class="btn-icon bottom-link" data-how type="button">${icon("help")}<span>How this works</span></button>
         <button class="btn-icon bottom-link" data-signout type="button">${icon("signout")}<span>Sign out</span></button>
       </div>
@@ -1167,8 +1178,9 @@ function marketingPage(title, copy, cards, eyebrow = "LiquidityLink") {
 }
 
 function insightCard(card, visual = "bars") {
+  const points = card.points || [["W1", 42], ["W2", 68], ["W3", 56], ["W4", 88]];
   const visuals = {
-    bars: chartBlock("Weekly demand index", "units", [["W1", 42], ["W2", 68], ["W3", 56], ["W4", 88]], "Bars show indexed demand by week; taller bars indicate stronger expected pull."),
+    bars: chartBlock(card.measure || "Weekly demand index", card.scale || "units", points, card.caption || "Bars show indexed demand by week; taller bars indicate stronger expected pull."),
     gauge: gaugeBlock(card.metric || "74", card.measure || "Inventory Health Score", "out of 100", card.caption || "Scores above 70 indicate a healthier operating band."),
     rows: skuActionRows(card.rows || queueRows("understock")),
     map: marketplaceMockup(),
@@ -1190,7 +1202,7 @@ function gaugeBlock(value, label, scale, caption) {
 
 function chartBlock(label, unit, points, caption) {
   const max = Math.max(1, ...points.map(point => Number(point[1]) || 0));
-  return `<div class="chart-block"><div class="chart-label"><strong>${esc(label)}</strong><span>${esc(unit)}</span></div><div class="mini-bars">${points.map(([name, value]) => `<span style="height:${Math.max(8, (value / max) * 100)}%"><b>${esc(value)}</b><em>${esc(name)}</em></span>`).join("")}</div><p class="chart-caption">${esc(caption)}</p></div>`;
+  return `<div class="chart-block"><div class="chart-label"><strong>${esc(label)}</strong><span>${esc(unit)}</span></div><div class="mini-bars">${points.map(([name, value]) => `<span tabindex="0" title="${attr(`${name}: ${value} ${unit}`)}" style="height:${Math.max(28, (value / max) * 100)}%"><b>${esc(value)}</b><em>${esc(name)}</em></span>`).join("")}</div><p class="chart-caption">${esc(caption)}</p></div>`;
 }
 
 function cashExposureVisual() {
@@ -1335,16 +1347,17 @@ function solutionsPage() {
 }
 
 function industriesPage() {
+  const industryCards = [
+    { title: "Specialty retail", copy: "Manage seasonal categories, long-tail SKUs, and local demand variation.", metric: "76", measure: "Inventory Health Score", caption: "Balanced score using availability, sell-through, and stock productivity." },
+    { title: "Apparel and footwear", copy: "Track size curves, sell-through risk, and excess exposure before markdowns.", points: [["Sizes", 72], ["Sell-through", 84], ["Returns", 61], ["Margin", 78]] },
+    { title: "Outdoor and sporting goods", copy: "Plan for regional demand swings and event-driven seasonality.", metric: "81", measure: "Seasonal Readiness Score", caption: "Readiness improves when forecasts include weather, region, and event timing." },
+    { title: "Electronics and accessories", copy: "Balance high-value inventory with fast-moving demand changes.", points: [["W1", 58], ["W2", 74], ["W3", 69], ["W4", 91]] },
+    { title: "Grocery and perishables", copy: "Reduce waste by linking demand signals to replenishment timing.", metric: "69", measure: "Waste Avoidance Score", caption: "Perishable planning tracks spoilage risk against expected replenishment timing." },
+    { title: "Multi-location operators", copy: "Use transfer recommendations before buying more inventory.", points: [["North", 66], ["West", 88], ["South", 73], ["East", 82]] },
+  ];
   return `${pageHero("Industries", "Built for retailers with complex demand and capital pressure.", "The model works best where inventory decisions affect cash, margin, availability, and customer trust.", productFrame("Category health", categoryHealthVisual()), "industries")}
   ${pageInteractive("Tune the queue to each category's risk profile.", "Seasonal industries need both understock protection and overstock cleanup in the same planning rhythm.", "overstock")}
-  <section class="industry-board">${[
-    { title: "Specialty retail", copy: "Manage seasonal categories, long-tail SKUs, and local demand variation." },
-    { title: "Apparel and footwear", copy: "Track size curves, sell-through risk, and excess exposure before markdowns." },
-    { title: "Outdoor and sporting goods", copy: "Plan for regional demand swings and event-driven seasonality." },
-    { title: "Electronics and accessories", copy: "Balance high-value inventory with fast-moving demand changes." },
-    { title: "Grocery and perishables", copy: "Reduce waste by linking demand signals to replenishment timing." },
-    { title: "Multi-location operators", copy: "Use transfer recommendations before buying more inventory." },
-  ].map((card, i) => insightCard({ ...card, metric: `${12 + i * 7}%` }, i % 2 ? "bars" : "gauge")).join("")}</section>`;
+  <section class="industry-board">${industryCards.map((card, i) => insightCard(card, i % 2 ? "bars" : "gauge")).join("")}</section>`;
 }
 
 function resourcesPage() {
@@ -2529,6 +2542,8 @@ function adminPage() {
   const overview = enterprise.overview || {};
   const counts = overview.counts || {};
   const organization = overview.organization || {};
+  const workspaces = enterprise.workspaces || [];
+  const pendingInvites = enterprise.pendingInvites || [];
   const providers = overview.providers || [];
   const users = enterprise.users || [];
   const alerts = enterprise.alerts || [];
@@ -2586,6 +2601,27 @@ function adminPage() {
       <td><span class="badge badge--${delivery === "sent" ? "success" : delivery === "failed" ? "warning" : "info"}">${esc(delivery.replaceAll("_", " "))}</span><br><span class="muted">${esc(createdAt ? new Date(createdAt).toLocaleString() : "No timestamp")}</span></td>
     </tr>`;
   }).join("") : `<tr><td colspan="4" class="muted">No demo requests yet. New Book Demo submissions will appear here.</td></tr>`;
+  const workspaceRows = workspaces.length ? workspaces.map(workspace => `
+    <div class="workspace-row ${workspace.id === state.enterprise.activeWorkspaceId ? "active" : ""}">
+      <div>
+        <strong>${esc(workspace.name)}</strong>
+        <span class="muted">${esc(workspace.roleName || workspace.role_name || "member")} · ${esc(workspace.plan || "trial")}</span>
+      </div>
+      <button class="btn-ghost" data-workspace-select="${attr(workspace.id)}" type="button" ${workspace.id === state.enterprise.activeWorkspaceId ? "disabled" : ""}>${workspace.id === state.enterprise.activeWorkspaceId ? "Current" : "Switch"}</button>
+    </div>
+  `).join("") : `<p class="muted">Your personal workspace will appear here after sign-in.</p>`;
+  const inviteRows = pendingInvites.length ? pendingInvites.map(invite => `
+    <div class="workspace-row">
+      <div>
+        <strong>${esc(invite.name)}</strong>
+        <span class="muted">Invited as ${esc(invite.roleName || invite.role_name || "viewer")}</span>
+      </div>
+      <div class="workspace-actions">
+        <button class="btn-primary" data-invite-action="accept" data-invite-org="${attr(invite.id)}" type="button">Accept</button>
+        <button class="btn-ghost" data-invite-action="decline" data-invite-org="${attr(invite.id)}" type="button">Decline</button>
+      </div>
+    </div>
+  `).join("") : `<p class="muted">No pending workspace invites. Email invites also appear here after the invitee signs in with the same email.</p>`;
 
   return pageShell("Admin", "Production controls for users, permissions, alerts, integrations, API access, and audit history.", `
     ${state.enterpriseError ? `<article class="card"><p class="form-error">${esc(state.enterpriseError)}</p></article>` : ""}
@@ -2610,7 +2646,7 @@ function adminPage() {
       <article class="card admin-explainer">
         <p class="eyebrow">What this page controls</p>
         <h2 class="text-lg">Admin is the operating control room for the workspace.</h2>
-        <p class="muted">Use it to invite teammates, review who can see the data, check whether Shopify/CSV syncs are healthy, track demo requests, and audit important workspace activity.</p>
+        <p class="muted">Use it to invite teammates, review who can see the data, switch between workspaces, check whether Shopify/CSV syncs are healthy, track demo requests, and audit important workspace activity.</p>
       </article>
       <article class="card admin-explainer">
         <p class="eyebrow">Invite collaborators</p>
@@ -2626,7 +2662,23 @@ function adminPage() {
           <button class="btn-primary" type="submit" ${state.inviteBusy ? "disabled" : ""}>${state.inviteBusy ? spinner("Inviting...") : "Invite"}</button>
         </form>
         <p class="muted">Viewers can inspect dashboards and reports. Analysts and members are intended for people working with forecasts and inventory. Admins can manage users and settings.</p>
+        <p class="muted">Invite emails send through SendGrid when configured. Either way, the invitee can sign in with the invited email and accept or decline the workspace invite here.</p>
         ${state.inviteMessage ? `<p class="${state.inviteMessageType === "error" ? "form-error" : "severity-low"}">${esc(state.inviteMessage)}</p>` : ""}
+      </article>
+    </section>
+
+    <section class="admin-section-grid">
+      <article class="card">
+        <p class="eyebrow">Workspace management</p>
+        <h2 class="text-lg">Your workspaces</h2>
+        <p class="muted admin-card-note">Switch between your own dashboard and workspaces you have accepted from other teams.</p>
+        <div class="workspace-list">${workspaceRows}</div>
+      </article>
+      <article class="card">
+        <p class="eyebrow">Pending access</p>
+        <h2 class="text-lg">Workspace invites</h2>
+        <p class="muted admin-card-note">Invites stay here until accepted or declined. Accepting adds the workspace to your switcher.</p>
+        <div class="workspace-list">${inviteRows}</div>
       </article>
     </section>
 
@@ -2846,6 +2898,9 @@ function bind() {
   });
   document.querySelector("[data-import-csv]")?.addEventListener("click", importCsv);
   document.querySelector("[data-invite-user]")?.addEventListener("submit", inviteUser);
+  document.querySelector("[data-workspace-switch]")?.addEventListener("change", e => switchWorkspace(e.target.value));
+  document.querySelectorAll("[data-workspace-select]").forEach(el => el.addEventListener("click", () => switchWorkspace(el.dataset.workspaceSelect)));
+  document.querySelectorAll("[data-invite-action]").forEach(el => el.addEventListener("click", () => respondToWorkspaceInvite(el.dataset.inviteOrg, el.dataset.inviteAction)));
   document.querySelectorAll("[data-check]").forEach(el => el.addEventListener("click", () => runChecklist(el.dataset.check)));
   document.querySelector("[data-inventory-search]")?.addEventListener("input", e => { state.inventoryFilter = e.target.value; state.inventoryPage = 1; render(); });
   document.querySelector("[data-inventory-sort]")?.addEventListener("change", e => { state.inventorySort = e.target.value; state.inventoryPage = 1; render(); });
@@ -3107,7 +3162,7 @@ async function apiPatch(path, body) {
   if (!state.accessToken) throw new Error("Sign in required.");
   const response = await fetch(path, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.accessToken}` },
+    headers: authedHeaders({ "Content-Type": "application/json" }),
     credentials: "same-origin",
     body: JSON.stringify(body || {}),
   });
@@ -3125,7 +3180,7 @@ async function apiAuthedPost(path, body) {
   if (!state.accessToken) throw new Error("Sign in required.");
   const response = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.accessToken}` },
+    headers: authedHeaders({ "Content-Type": "application/json" }),
     credentials: "same-origin",
     body: JSON.stringify(body || {}),
   });
@@ -3142,7 +3197,7 @@ async function apiAuthedPost(path, body) {
 async function apiAuthedGet(path) {
   if (!state.accessToken) throw new Error("Sign in required.");
   const response = await fetch(path, {
-    headers: { Authorization: `Bearer ${state.accessToken}` },
+    headers: authedHeaders(),
     credentials: "same-origin",
   });
   const data = await response.json().catch(() => ({}));
@@ -3155,15 +3210,52 @@ async function apiAuthedGet(path) {
   return data;
 }
 
+function authedHeaders(extra = {}) {
+  return {
+    ...extra,
+    Authorization: `Bearer ${state.accessToken}`,
+    ...(state.enterprise?.activeWorkspaceId ? { "X-Organization-Id": state.enterprise.activeWorkspaceId } : {}),
+  };
+}
+
 function apiPayload(response, key) {
   const data = response?.data || response || {};
   return key ? (data[key] || []) : data;
 }
 
+function normalizeWorkspace(row = {}) {
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    plan: row.plan,
+    billingStatus: row.billingStatus || row.billing_status,
+    ownerUserId: row.ownerUserId || row.owner_user_id,
+    roleName: row.roleName || row.role_name,
+    status: row.status,
+    createdAt: row.createdAt || row.created_at,
+  };
+}
+
+function normalizeMember(row = {}) {
+  return {
+    id: row.id,
+    email: row.email,
+    firstName: row.firstName || row.first_name,
+    lastName: row.lastName || row.last_name,
+    emailVerified: Boolean(row.emailVerified ?? row.email_verified),
+    role: row.role || row.roleName || row.role_name,
+    status: row.status,
+    lastLogin: row.lastLogin || row.last_login,
+    createdAt: row.createdAt || row.created_at,
+  };
+}
+
 async function loadEnterpriseData() {
   if (!state.accessToken) return;
   try {
-    const [overview, users, alerts, notifications, settings, apiKeys, activity, demoRequests] = await Promise.all([
+    const [workspacesResponse, overview, users, alerts, notifications, settings, apiKeys, activity, demoRequests] = await Promise.all([
+      apiAuthedGet("/api/workspaces"),
       apiAuthedGet("/api/admin/overview"),
       apiAuthedGet("/api/users"),
       apiAuthedGet("/api/alerts"),
@@ -3173,9 +3265,17 @@ async function loadEnterpriseData() {
       apiAuthedGet("/api/activity?limit=25"),
       apiAuthedGet("/api/demo-requests?limit=25"),
     ]);
+    const workspacePayload = apiPayload(workspacesResponse);
+    const workspaces = (workspacePayload.workspaces || []).map(normalizeWorkspace);
+    const pendingInvites = (workspacePayload.pendingInvites || []).map(normalizeWorkspace);
+    const activeWorkspaceId = workspacePayload.activeWorkspaceId || state.enterprise.activeWorkspaceId || workspaces[0]?.id || "";
+    if (activeWorkspaceId) localStorage.setItem("ll_active_workspace_id", activeWorkspaceId);
     state.enterprise = {
       overview: apiPayload(overview),
-      users: apiPayload(users, "users"),
+      workspaces,
+      pendingInvites,
+      activeWorkspaceId,
+      users: apiPayload(users, "users").map(normalizeMember),
       alerts: apiPayload(alerts, "alerts"),
       notifications: apiPayload(notifications, "notifications"),
       settings: apiPayload(settings, "settings"),
@@ -3542,7 +3642,8 @@ async function inviteUser(e) {
     const data = apiPayload(await apiAuthedPost("/api/users", values));
     state.inviteBusy = false;
     state.inviteMessageType = "success";
-    state.inviteMessage = `${data.email || values.email} was invited as ${data.roleName || values.roleName || "viewer"}.`;
+    const delivery = data.inviteDelivery === "sent" ? " Email sent." : data.inviteDelivery === "failed" ? " Email failed, but the in-app invite is saved." : " The in-app invite is saved; configure SendGrid to email invitees.";
+    state.inviteMessage = `${data.email || values.email} was invited as ${data.roleName || values.roleName || "viewer"}.${delivery}`;
     await loadEnterpriseData();
     render();
     showToast(state.inviteMessage, "success");
@@ -3552,6 +3653,38 @@ async function inviteUser(e) {
     state.inviteMessage = err.message;
     render();
     showToast(err.message, "error");
+  }
+}
+
+async function switchWorkspace(workspaceId) {
+  if (!workspaceId || workspaceId === state.enterprise.activeWorkspaceId) return;
+  state.enterprise.activeWorkspaceId = workspaceId;
+  localStorage.setItem("ll_active_workspace_id", workspaceId);
+  state.adminBusy = true;
+  render();
+  await Promise.all([loadEnterpriseData(), loadConnectionData()]);
+  state.adminBusy = false;
+  render();
+  showToast(`Switched to ${workspaceName()}`, "success");
+}
+
+async function respondToWorkspaceInvite(organizationId, action) {
+  if (!organizationId || !["accept", "decline"].includes(action)) return;
+  state.adminBusy = true;
+  render();
+  try {
+    await apiAuthedPost(`/api/invitations/${organizationId}/${action}`, {});
+    if (action === "accept") {
+      state.enterprise.activeWorkspaceId = organizationId;
+      localStorage.setItem("ll_active_workspace_id", organizationId);
+    }
+    await Promise.all([loadEnterpriseData(), loadConnectionData()]);
+    showToast(action === "accept" ? "Workspace invite accepted." : "Workspace invite declined.", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  } finally {
+    state.adminBusy = false;
+    render();
   }
 }
 

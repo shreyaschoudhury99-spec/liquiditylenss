@@ -790,11 +790,32 @@ async function ensureDefaultOrganization(userId) {
      FROM organization_members om
      JOIN organizations o ON o.id = om.organization_id
      WHERE om.user_id = $1
-     ORDER BY om.created_at ASC
+       AND (om.status = 'active' OR o.owner_user_id = $1)
+     ORDER BY
+       CASE
+         WHEN o.owner_user_id = $1 THEN 0
+         WHEN om.status = 'active' AND om.role_name IN ('owner', 'admin') THEN 1
+         WHEN om.status = 'active' THEN 2
+         ELSE 3
+       END,
+       om.created_at ASC
      LIMIT 1`,
     [userId]
   );
-  if (existing.rows[0]) return existing.rows[0];
+  if (existing.rows[0]) {
+    const org = existing.rows[0];
+    if (org.owner_user_id === userId && (org.role_name !== "owner" || org.status !== "active")) {
+      const repaired = await pool.query(
+        `UPDATE organization_members
+         SET role_name = 'owner', status = 'active', updated_at = now()
+         WHERE organization_id = $1 AND user_id = $2
+         RETURNING role_name, status`,
+        [org.id, userId]
+      );
+      return { ...org, role_name: repaired.rows[0].role_name, status: repaired.rows[0].status };
+    }
+    return org;
+  }
 
   const userResult = await pool.query(
     "SELECT email, first_name, last_name FROM users WHERE id = $1",
@@ -833,6 +854,37 @@ async function ensureDefaultOrganization(userId) {
     }
   }
   throw new Error("Could not create organization");
+}
+
+async function getUserOrganizations(userId) {
+  await ensureDefaultOrganization(userId);
+  const result = await pool.query(
+    `SELECT o.id, o.name, o.slug, o.plan, o.billing_status, o.owner_user_id, om.role_name, om.status, om.created_at
+     FROM organization_members om
+     JOIN organizations o ON o.id = om.organization_id
+     WHERE om.user_id = $1
+     ORDER BY
+       CASE WHEN om.status = 'active' THEN 0 ELSE 1 END,
+       CASE WHEN o.owner_user_id = $1 THEN 0 ELSE 1 END,
+       om.created_at ASC`,
+    [userId]
+  );
+  return result.rows;
+}
+
+async function organizationForRequest(req) {
+  const requestedId = String(req.get("x-organization-id") || "").trim();
+  if (requestedId) {
+    const result = await pool.query(
+      `SELECT o.id, o.name, o.slug, o.plan, o.billing_status, o.owner_user_id, om.role_name, om.status
+       FROM organization_members om
+       JOIN organizations o ON o.id = om.organization_id
+       WHERE om.user_id = $1 AND om.organization_id = $2 AND om.status = 'active'`,
+      [req.user.sub, requestedId]
+    );
+    if (result.rows[0]) return result.rows[0];
+  }
+  return ensureDefaultOrganization(req.user.sub);
 }
 
 async function recordActivity(req, action, entityType, entityId = null, metadata = {}) {
@@ -2644,7 +2696,7 @@ app.post("/api/auth/signup", authLimiter, asyncRoute(async (req, res) => {
 
   const passwordHash = await bcrypt.hash(password, bcryptCost);
   try {
-    const result = await pool.query(
+    let result = await pool.query(
       `INSERT INTO users (email, password_hash, first_name, last_name, email_verified)
        VALUES ($1, $2, $3, $4, false)
        RETURNING ${publicUserColumns}`,
@@ -2652,7 +2704,22 @@ app.post("/api/auth/signup", authLimiter, asyncRoute(async (req, res) => {
     );
     await completeLogin(res, result.rows[0]);
   } catch (err) {
-    if (err.code === "23505") return error(res, 409, "An account with this email already exists.", "EMAIL_EXISTS");
+    if (err.code === "23505") {
+      const invited = await pool.query(`SELECT ${userColumns} FROM users WHERE email = $1`, [email]);
+      const existing = invited.rows[0];
+      if (existing && !existing.password_hash) {
+        const result = await pool.query(
+          `UPDATE users
+           SET password_hash = $1, first_name = $2, last_name = $3
+           WHERE id = $4
+           RETURNING ${publicUserColumns}`,
+          [passwordHash, firstName, lastName, existing.id]
+        );
+        await completeLogin(res, result.rows[0]);
+        return;
+      }
+      return error(res, 409, "An account with this email already exists.", "EMAIL_EXISTS");
+    }
     throw err;
   }
 }));
@@ -3095,12 +3162,12 @@ app.post("/api/planning/import/:batchId/commit", authUser, asyncRoute(async (req
 }));
 
 app.get("/api/organization", authUser, asyncRoute(async (req, res) => {
-  const org = await ensureDefaultOrganization(req.user.sub);
+  const org = await organizationForRequest(req);
   apiOk(res, { organization: org });
 }));
 
 app.get("/api/admin/overview", authUser, asyncRoute(async (req, res) => {
-  const org = await ensureDefaultOrganization(req.user.sub);
+  const org = await organizationForRequest(req);
   const [
     salesCount,
     inventoryCount,
@@ -3149,12 +3216,51 @@ app.get("/api/admin/overview", authUser, asyncRoute(async (req, res) => {
   });
 }));
 
+app.get("/api/workspaces", authUser, asyncRoute(async (req, res) => {
+  const workspaces = await getUserOrganizations(req.user.sub);
+  const active = await organizationForRequest(req);
+  apiOk(res, {
+    workspaces: workspaces.filter(workspace => workspace.status === "active"),
+    pendingInvites: workspaces.filter(workspace => workspace.status === "invited"),
+    activeWorkspaceId: active.id,
+  });
+}));
+
+app.get("/api/invitations", authUser, asyncRoute(async (req, res) => {
+  const workspaces = await getUserOrganizations(req.user.sub);
+  apiOk(res, { invitations: workspaces.filter(workspace => workspace.status === "invited") });
+}));
+
+app.post("/api/invitations/:organizationId/accept", authUser, asyncRoute(async (req, res) => {
+  const result = await pool.query(
+    `UPDATE organization_members
+     SET status = 'active', updated_at = now()
+     WHERE organization_id = $1 AND user_id = $2 AND status = 'invited'
+     RETURNING organization_id, role_name, status`,
+    [req.params.organizationId, req.user.sub]
+  );
+  if (!result.rows[0]) return error(res, 404, "Invite not found.", "INVITE_NOT_FOUND");
+  await recordActivity(req, "workspace.invite_accepted", "organization", req.params.organizationId);
+  apiOk(res, { invitation: result.rows[0] });
+}));
+
+app.post("/api/invitations/:organizationId/decline", authUser, asyncRoute(async (req, res) => {
+  const result = await pool.query(
+    `DELETE FROM organization_members
+     WHERE organization_id = $1 AND user_id = $2 AND status = 'invited'
+     RETURNING organization_id`,
+    [req.params.organizationId, req.user.sub]
+  );
+  if (!result.rows[0]) return error(res, 404, "Invite not found.", "INVITE_NOT_FOUND");
+  apiOk(res, { declined: true, organizationId: req.params.organizationId });
+}));
+
 app.get("/api/users", authUser, asyncRoute(async (req, res) => {
-  const org = await ensureDefaultOrganization(req.user.sub);
+  const org = await organizationForRequest(req);
   const { limit, offset, page } = parsePagination(req);
   const result = await pool.query(
     `SELECT u.id, u.email, u.first_name, u.last_name, u.email_verified,
-            om.role_name, om.status, om.created_at
+            om.role_name, om.status, om.created_at, NULL::timestamptz AS last_login
      FROM organization_members om
      JOIN users u ON u.id = om.user_id
      WHERE om.organization_id = $1
@@ -3166,7 +3272,7 @@ app.get("/api/users", authUser, asyncRoute(async (req, res) => {
 }));
 
 app.post("/api/users", authUser, asyncRoute(async (req, res) => {
-  const org = await ensureDefaultOrganization(req.user.sub);
+  const org = await organizationForRequest(req);
   if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can invite users.", "FORBIDDEN");
   const email = normalizeEmail(req.body.email);
   if (!isValidEmail(email)) return error(res, 400, "Enter a valid email address.", "INVALID_EMAIL");
@@ -3189,15 +3295,42 @@ app.post("/api/users", authUser, asyncRoute(async (req, res) => {
     `INSERT INTO organization_members (organization_id, user_id, role_name, status)
      VALUES ($1, $2, $3, 'invited')
      ON CONFLICT (organization_id, user_id) DO UPDATE
-     SET role_name = EXCLUDED.role_name, status = 'invited'`,
+     SET role_name = EXCLUDED.role_name,
+         status = CASE
+           WHEN organization_members.status = 'active' THEN 'active'
+           ELSE 'invited'
+         END,
+         updated_at = now()`,
     [org.id, user.id, roleName]
   );
+  let inviteDelivery = "not_configured";
+  if (process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM_EMAIL) {
+    try {
+      await sgMail.send({
+        to: email,
+        from: process.env.SENDGRID_FROM_EMAIL,
+        replyTo: demoRequestInbox,
+        subject: `${req.user.firstName || "A teammate"} invited you to LiquidityLink`,
+        text: [
+          `You were invited to join ${org.name} on LiquidityLink as ${roleName}.`,
+          "",
+          `Sign in or create an account with ${email}, then open Admin > Workspace invites to accept it.`,
+          `${appBaseUrl}/login`,
+        ].join("\n"),
+        html: `<p>You were invited to join <strong>${org.name}</strong> on LiquidityLink as <strong>${roleName}</strong>.</p><p>Sign in or create an account with <strong>${email}</strong>, then open Admin &gt; Workspace invites to accept it.</p><p><a href="${appBaseUrl}/login">Open LiquidityLink</a></p>`,
+      });
+      inviteDelivery = "sent";
+    } catch (err) {
+      inviteDelivery = "failed";
+      console.error("SendGrid invite delivery failed. Invite remains visible in-app.", { message: err.message, code: err.code, response: err.response?.body });
+    }
+  }
   await recordActivity(req, "user.invited", "user", user.id, { email, roleName });
-  apiOk(res, { id: user.id, email, roleName, status: "invited" });
+  apiOk(res, { id: user.id, email, roleName, status: "invited", inviteDelivery });
 }));
 
 app.put("/api/users/:id", authUser, asyncRoute(async (req, res) => {
-  const org = await ensureDefaultOrganization(req.user.sub);
+  const org = await organizationForRequest(req);
   if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can update users.", "FORBIDDEN");
   if (req.params.id === req.user.sub) return error(res, 400, "You cannot change your own role.", "SELF_ROLE_UPDATE_BLOCKED");
   const roleName = ["admin", "analyst", "member", "viewer"].includes(req.body.roleName) ? req.body.roleName : null;
@@ -3215,7 +3348,7 @@ app.put("/api/users/:id", authUser, asyncRoute(async (req, res) => {
 }));
 
 app.delete("/api/users/:id", authUser, asyncRoute(async (req, res) => {
-  const org = await ensureDefaultOrganization(req.user.sub);
+  const org = await organizationForRequest(req);
   if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can remove users.", "FORBIDDEN");
   if (req.params.id === req.user.sub) return error(res, 400, "You cannot remove yourself.", "SELF_REMOVE_BLOCKED");
   await pool.query("DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2", [org.id, req.params.id]);
@@ -4115,13 +4248,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=22" />
+    <link rel="stylesheet" href="/styles.css?v=23" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=22"></script>
+    <script src="/app.js?v=23"></script>
   </body>
 </html>`;
 }
