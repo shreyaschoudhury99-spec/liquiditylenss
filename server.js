@@ -96,6 +96,7 @@ async function ensureSchema() {
     product TEXT NOT NULL,
     current_quantity NUMERIC NOT NULL DEFAULT 0 CHECK (current_quantity >= 0),
     unit_price NUMERIC NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
+    unit_cost NUMERIC CHECK (unit_cost >= 0),
     source TEXT NOT NULL DEFAULT 'shopify',
     external_id TEXT,
     location TEXT NOT NULL DEFAULT 'all locations',
@@ -103,6 +104,7 @@ async function ensureSchema() {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (user_id, source, sku, location)
   )`);
+  await pool.query("ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC CHECK (unit_cost >= 0)");
   await pool.query("CREATE INDEX IF NOT EXISTS inventory_items_user_lookup_idx ON inventory_items (user_id, source, sku)");
   await pool.query(`CREATE TABLE IF NOT EXISTS integration_connections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -125,7 +127,7 @@ async function ensureSchema() {
   await pool.query("ALTER TABLE integration_connections ADD COLUMN IF NOT EXISTS scopes TEXT");
   await pool.query("ALTER TABLE integration_connections ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE integration_connections DROP CONSTRAINT IF EXISTS integration_connections_provider_check");
-  await pool.query("ALTER TABLE integration_connections ADD CONSTRAINT integration_connections_provider_check CHECK (provider IN ('csv', 'shopify', 'square', 'clover'))");
+  await pool.query("ALTER TABLE integration_connections ADD CONSTRAINT integration_connections_provider_check CHECK (provider IN ('csv', 'shopify', 'square', 'clover', 'lightspeed', 'toast', 'woocommerce', 'custom_pos'))");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_method TEXT");
@@ -273,6 +275,239 @@ async function ensureSchema() {
     expected_at DATE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
+  await ensurePlanningSchema();
+}
+
+async function ensurePlanningSchema() {
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_suppliers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    supplier_code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    average_lead_time_days NUMERIC NOT NULL DEFAULT 14,
+    lead_time_variability_days NUMERIC NOT NULL DEFAULT 3,
+    reliability_score NUMERIC NOT NULL DEFAULT 90 CHECK (reliability_score >= 0 AND reliability_score <= 100),
+    minimum_order_quantity NUMERIC NOT NULL DEFAULT 1 CHECK (minimum_order_quantity >= 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, supplier_code)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sku_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'General',
+    subcategory TEXT NOT NULL DEFAULT 'General',
+    unit_cost NUMERIC CHECK (unit_cost >= 0),
+    unit_price NUMERIC CHECK (unit_price >= 0),
+    unit_of_measure TEXT NOT NULL DEFAULT 'unit',
+    supplier_id UUID REFERENCES planning_suppliers(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'discontinued', 'sample')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, sku_id)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_locations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    location_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    location_type TEXT NOT NULL DEFAULT 'store' CHECK (location_type IN ('store', 'warehouse', 'dc', 'online')),
+    region TEXT NOT NULL DEFAULT 'North America',
+    capacity_units NUMERIC CHECK (capacity_units >= 0),
+    latitude NUMERIC,
+    longitude NUMERIC,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, location_id)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_sales_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sku_id TEXT NOT NULL,
+    location_id TEXT NOT NULL,
+    sale_date DATE NOT NULL,
+    units_sold NUMERIC NOT NULL DEFAULT 0 CHECK (units_sold >= 0),
+    unit_price_at_sale NUMERIC CHECK (unit_price_at_sale >= 0),
+    was_promoted BOOLEAN NOT NULL DEFAULT false,
+    was_out_of_stock BOOLEAN NOT NULL DEFAULT false,
+    source TEXT NOT NULL DEFAULT 'sample',
+    external_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, sku_id, location_id, sale_date, source)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_inventory_levels (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sku_id TEXT NOT NULL,
+    location_id TEXT NOT NULL,
+    inventory_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    on_hand_qty NUMERIC NOT NULL DEFAULT 0 CHECK (on_hand_qty >= 0),
+    on_order_qty NUMERIC NOT NULL DEFAULT 0 CHECK (on_order_qty >= 0),
+    in_transit_qty NUMERIC NOT NULL DEFAULT 0 CHECK (in_transit_qty >= 0),
+    safety_stock_threshold NUMERIC NOT NULL DEFAULT 0 CHECK (safety_stock_threshold >= 0),
+    source TEXT NOT NULL DEFAULT 'sample',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, sku_id, location_id, inventory_date, source)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_promotion_calendar (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sku_id TEXT,
+    category TEXT,
+    location_id TEXT,
+    promo_name TEXT NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    discount_pct NUMERIC NOT NULL DEFAULT 0 CHECK (discount_pct >= 0),
+    expected_lift_pct NUMERIC NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_forecast_results (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sku_id TEXT NOT NULL,
+    location_id TEXT NOT NULL,
+    forecast_date DATE NOT NULL,
+    horizon_days INTEGER NOT NULL CHECK (horizon_days IN (7, 30, 90)),
+    point_forecast NUMERIC NOT NULL DEFAULT 0,
+    lower_bound NUMERIC NOT NULL DEFAULT 0,
+    upper_bound NUMERIC NOT NULL DEFAULT 0,
+    confidence_level NUMERIC NOT NULL DEFAULT 0.8,
+    model_version TEXT NOT NULL DEFAULT 'll-exp-smooth-v1',
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, sku_id, location_id, forecast_date, horizon_days, model_version)
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_forecast_accuracy_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sku_id TEXT NOT NULL,
+    location_id TEXT NOT NULL,
+    forecast_date DATE NOT NULL,
+    horizon_days INTEGER NOT NULL,
+    forecast_units NUMERIC NOT NULL DEFAULT 0,
+    actual_units NUMERIC,
+    absolute_error NUMERIC,
+    percent_error NUMERIC,
+    bias NUMERIC,
+    accuracy_status TEXT NOT NULL DEFAULT 'pending' CHECK (accuracy_status IN ('pending', 'good', 'degraded', 'insufficient')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_transfer_recommendations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sku_id TEXT NOT NULL,
+    from_location_id TEXT NOT NULL,
+    to_location_id TEXT NOT NULL,
+    recommended_qty NUMERIC NOT NULL CHECK (recommended_qty > 0),
+    rationale TEXT NOT NULL,
+    business_impact NUMERIC NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'approved', 'rejected', 'completed')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_supplier_orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    supplier_id UUID REFERENCES planning_suppliers(id) ON DELETE SET NULL,
+    sku_id TEXT NOT NULL,
+    location_id TEXT NOT NULL,
+    order_qty NUMERIC NOT NULL CHECK (order_qty > 0),
+    expected_arrival_date DATE,
+    status TEXT NOT NULL DEFAULT 'recommended' CHECK (status IN ('recommended', 'draft', 'submitted', 'received', 'cancelled')),
+    rationale TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_import_batches (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('products', 'sales', 'inventory')),
+    file_name TEXT NOT NULL DEFAULT 'manual upload',
+    status TEXT NOT NULL DEFAULT 'preview' CHECK (status IN ('preview', 'committed', 'failed')),
+    preview_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error_payload JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    committed_at TIMESTAMPTZ
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_sync_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ,
+    rows_processed INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS planning_dashboard_cache (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    cache_key TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, cache_key)
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS planning_products_user_category_idx ON planning_products (user_id, category, sku_id)");
+  await pool.query("CREATE INDEX IF NOT EXISTS planning_sales_user_sku_location_date_idx ON planning_sales_history (user_id, sku_id, location_id, sale_date DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS planning_sales_user_date_idx ON planning_sales_history (user_id, sale_date DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS planning_inventory_user_sku_location_date_idx ON planning_inventory_levels (user_id, sku_id, location_id, inventory_date DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS planning_forecast_user_lookup_idx ON planning_forecast_results (user_id, sku_id, location_id, forecast_date DESC)");
+
+  await pool.query("ALTER TABLE planning_suppliers ADD COLUMN IF NOT EXISTS lead_time_days NUMERIC");
+  await pool.query("ALTER TABLE planning_suppliers ADD COLUMN IF NOT EXISTS lead_time_stddev_days NUMERIC");
+  await pool.query(`UPDATE planning_suppliers
+    SET lead_time_days = COALESCE(lead_time_days, average_lead_time_days, 14),
+        lead_time_stddev_days = COALESCE(lead_time_stddev_days, lead_time_variability_days, 3)`);
+
+  await pool.query("ALTER TABLE planning_products ADD COLUMN IF NOT EXISTS sku TEXT");
+  await pool.query("ALTER TABLE planning_products ADD COLUMN IF NOT EXISTS source_system TEXT NOT NULL DEFAULT 'sample_seed'");
+  await pool.query("ALTER TABLE planning_products ADD COLUMN IF NOT EXISTS external_id TEXT");
+  await pool.query("UPDATE planning_products SET sku = COALESCE(sku, sku_id)");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS planning_products_user_sku_idx ON planning_products (user_id, sku)");
+
+  await pool.query("ALTER TABLE planning_locations ADD COLUMN IF NOT EXISTS location_code TEXT");
+  await pool.query("UPDATE planning_locations SET location_code = COALESCE(location_code, location_id)");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS planning_locations_user_code_idx ON planning_locations (user_id, location_code)");
+
+  await pool.query("ALTER TABLE planning_sales_history ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES planning_products(id) ON DELETE CASCADE");
+  await pool.query("ALTER TABLE planning_sales_history ADD COLUMN IF NOT EXISTS quantity NUMERIC NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE planning_sales_history ADD COLUMN IF NOT EXISTS gross_revenue NUMERIC NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE planning_sales_history ADD COLUMN IF NOT EXISTS source_system TEXT NOT NULL DEFAULT 'sample_seed'");
+  await pool.query(`UPDATE planning_sales_history
+    SET quantity = COALESCE(quantity, units_sold, 0),
+        gross_revenue = COALESCE(gross_revenue, units_sold * COALESCE(unit_price_at_sale, 0), 0),
+        source_system = COALESCE(source_system, source, 'sample_seed')`);
+  await pool.query("CREATE INDEX IF NOT EXISTS planning_sales_product_lookup_idx ON planning_sales_history (user_id, product_id, location_id, sale_date DESC)");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS planning_sales_product_source_unique_idx ON planning_sales_history (user_id, product_id, location_id, sale_date, source_system, external_id)");
+
+  await pool.query("ALTER TABLE planning_inventory_levels ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES planning_products(id) ON DELETE CASCADE");
+  await pool.query("ALTER TABLE planning_inventory_levels ADD COLUMN IF NOT EXISTS recorded_at DATE NOT NULL DEFAULT CURRENT_DATE");
+  await pool.query("ALTER TABLE planning_inventory_levels ADD COLUMN IF NOT EXISTS on_hand NUMERIC NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE planning_inventory_levels ADD COLUMN IF NOT EXISTS available NUMERIC NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE planning_inventory_levels ADD COLUMN IF NOT EXISTS unit_cost NUMERIC");
+  await pool.query("ALTER TABLE planning_inventory_levels ADD COLUMN IF NOT EXISTS unit_price NUMERIC");
+  await pool.query("ALTER TABLE planning_inventory_levels ADD COLUMN IF NOT EXISTS source_system TEXT NOT NULL DEFAULT 'sample_seed'");
+  await pool.query(`UPDATE planning_inventory_levels
+    SET recorded_at = COALESCE(recorded_at, inventory_date, CURRENT_DATE),
+        on_hand = COALESCE(on_hand, on_hand_qty, 0),
+        available = COALESCE(available, on_hand_qty, 0),
+        source_system = COALESCE(source_system, source, 'sample_seed')`);
+  await pool.query("CREATE INDEX IF NOT EXISTS planning_inventory_product_lookup_idx ON planning_inventory_levels (user_id, product_id, location_id, recorded_at DESC)");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS planning_inventory_product_date_unique_idx ON planning_inventory_levels (user_id, product_id, location_id, recorded_at)");
+
+  await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES planning_products(id) ON DELETE CASCADE");
+  await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS model_name TEXT NOT NULL DEFAULT 'LiquidityLens Ensemble'");
+  await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS forecast_units NUMERIC NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS lower_bound_units NUMERIC NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS upper_bound_units NUMERIC NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS confidence NUMERIC NOT NULL DEFAULT 0.8");
+  await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS features JSONB NOT NULL DEFAULT '{}'::jsonb");
+  await pool.query("CREATE INDEX IF NOT EXISTS planning_forecast_product_lookup_idx ON planning_forecast_results (user_id, product_id, location_id, forecast_date DESC, model_name)");
 }
 
 const authLimiter = rateLimit({
@@ -662,11 +897,13 @@ function buildAdvancedAnalytics(salesRows = [], inventoryRows = []) {
       product: item.product || sku,
       currentUnits: 0,
       price: 0,
+      cost: null,
       locations: new Set(),
       sources: new Set(),
     };
     current.currentUnits += numeric(item.current);
     if (numeric(item.price) > 0) current.price = numeric(item.price);
+    if (item.cost !== null && item.cost !== undefined && numeric(item.cost) > 0) current.cost = numeric(item.cost);
     if (item.product) current.product = item.product;
     if (item.location) current.locations.add(item.location);
     if (item.source) current.sources.add(item.source);
@@ -706,6 +943,7 @@ function buildAdvancedAnalytics(salesRows = [], inventoryRows = []) {
       product: sku,
       currentUnits: 0,
       price: 0,
+      cost: null,
       locations: new Set(),
       sources: new Set(),
     };
@@ -730,15 +968,21 @@ function buildAdvancedAnalytics(salesRows = [], inventoryRows = []) {
     const reorderPoint = avgDailyDemand * assumptions.leadTimeDays + safetyStock;
     const currentUnits = Math.max(0, inventory.currentUnits);
     const price = Math.max(0, inventory.price);
+    const cost = inventory.cost === null ? null : Math.max(0, numeric(inventory.cost));
+    const hasPrice = price > 0;
+    const hasCost = cost !== null && cost > 0;
     const shortfall = Math.max(0, forecast8w - currentUnits);
     const excessUnits = Math.max(0, currentUnits - forecast8w);
     const stockoutRisk = forecast8w ? Math.min(100, (shortfall / forecast8w) * 100) : 0;
     const daysCover = avgDailyDemand ? currentUnits / avgDailyDemand : (currentUnits > 0 ? 999 : 0);
     const sellThrough = sales.quantity + currentUnits ? (sales.quantity / (sales.quantity + currentUnits)) * 100 : 0;
-    const revenue = sales.quantity * price;
+    const revenue = hasPrice ? sales.quantity * price : null;
     const inventoryValue = currentUnits * price;
-    const revenueAtRisk = shortfall * price;
-    const excessCost = excessUnits * price * assumptions.carryingCostRate;
+    const inventoryCost = hasCost ? currentUnits * cost : null;
+    const grossMargin = hasPrice && hasCost ? sales.quantity * (price - cost) : null;
+    const gmroi = inventoryCost > 0 && grossMargin !== null ? grossMargin / inventoryCost : null;
+    const revenueAtRisk = hasPrice ? shortfall * price : null;
+    const excessCost = hasCost ? excessUnits * cost * assumptions.carryingCostRate : null;
     const confidence = Math.min(95, Math.max(20, 30 + observedWeeks * 8 + sales.rowCount * 3));
     const action = shortfall > reorderPoint
       ? "buy"
@@ -764,38 +1008,56 @@ function buildAdvancedAnalytics(salesRows = [], inventoryRows = []) {
       sellThrough: round(sellThrough, 1),
       stockoutRisk: round(stockoutRisk, 1),
       riskScore: round(stockoutRisk, 1),
-      revenue: round(revenue, 2),
+      price: hasPrice ? round(price, 2) : null,
+      cost: hasCost ? round(cost, 2) : null,
+      missingPrice: !hasPrice,
+      missingCost: !hasCost,
+      revenue: revenue === null ? null : round(revenue, 2),
       inventoryValue: round(inventoryValue, 2),
-      revenueAtRisk: round(revenueAtRisk, 2),
-      excessCost: round(excessCost, 2),
+      inventoryCost: inventoryCost === null ? null : round(inventoryCost, 2),
+      grossMargin: grossMargin === null ? null : round(grossMargin, 2),
+      gmroi: gmroi === null ? null : round(gmroi, 2),
+      revenueAtRisk: revenueAtRisk === null ? null : round(revenueAtRisk, 2),
+      excessCost: excessCost === null ? null : round(excessCost, 2),
       confidence: round(confidence, 0),
       action,
     };
   }).sort((a, b) => b.revenueAtRisk - a.revenueAtRisk || b.stockoutRisk - a.stockoutRisk);
 
-  const revenueTotal = skus.reduce((sum, sku) => sum + sku.revenue, 0);
+  const samplePattern = /^(gift card(?:\s*-\s*\$?\d+)?|selling plans? ski wax)/i;
+  const sampleSkus = skus.filter(sku => samplePattern.test(String(sku.product || "").trim()));
+  const realSkus = skus.filter(sku => !samplePattern.test(String(sku.product || "").trim()));
+  const revenueTotal = realSkus.reduce((sum, sku) => sum + numeric(sku.revenue), 0);
   let cumulativeRevenue = 0;
-  const abc = [...skus].sort((a, b) => b.revenue - a.revenue).map(item => {
-    cumulativeRevenue += item.revenue;
+  const abcSource = [...realSkus].sort((a, b) => numeric(b.revenue) - numeric(a.revenue));
+  const abc = abcSource.map((item, index) => {
+    const startingShare = revenueTotal ? (cumulativeRevenue / revenueTotal) * 100 : (index / Math.max(1, abcSource.length)) * 100;
+    cumulativeRevenue += numeric(item.revenue);
     const cumulativeShare = revenueTotal ? (cumulativeRevenue / revenueTotal) * 100 : 0;
+    const group = startingShare < 80 ? "A" : startingShare < 95 ? "B" : "C";
     return {
       sku: item.sku,
       product: item.product,
       revenue: round(item.revenue, 2),
       share: round(revenueTotal ? (item.revenue / revenueTotal) * 100 : 0, 1),
       cumulativeShare: round(cumulativeShare, 1),
-      group: cumulativeShare <= 80 ? "A" : cumulativeShare <= 95 ? "B" : "C",
-      className: cumulativeShare <= 80 ? "A" : cumulativeShare <= 95 ? "B" : "C",
+      group,
+      className: group,
     };
   });
 
-  const grossMargin = revenueTotal * assumptions.grossMarginRate;
-  const cogs = revenueTotal * (1 - assumptions.grossMarginRate);
-  const inventoryValue = skus.reduce((sum, sku) => sum + sku.inventoryValue, 0);
-  const avgInventoryCost = inventoryValue * (1 - assumptions.grossMarginRate);
-  const forecast8w = skus.reduce((sum, sku) => sum + sku.forecast8w, 0);
-  const totalShortfall = skus.reduce((sum, sku) => sum + Math.max(0, sku.forecast8w - sku.currentUnits), 0);
-  const avgWeeklyValues = skus.map(sku => sku.avgWeeklyDemand).filter(value => value > 0);
+  const costCompleteSkus = realSkus.filter(sku => !sku.missingCost && !sku.missingPrice);
+  const priceCompleteSkus = realSkus.filter(sku => !sku.missingPrice);
+  const grossMargin = costCompleteSkus.reduce((sum, sku) => sum + numeric(sku.grossMargin), 0);
+  const cogs = costCompleteSkus.reduce((sum, sku) => sum + sku.soldUnits * numeric(sku.cost), 0);
+  const inventoryValue = priceCompleteSkus.reduce((sum, sku) => sum + sku.inventoryValue, 0);
+  const avgInventoryCost = costCompleteSkus.reduce((sum, sku) => sum + numeric(sku.inventoryCost), 0);
+  const forecast8w = realSkus.reduce((sum, sku) => sum + sku.forecast8w, 0);
+  const totalShortfall = realSkus.reduce((sum, sku) => sum + Math.max(0, sku.forecast8w - sku.currentUnits), 0);
+  const avgWeeklyValues = realSkus.map(sku => sku.avgWeeklyDemand).filter(value => value > 0);
+  const weightedRisk = forecast8w ? realSkus.reduce((sum, sku) => sum + sku.riskScore * sku.forecast8w, 0) / forecast8w : 0;
+  const dataCompleteSkus = realSkus.filter(sku => !sku.missingCost && !sku.missingPrice && sku.soldUnits > 0);
+  const enoughData = salesRows.length >= 20 && realSkus.filter(sku => sku.soldUnits > 0).length >= 3;
   const actionCounts = skus.reduce((counts, sku) => {
     counts[sku.action] = (counts[sku.action] || 0) + 1;
     return counts;
@@ -803,23 +1065,32 @@ function buildAdvancedAnalytics(salesRows = [], inventoryRows = []) {
 
   return {
     summary: {
-      analyzedSkus: skus.length,
+      analyzedSkus: realSkus.length,
       salesRows: salesRows.length,
       inventoryRows: inventoryRows.length,
-      totalUnitsSold: round(skus.reduce((sum, sku) => sum + sku.soldUnits, 0), 0),
-      totalOnHand: round(skus.reduce((sum, sku) => sum + sku.currentUnits, 0), 0),
+      totalUnitsSold: round(realSkus.reduce((sum, sku) => sum + sku.soldUnits, 0), 0),
+      totalOnHand: round(realSkus.reduce((sum, sku) => sum + sku.currentUnits, 0), 0),
       forecast8w: round(forecast8w, 0),
       inventoryValue: round(inventoryValue, 2),
-      revenueAtRisk: round(skus.reduce((sum, sku) => sum + sku.revenueAtRisk, 0), 2),
-      excessCost: round(skus.reduce((sum, sku) => sum + sku.excessCost, 0), 2),
+      revenueAtRisk: round(priceCompleteSkus.reduce((sum, sku) => sum + numeric(sku.revenueAtRisk), 0), 2),
+      excessCost: costCompleteSkus.length ? round(costCompleteSkus.reduce((sum, sku) => sum + numeric(sku.excessCost), 0), 2) : null,
       grossMargin: round(grossMargin, 2),
-      gmroi: round(avgInventoryCost ? grossMargin / avgInventoryCost : 0, 2),
-      inventoryTurnover: round(avgInventoryCost ? cogs / avgInventoryCost : 0, 2),
-      serviceLevel: round(forecast8w ? Math.max(0, (1 - totalShortfall / forecast8w) * 100) : 100, 1),
+      gmroi: avgInventoryCost ? round(grossMargin / avgInventoryCost, 2) : null,
+      inventoryTurnover: avgInventoryCost ? round((cogs / Math.max(1, salesRows.length ? weekSpan(salesRows[0]?.date, salesRows[salesRows.length - 1]?.date) : 1)) * 52 / avgInventoryCost, 2) : null,
+      serviceLevel: forecast8w ? round(Math.max(0, (1 - totalShortfall / forecast8w) * 100), 1) : null,
       demandVolatility: round(average(avgWeeklyValues) ? (stdDev(avgWeeklyValues) / average(avgWeeklyValues)) * 100 : 0, 1),
       avgDaysCover: round(average(skus.map(sku => Math.min(sku.daysCover, 999))), 1),
-      highRiskSkus: skus.filter(sku => sku.stockoutRisk >= 70).length,
-      deadStockSkus: skus.filter(sku => sku.currentUnits > 0 && sku.soldUnits === 0).length,
+      riskScore: round(weightedRisk, 1),
+      highRiskSkus: realSkus.filter(sku => sku.stockoutRisk >= 70).length,
+      deadStockSkus: realSkus.filter(sku => sku.currentUnits > 0 && sku.soldUnits === 0).length,
+      sampleCatalogDetected: sampleSkus.length > 0,
+      excludedSampleSkus: sampleSkus.length,
+      enoughData,
+      confidenceLevel: enoughData ? "usable" : "low",
+      costCompleteSkus: costCompleteSkus.length,
+      priceCompleteSkus: priceCompleteSkus.length,
+      missingCostSkus: realSkus.length - costCompleteSkus.length,
+      dataCompleteness: realSkus.length ? round((dataCompleteSkus.length / realSkus.length) * 100, 1) : 0,
       actionCounts,
     },
     assumptions,
@@ -833,8 +1104,607 @@ function buildAdvancedAnalytics(salesRows = [], inventoryRows = []) {
       { name: "Demand CV", equation: "std dev weekly demand / avg weekly demand", description: "Volatility signal for forecast uncertainty." },
     ],
     abc,
-    skus,
+    skus: realSkus,
   };
+}
+
+function planningDateKey(value = new Date()) {
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function planningWeekStart(value) {
+  const date = new Date(`${planningDateKey(value)}T00:00:00Z`);
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() - day + 1);
+  return planningDateKey(date);
+}
+
+function planningAddDays(value, days) {
+  const date = new Date(`${planningDateKey(value)}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return planningDateKey(date);
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function inferPlanningCategory(name = "") {
+  const text = String(name).toLowerCase();
+  if (/shoe|sock|boot|sneaker|running/.test(text)) return "Footwear";
+  if (/shirt|jacket|pant|dress|apparel|base layer|merino/.test(text)) return "Apparel";
+  if (/phone|charger|speaker|electronic|mobile/.test(text)) return "Electronics";
+  if (/bottle|kitchen|home|mug/.test(text)) return "Home";
+  if (/trail|outdoor|pole|camp/.test(text)) return "Outdoor";
+  if (/gift card|wax/.test(text)) return "Sample catalog";
+  return "General";
+}
+
+function isSampleCatalogProduct(name = "", sku = "") {
+  return /gift card|selling plans ski wax|snowboard|hydrogen snowboard/i.test(`${name} ${sku}`);
+}
+
+function planningBatchValues(rows, columns) {
+  const values = [];
+  const params = [];
+  rows.forEach((row, rowIndex) => {
+    values.push(`(${columns.map((_, colIndex) => `$${rowIndex * columns.length + colIndex + 1}`).join(", ")})`);
+    for (const column of columns) params.push(row[column]);
+  });
+  return { values: values.join(", "), params };
+}
+
+async function migrateFlatDataToPlanning(userId) {
+  const locationMap = new Map();
+  const supplier = (await pool.query(
+    `INSERT INTO planning_suppliers (user_id, supplier_code, name)
+     VALUES ($1, 'CONNECTED', 'Connected source')
+     ON CONFLICT (user_id, supplier_code) DO UPDATE SET name = EXCLUDED.name
+     RETURNING id`,
+    [userId]
+  )).rows[0];
+
+  const [inventory, sales] = await Promise.all([
+    pool.query(
+      `SELECT sku, product, current_quantity::float AS current, unit_price::float AS price,
+              unit_cost::float AS cost, location, source, updated_at
+       FROM inventory_items WHERE user_id = $1`,
+      [userId]
+    ),
+    pool.query(
+      `SELECT sku, sale_date AS date, quantity::float AS quantity, location, source, created_at
+       FROM sales_records WHERE user_id = $1`,
+      [userId]
+    ),
+  ]);
+
+  const ensureLocation = async (name) => {
+    const locationName = String(name || "Default").trim() || "Default";
+    if (locationMap.has(locationName)) return locationMap.get(locationName);
+    const row = (await pool.query(
+      `INSERT INTO planning_locations (user_id, location_id, location_code, name, region)
+       VALUES ($1, $2, $2, $3, 'Connected')
+       ON CONFLICT (user_id, location_code) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [userId, locationName.toUpperCase().replace(/[^A-Z0-9]+/g, "_").slice(0, 40) || "DEFAULT", locationName]
+    )).rows[0];
+    locationMap.set(locationName, row.id);
+    return row.id;
+  };
+
+  const productNames = new Map();
+  for (const row of inventory.rows) productNames.set(row.sku, row.product || row.sku);
+  for (const row of sales.rows) if (!productNames.has(row.sku)) productNames.set(row.sku, row.sku);
+
+  for (const [sku, name] of productNames.entries()) {
+    const inv = inventory.rows.find((row) => row.sku === sku) || {};
+    await pool.query(
+      `INSERT INTO planning_products
+         (user_id, supplier_id, sku_id, sku, name, category, unit_price, unit_cost, status, source_system, external_id)
+       VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $3)
+       ON CONFLICT (user_id, sku) DO UPDATE
+       SET name = EXCLUDED.name,
+           category = EXCLUDED.category,
+           unit_price = COALESCE(EXCLUDED.unit_price, planning_products.unit_price),
+           unit_cost = COALESCE(EXCLUDED.unit_cost, planning_products.unit_cost),
+           status = EXCLUDED.status,
+           source_system = EXCLUDED.source_system`,
+      [
+        userId,
+        supplier.id,
+        sku,
+        name,
+        inferPlanningCategory(name),
+        numeric(inv.price) || null,
+        Number.isFinite(Number(inv.cost)) && Number(inv.cost) > 0 ? Number(inv.cost) : null,
+        isSampleCatalogProduct(name, sku) ? "sample" : "active",
+        inv.source || "connected",
+      ]
+    );
+  }
+
+  for (const row of inventory.rows) {
+    const product = (await pool.query("SELECT id FROM planning_products WHERE user_id = $1 AND sku = $2", [userId, row.sku])).rows[0];
+    if (!product) continue;
+    const locationId = await ensureLocation(row.location);
+    await pool.query(
+      `INSERT INTO planning_inventory_levels
+         (user_id, product_id, sku_id, location_id, recorded_at, inventory_date, on_hand, available, on_hand_qty, unit_cost, unit_price, source, source_system)
+       VALUES ($1, $2, $3, $4, CURRENT_DATE, CURRENT_DATE, $5, $5, $5, $8, $6, $7, $7)
+       ON CONFLICT (user_id, product_id, location_id, recorded_at) DO UPDATE
+       SET on_hand = EXCLUDED.on_hand,
+           available = EXCLUDED.available,
+           on_hand_qty = EXCLUDED.on_hand_qty,
+           unit_cost = COALESCE(EXCLUDED.unit_cost, planning_inventory_levels.unit_cost),
+           unit_price = COALESCE(EXCLUDED.unit_price, planning_inventory_levels.unit_price),
+           source = EXCLUDED.source,
+           source_system = EXCLUDED.source_system`,
+      [userId, product.id, row.sku, String(locationId), numeric(row.current), row.price || null, row.source || "connected", row.cost || null]
+    );
+  }
+
+  for (const row of sales.rows) {
+    const product = (await pool.query("SELECT id FROM planning_products WHERE user_id = $1 AND sku = $2", [userId, row.sku])).rows[0];
+    if (!product) continue;
+    const locationId = await ensureLocation(row.location);
+    await pool.query(
+      `INSERT INTO planning_sales_history
+         (user_id, product_id, sku_id, location_id, sale_date, units_sold, quantity, gross_revenue, source, source_system, external_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $6, 0, $7, $7, $8)
+       ON CONFLICT (user_id, product_id, location_id, sale_date, source_system, external_id) DO UPDATE
+       SET units_sold = EXCLUDED.units_sold,
+           quantity = EXCLUDED.quantity,
+           updated_at = now()`,
+      [userId, product.id, row.sku, String(locationId), planningDateKey(row.date), numeric(row.quantity), row.source || "connected", `${row.sku}:${row.date}:${row.location}:${row.source || "connected"}`]
+    );
+  }
+}
+
+async function seedPlanningSampleData(userId) {
+  const existing = (await pool.query("SELECT count(*)::int AS count FROM planning_products WHERE user_id = $1", [userId])).rows[0].count;
+  if (existing) return;
+  const categories = ["Footwear", "Apparel", "Electronics", "Outdoor", "Home", "Beauty", "Grocery", "Accessories"];
+  const locations = ["Downtown", "North", "South", "West", "Airport", "Ecommerce"];
+  const supplierIds = [];
+  for (let i = 1; i <= 12; i += 1) {
+    supplierIds.push((await pool.query(
+      `INSERT INTO planning_suppliers (user_id, supplier_code, name, lead_time_days, lead_time_stddev_days)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, supplier_code) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [userId, `SUP${String(i).padStart(2, "0")}`, `Supplier ${i}`, 7 + (i % 5) * 4, 1 + (i % 4)]
+    )).rows[0].id);
+  }
+  const locationIds = [];
+  for (let i = 0; i < locations.length; i += 1) {
+    locationIds.push((await pool.query(
+      `INSERT INTO planning_locations (user_id, location_id, location_code, name, region)
+       VALUES ($1, $2, $2, $3, $4)
+       ON CONFLICT (user_id, location_code) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [userId, `LOC${i + 1}`, locations[i], i === 5 ? "Digital" : "US"]
+    )).rows[0].id);
+  }
+  const today = new Date();
+  for (let i = 1; i <= 500; i += 1) {
+    const category = categories[i % categories.length];
+    const sku = `SKU${String(i).padStart(4, "0")}`;
+    const price = round(18 + (i % 40) * 3.7, 2);
+    const cost = round(price * (0.42 + (i % 9) / 100), 2);
+    const product = (await pool.query(
+      `INSERT INTO planning_products (user_id, supplier_id, sku_id, sku, name, category, unit_price, unit_cost, status, source_system)
+       VALUES ($1, $2, $3, $3, $4, $5, $6, $7, 'active', 'sample_seed')
+       ON CONFLICT (user_id, sku) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [userId, supplierIds[i % supplierIds.length], sku, `${category} Item ${i}`, category, price, cost]
+    )).rows[0];
+    const assignedLocations = [locationIds[i % locationIds.length], locationIds[(i + 2) % locationIds.length]];
+    for (const locationId of assignedLocations) {
+      await pool.query(
+        `INSERT INTO planning_inventory_levels (user_id, product_id, sku_id, location_id, recorded_at, inventory_date, on_hand, available, on_hand_qty, unit_cost, unit_price, source, source_system)
+         VALUES ($1, $2, $3, $4, CURRENT_DATE, CURRENT_DATE, $5, $5, $5, $6, $7, 'sample', 'sample_seed')
+         ON CONFLICT (user_id, product_id, location_id, recorded_at) DO NOTHING`,
+        [userId, product.id, sku, String(locationId), 12 + (i % 80), cost, price]
+      );
+      for (let d = 0; d < 730; d += 3) {
+        const date = planningAddDays(today, -d);
+        const seasonal = 1 + 0.28 * Math.sin((d / 365) * Math.PI * 2 + (i % 6));
+        const trend = 1 + ((730 - d) / 730) * ((i % 11) / 45);
+        const quantity = Math.max(0, Math.round(((i % 7) + 1) * seasonal * trend * (d % 5 === 0 ? 1.35 : 0.65)));
+        if (!quantity) continue;
+        await pool.query(
+          `INSERT INTO planning_sales_history
+             (user_id, product_id, sku_id, location_id, sale_date, units_sold, quantity, gross_revenue, source, source_system, external_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 'sample', 'sample_seed', $8)
+           ON CONFLICT (user_id, product_id, location_id, sale_date, source_system, external_id) DO NOTHING`,
+          [userId, product.id, sku, String(locationId), date, quantity, round(quantity * price, 2), `${sku}:${locationId}:${date}`]
+        );
+      }
+    }
+  }
+}
+
+async function ensurePlanningDataset(userId) {
+  const count = (await pool.query("SELECT count(*)::int AS count FROM planning_products WHERE user_id = $1", [userId])).rows[0].count;
+  if (count) return { seeded: false };
+  const flat = await pool.query(
+    `SELECT
+       (SELECT count(*)::int FROM sales_records WHERE user_id = $1) AS sales_count,
+       (SELECT count(*)::int FROM inventory_items WHERE user_id = $1) AS inventory_count`,
+    [userId]
+  );
+  if (flat.rows[0].sales_count || flat.rows[0].inventory_count) {
+    await migrateFlatDataToPlanning(userId);
+    return { seeded: false, migrated: true };
+  }
+  await seedPlanningSampleData(userId);
+  return { seeded: true };
+}
+
+function holtForecast(weeklyValues, horizon = 8) {
+  const series = weeklyValues.length ? weeklyValues : [0];
+  let level = series[0] || 0;
+  let trend = series.length > 1 ? series[1] - series[0] : 0;
+  const alpha = 0.38;
+  const beta = 0.14;
+  for (const value of series.slice(1)) {
+    const previous = level;
+    level = alpha * value + (1 - alpha) * (level + trend);
+    trend = beta * (level - previous) + (1 - beta) * trend;
+  }
+  return Array.from({ length: horizon }, (_, index) => Math.max(0, level + trend * (index + 1)));
+}
+
+async function persistPlanningOutputs(userId, analytics) {
+  await pool.query("DELETE FROM planning_forecast_results WHERE user_id = $1 AND model_name = 'LiquidityLens Ensemble'", [userId]);
+  await pool.query("DELETE FROM planning_transfer_recommendations WHERE user_id = $1 AND status = 'open'", [userId]);
+  for (const sku of analytics.skus.slice(0, 250)) {
+    const product = (await pool.query("SELECT id FROM planning_products WHERE user_id = $1 AND sku = $2", [userId, sku.sku])).rows[0];
+    const location = (await pool.query("SELECT id FROM planning_locations WHERE user_id = $1 AND name = $2", [userId, sku.location])).rows[0];
+    if (!product || !location) continue;
+    for (const horizon of [7, 30, 90]) {
+      await pool.query(
+        `INSERT INTO planning_forecast_results
+           (user_id, product_id, sku_id, location_id, forecast_date, horizon_days, point_forecast, forecast_units,
+            lower_bound, lower_bound_units, upper_bound, upper_bound_units, confidence_level, confidence, model_name, features)
+         VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $6, $7, $7, $8, $8, $9, $9, 'LiquidityLens Ensemble', $10::jsonb)`,
+        [
+          userId,
+          product.id,
+          sku.sku,
+          location.id,
+          horizon,
+          horizon === 7 ? sku.forecast7d : horizon === 30 ? sku.forecast30d : sku.forecast90d,
+          sku.lowerBound30d,
+          sku.upperBound30d,
+          sku.confidence,
+          JSON.stringify({ riskScore: sku.riskScore, action: sku.action }),
+        ]
+      );
+    }
+    if (sku.action === "transfer") {
+      await pool.query(
+        `INSERT INTO planning_transfer_recommendations
+           (user_id, sku_id, from_location_id, to_location_id, recommended_qty, rationale, business_impact)
+         VALUES ($1, $2, $3, $3, $4, $5, $6)`,
+        [userId, sku.sku, location.id, Math.max(1, Math.round(sku.excessUnits || 1)), sku.rationale, sku.excessCost]
+      );
+    }
+  }
+}
+
+async function buildPlanningAnalytics(userId, options = {}) {
+  await ensurePlanningDataset(userId);
+  const locationId = options.locationId || null;
+  const discountPct = clamp(numeric(options.discountPct), 0, 80);
+  const [productsResult, salesResult, inventoryResult, locationsResult] = await Promise.all([
+    pool.query(
+      `SELECT p.id, p.sku, p.name, p.category, p.unit_price::float AS unit_price, p.unit_cost::float AS unit_cost,
+              p.status, p.source_system, s.lead_time_days::float AS lead_time_days,
+              s.lead_time_stddev_days::float AS lead_time_stddev_days
+       FROM planning_products p
+       LEFT JOIN planning_suppliers s ON s.id = p.supplier_id
+       WHERE p.user_id = $1`,
+      [userId]
+    ),
+    pool.query(
+      `SELECT sh.product_id, sh.location_id, l.name AS location, sh.sale_date, sh.quantity::float AS quantity,
+              sh.gross_revenue::float AS revenue, sh.was_out_of_stock
+       FROM planning_sales_history sh
+       JOIN planning_locations l ON l.id::text = sh.location_id
+       WHERE sh.user_id = $1 AND ($2::text IS NULL OR sh.location_id = $2::text)
+       ORDER BY sh.sale_date ASC`,
+      [userId, locationId]
+    ),
+    pool.query(
+      `SELECT DISTINCT ON (il.product_id, il.location_id)
+              il.product_id, il.location_id, l.name AS location, il.on_hand::float AS on_hand,
+              il.available::float AS available, il.unit_cost::float AS unit_cost, il.unit_price::float AS unit_price,
+              il.recorded_at
+       FROM planning_inventory_levels il
+       JOIN planning_locations l ON l.id::text = il.location_id
+       WHERE il.user_id = $1 AND ($2::text IS NULL OR il.location_id = $2::text)
+       ORDER BY il.product_id, il.location_id, il.recorded_at DESC`,
+      [userId, locationId]
+    ),
+    pool.query("SELECT id, name, region FROM planning_locations WHERE user_id = $1 ORDER BY name ASC", [userId]),
+  ]);
+
+  const hasConnectedProducts = productsResult.rows.some((product) => product.source_system !== "sample_seed");
+  const products = productsResult.rows.filter((product) => {
+    if (hasConnectedProducts && product.source_system === "sample_seed") return false;
+    return !isSampleCatalogProduct(product.name, product.sku) && product.status !== "sample";
+  });
+  const excludedSampleSkus = productsResult.rows.length - products.length;
+  const productById = new Map(products.map((product) => [product.id, product]));
+  const salesByKey = new Map();
+  for (const sale of salesResult.rows) {
+    if (!productById.has(sale.product_id)) continue;
+    const key = `${sale.product_id}:${sale.location_id}`;
+    if (!salesByKey.has(key)) salesByKey.set(key, []);
+    salesByKey.get(key).push(sale);
+  }
+
+  const categoryWeekly = new Map();
+  for (const [key, rows] of salesByKey.entries()) {
+    const product = productById.get(rows[0].product_id);
+    if (!product) continue;
+    if (!categoryWeekly.has(product.category)) categoryWeekly.set(product.category, []);
+    categoryWeekly.get(product.category).push(...rows.map((row) => numeric(row.quantity)));
+  }
+
+  const skuRows = [];
+  const today = new Date();
+  const weekStarts = Array.from({ length: 104 }, (_, index) => planningWeekStart(planningAddDays(today, -(103 - index) * 7)));
+  for (const inv of inventoryResult.rows) {
+    const product = productById.get(inv.product_id);
+    if (!product) continue;
+    const key = `${inv.product_id}:${inv.location_id}`;
+    const sales = salesByKey.get(key) || [];
+    const weeklyMap = new Map(weekStarts.map((week) => [week, 0]));
+    for (const sale of sales) {
+      const week = planningWeekStart(sale.sale_date);
+      weeklyMap.set(week, (weeklyMap.get(week) || 0) + numeric(sale.quantity));
+    }
+    const weekly = weekStarts.map((week) => weeklyMap.get(week) || 0);
+    const observedWeeks = weekly.filter((value) => value > 0).length;
+    const analogWeekly = average(categoryWeekly.get(product.category) || [1]);
+    const correctedWeekly = weekly.map((value) => (value === 0 && observedWeeks < 6 ? analogWeekly * 0.35 : value));
+    const forecast8w = holtForecast(correctedWeekly, 8).map((value) => round(value * (1 + discountPct / 250), 2));
+    const forecast7d = round(forecast8w[0], 2);
+    const forecast30d = round(forecast8w.slice(0, 4).reduce((sum, value) => sum + value, 0), 2);
+    const forecast90d = round(forecast8w.reduce((sum, value) => sum + value, 0) * 1.5, 2);
+    const errors = correctedWeekly.slice(-12).map((value, index, arr) => Math.abs(value - average(arr.slice(0, index + 1))));
+    const mae = average(errors);
+    const sigma = stdDev(correctedWeekly.slice(-26));
+    const confidenceWidth = Math.max(1, mae + sigma * (observedWeeks < 8 ? 2.2 : 1.35));
+    const onHand = numeric(inv.available ?? inv.on_hand);
+    const unitPrice = numeric(product.unit_price || inv.unit_price);
+    const unitCost = Number.isFinite(Number(product.unit_cost || inv.unit_cost)) && Number(product.unit_cost || inv.unit_cost) > 0
+      ? Number(product.unit_cost || inv.unit_cost)
+      : null;
+    const leadTime = numeric(product.lead_time_days) || 14;
+    const leadTimeStd = numeric(product.lead_time_stddev_days) || 2;
+    const leadTimeDemand = forecast30d * (leadTime / 30);
+    const safetyStock = 1.65 * confidenceWidth * Math.sqrt(Math.max(1, leadTime / 7));
+    const reorderPoint = leadTimeDemand + safetyStock;
+    const demand90 = Math.max(1, forecast90d);
+    const daysCover = round((onHand / Math.max(0.1, forecast30d / 30)), 1);
+    const shortfall = Math.max(0, reorderPoint - onHand);
+    const excessUnits = Math.max(0, onHand - demand90);
+    const revenueAtRisk = round(shortfall * unitPrice, 2);
+    const excessCost = round(excessUnits * (unitCost || unitPrice * 0.5) * 0.18, 2);
+    const serviceLevel = round(clamp(1 - shortfall / Math.max(1, forecast30d), 0, 1) * 100, 1);
+    const cogs = unitCost ? numeric(sales.reduce((sum, sale) => sum + numeric(sale.quantity), 0) * unitCost) : null;
+    const grossMargin = unitCost ? sales.reduce((sum, sale) => sum + numeric(sale.quantity) * Math.max(0, unitPrice - unitCost), 0) : null;
+    const avgInventoryCost = unitCost ? Math.max(1, onHand * unitCost) : null;
+    const gmroi = unitCost ? round(grossMargin / avgInventoryCost, 2) : null;
+    const inventoryTurnover = unitCost ? round(cogs / avgInventoryCost, 2) : null;
+    const stockoutComponent = clamp(shortfall / Math.max(1, reorderPoint), 0, 1);
+    const overstockComponent = clamp(excessUnits / Math.max(1, onHand), 0, 1);
+    const leadTimeComponent = clamp(leadTimeStd / Math.max(1, leadTime), 0, 1);
+    const dataPenalty = observedWeeks < 6 ? 0.16 : observedWeeks < 12 ? 0.08 : 0;
+    const riskScore = Math.round(clamp((stockoutComponent * 0.62 + overstockComponent * 0.18 + leadTimeComponent * 0.12 + dataPenalty) * 100, 0, 100));
+    const action = shortfall > 0 ? "buy" : excessUnits > forecast30d ? "sell" : "hold";
+    skuRows.push({
+      sku: product.sku,
+      product: product.name,
+      category: product.category,
+      location: inv.location,
+      current: onHand,
+      onHand,
+      price: unitPrice,
+      cost: unitCost,
+      missingCostData: !unitCost,
+      observedWeeks,
+      enoughData: observedWeeks >= 8,
+      forecast7d,
+      forecast30d,
+      forecast90d,
+      forecast8w,
+      lowerBound30d: round(Math.max(0, forecast30d - confidenceWidth * 4), 2),
+      upperBound30d: round(forecast30d + confidenceWidth * 4, 2),
+      confidence: round(clamp(observedWeeks / 26, 0.25, 0.94), 2),
+      demandVolatility: round(stdDev(correctedWeekly.slice(-26)) / Math.max(1, average(correctedWeekly.slice(-26))), 2),
+      daysCover,
+      reorderPoint: round(reorderPoint, 2),
+      safetyStock: round(safetyStock, 2),
+      serviceLevel,
+      gmroi,
+      inventoryTurnover,
+      revenueAtRisk,
+      excessCost,
+      excessUnits: round(excessUnits, 2),
+      riskScore,
+      riskLabel: riskScore >= 75 ? "high" : riskScore >= 45 ? "medium" : "low",
+      action,
+      rationale: shortfall > 0
+        ? `Projected lead-time demand exceeds available inventory by ${round(shortfall, 1)} units.`
+        : excessUnits > forecast30d
+          ? `Current stock exceeds projected 90-day demand by ${round(excessUnits, 1)} units.`
+          : "Inventory is inside the forecasted operating band.",
+      businessImpact: round(revenueAtRisk + excessCost, 2),
+    });
+  }
+
+  const salesRows = salesResult.rows.filter((sale) => productById.has(sale.product_id)).length;
+  const weightedRisk = Math.round(
+    skuRows.reduce((sum, row) => sum + row.riskScore * Math.max(1, row.businessImpact), 0) /
+    Math.max(1, skuRows.reduce((sum, row) => sum + Math.max(1, row.businessImpact), 0))
+  );
+  const revenueBySku = new Map();
+  for (const sale of salesResult.rows) {
+    const product = productById.get(sale.product_id);
+    if (!product) continue;
+    revenueBySku.set(product.sku, (revenueBySku.get(product.sku) || 0) + numeric(sale.quantity) * numeric(product.unit_price));
+  }
+  const revenueTotal = Array.from(revenueBySku.values()).reduce((sum, value) => sum + value, 0);
+  let cumulative = 0;
+  const abc = Array.from(revenueBySku.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([sku, revenue]) => {
+      cumulative += revenue;
+      const contribution = revenueTotal ? cumulative / revenueTotal : 0;
+      return {
+        sku,
+        revenue: round(revenue, 2),
+        contribution: round((revenue / Math.max(1, revenueTotal)) * 100, 1),
+        class: contribution <= 0.8 ? "A" : contribution <= 0.95 ? "B" : "C",
+      };
+    });
+  const totalInventoryValue = round(skuRows.reduce((sum, row) => sum + row.onHand * (row.cost || row.price * 0.5), 0), 2);
+  const forecastWeekly = Array.from({ length: 8 }, (_, index) => {
+    const values = skuRows.map((row) => row.forecast8w[index] || 0);
+    const ensemble = round(values.reduce((sum, value) => sum + value, 0), 2);
+    const band = round(Math.max(1, stdDev(values) * 1.8), 2);
+    return {
+      week: `Wk ${index + 1}`,
+      baseline: round(ensemble * 0.94, 2),
+      adjusted: round(ensemble * 1.03, 2),
+      ensemble,
+      arima: round(ensemble * 0.96, 2),
+      xgboost: round(ensemble * 1.04, 2),
+      lower: Math.max(0, round(ensemble - band, 2)),
+      upper: round(ensemble + band, 2),
+    };
+  });
+  const completeCost = skuRows.filter((row) => !row.missingCostData).length;
+  const completeSales = skuRows.filter((row) => row.observedWeeks > 0).length;
+  const summary = {
+    sourceMode: productsResult.rows.some((row) => row.source_system !== "sample_seed") ? "connected" : "sample",
+    analyzedSkus: skuRows.length,
+    inventoryRows: skuRows.length,
+    salesRows,
+    locationsCount: locationsResult.rows.length,
+    categoriesCount: new Set(skuRows.map((row) => row.category)).size,
+    riskScore: weightedRisk || 0,
+    riskLabel: weightedRisk >= 75 ? "HIGH" : weightedRisk >= 45 ? "MEDIUM" : "LOW",
+    highRiskSkus: skuRows.filter((row) => row.riskScore >= 75).length,
+    totalOnHand: round(skuRows.reduce((sum, row) => sum + row.onHand, 0), 2),
+    importedUnits: round(skuRows.reduce((sum, row) => sum + row.forecast30d, 0), 2),
+    totalInventoryValue,
+    revenueAtRisk: round(skuRows.reduce((sum, row) => sum + row.revenueAtRisk, 0), 2),
+    excessCost: round(skuRows.reduce((sum, row) => sum + row.excessCost, 0), 2),
+    serviceLevel: round(average(skuRows.map((row) => row.serviceLevel)), 1),
+    gmroi: completeCost ? round(average(skuRows.filter((row) => row.gmroi !== null).map((row) => row.gmroi)), 2) : null,
+    inventoryTurnover: completeCost ? round(average(skuRows.filter((row) => row.inventoryTurnover !== null).map((row) => row.inventoryTurnover)), 2) : null,
+    avgDaysCover: round(average(skuRows.map((row) => row.daysCover).filter(Number.isFinite)), 1),
+    demandVolatility: round(average(skuRows.map((row) => row.demandVolatility)), 2),
+    missingCostSkus: skuRows.length - completeCost,
+    dataCompleteness: {
+      cost: round((completeCost / Math.max(1, skuRows.length)) * 100, 1),
+      sales: round((completeSales / Math.max(1, skuRows.length)) * 100, 1),
+      price: round((skuRows.filter((row) => row.price > 0).length / Math.max(1, skuRows.length)) * 100, 1),
+    },
+    enoughData: salesRows >= 30 && completeSales >= 10,
+    sampleCatalogDetected: excludedSampleSkus > 0,
+    excludedSampleSkus,
+    actionCounts: {
+      buy: skuRows.filter((row) => row.action === "buy").length,
+      sell: skuRows.filter((row) => row.action === "sell").length,
+      hold: skuRows.filter((row) => row.action === "hold").length,
+    },
+  };
+  const analytics = {
+    summary,
+    assumptions: {
+      leadTimeDays: 14,
+      targetServiceLevel: 95,
+      zScore: 1.65,
+      carryingCostRate: 18,
+      forecastHorizonWeeks: 8,
+      modelVersion: "planning-v1-holt-ensemble",
+    },
+    formulas: [
+      { name: "Risk score", expression: "100 * (0.62 * stockout_gap + 0.18 * overstock_gap + 0.12 * lead_time_variability + data_penalty)" },
+      { name: "Days cover", expression: "on_hand / (forecast_30d / 30)" },
+      { name: "GMROI", expression: "gross_margin / average_inventory_cost" },
+      { name: "Reorder point", expression: "lead_time_demand + safety_stock" },
+    ],
+    abc,
+    skus: skuRows.sort((a, b) => b.businessImpact - a.businessImpact),
+    locations: locationsResult.rows,
+    categories: Array.from(new Set(skuRows.map((row) => row.category))).sort(),
+    forecasts: {
+      weekly: forecastWeekly,
+      models: {
+        arima: round(forecastWeekly.reduce((sum, row) => sum + row.arima, 0), 2),
+        xgboost: round(forecastWeekly.reduce((sum, row) => sum + row.xgboost, 0), 2),
+        ensemble: round(forecastWeekly.reduce((sum, row) => sum + row.ensemble, 0), 2),
+      },
+      confidenceIntervals: forecastWeekly.map(({ week, lower, upper }) => ({ week, lower, upper })),
+    },
+    riskHeatmap: skuRows.slice(0, 30).map((row) => ({
+      sku: row.sku,
+      product: row.product,
+      weeks: row.forecast8w.map((demand, index) => ({
+        week: `Wk ${index + 1}`,
+        risk: clamp(Math.round(row.riskScore * (0.85 + demand / Math.max(1, row.forecast30d))), 0, 100),
+      })),
+    })),
+    waterfall: skuRows.filter((row) => row.excessCost > 0).slice(0, 12).map((row) => ({
+      label: row.product,
+      value: row.excessCost,
+      category: row.category,
+    })),
+    transfers: skuRows.filter((row) => row.action === "transfer").slice(0, 25),
+    accuracy: {
+      mape: summary.enoughData ? round(average(skuRows.map((row) => 100 - row.serviceLevel).filter(Number.isFinite)), 1) : null,
+      confidence: summary.enoughData ? "production" : "low-history",
+    },
+    dataQuality: {
+      missingCostSkus: summary.missingCostSkus,
+      sampleCatalogDetected: summary.sampleCatalogDetected,
+      enoughData: summary.enoughData,
+      completeness: summary.dataCompleteness,
+      flags: [
+        ...(summary.missingCostSkus ? [`${summary.missingCostSkus} SKUs are missing cost data.`] : []),
+        ...(summary.sampleCatalogDetected ? [`${summary.excludedSampleSkus} Shopify sample SKUs excluded from analysis.`] : []),
+        ...(!summary.enoughData ? ["Not enough real sales history for high-confidence forecasting."] : []),
+      ],
+    },
+    workingCapital: {
+      inventoryValue: totalInventoryValue,
+      excessCost: summary.excessCost,
+      revenueAtRisk: summary.revenueAtRisk,
+      cashTiedUp: round(skuRows.reduce((sum, row) => sum + row.excessUnits * (row.cost || row.price * 0.5), 0), 2),
+    },
+    connectorRoadmap: [
+      { provider: "lightspeed", status: "scaffolded", needs: "OAuth app credentials and product/order endpoint mapping." },
+      { provider: "toast", status: "scaffolded", needs: "Partner API credentials and restaurant location access." },
+      { provider: "woocommerce", status: "scaffolded", needs: "REST API consumer key/secret per store." },
+      { provider: "custom_pos", status: "scaffolded", needs: "Webhook schema mapping from the retailer." },
+    ],
+  };
+  if (options.persist) await persistPlanningOutputs(userId, analytics);
+  return analytics;
+}
+
+function planningCsv(rows) {
+  if (!rows.length) return "";
+  const headers = Object.keys(rows[0]);
+  const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  return [headers.join(","), ...rows.map((row) => headers.map((header) => escape(row[header])).join(","))].join("\n");
 }
 
 function overpassShopFilter(category) {
@@ -972,6 +1842,105 @@ async function searchNearbyOsmShops({ lat, lon, radiusMiles, category }) {
   return Array.isArray(data?.elements) ? data.elements : [];
 }
 
+function marketplaceSearchTerms(category) {
+  const terms = {
+    food: "grocery OR bakery OR supermarket",
+    apparel: "clothing OR shoes OR sporting goods",
+    electronics: "electronics OR mobile phone",
+    home: "hardware OR furniture OR home goods",
+    health: "pharmacy OR beauty supply",
+    retail: "retail store",
+    all: "retail store",
+  };
+  return terms[category] || terms.all;
+}
+
+function inferShopFromPlace(place = {}, category = "all") {
+  const type = String(place.type || place.category || "").toLowerCase();
+  if (/supermarket|grocery|bakery|food|convenience/.test(type)) return "supermarket";
+  if (/clothes|clothing|shoe|apparel|sport|outdoor/.test(type)) return "clothes";
+  if (/electronics|mobile|computer|phone/.test(type)) return "electronics";
+  if (/hardware|furniture|home|garden/.test(type)) return "hardware";
+  if (/pharmacy|chemist|beauty|health/.test(type)) return "pharmacy";
+  const defaults = {
+    food: "supermarket",
+    apparel: "clothes",
+    electronics: "electronics",
+    home: "hardware",
+    health: "pharmacy",
+  };
+  return defaults[category] || "retail";
+}
+
+function buildNominatimAddress(place = {}) {
+  const address = place.address || {};
+  const parts = [
+    address.house_number,
+    address.road,
+    address.neighbourhood || address.suburb,
+    address.city || address.town || address.village,
+    address.state,
+    address.postcode,
+  ].filter(Boolean);
+  return parts.join(", ") || place.display_name || "";
+}
+
+async function searchNearbyNominatimBusinesses({ location, origin, radiusMiles, category }) {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("extratags", "1");
+  url.searchParams.set("namedetails", "1");
+  url.searchParams.set("limit", "24");
+  url.searchParams.set("q", `${marketplaceSearchTerms(category)} near ${location}`);
+  const data = await fetchExternalJson(url, {
+    headers: {
+      "User-Agent": marketplaceUserAgent,
+      "Accept-Language": "en",
+    },
+  }, 12000);
+  if (!Array.isArray(data)) return [];
+  const seen = new Set();
+  return data.map((place, index) => {
+    const lat = Number(place.lat);
+    const lon = Number(place.lon);
+    const shop = inferShopFromPlace(place, category);
+    const name = place.namedetails?.name || place.name || String(place.display_name || "").split(",")[0] || titleCase(shop);
+    const distance = Number.isFinite(lat) && Number.isFinite(lon)
+      ? Math.round(haversineMiles(origin, { lat, lon }))
+      : null;
+    const website = sanitizeExternalUrl(place.extratags?.website || place.extratags?.["contact:website"] || place.extratags?.url);
+    const imageUrl = sanitizeExternalUrl(place.extratags?.image || place.extratags?.logo);
+    return {
+      id: `nominatim-${place.osm_type || "place"}-${place.osm_id || index}`,
+      retailer: name,
+      brand: place.namedetails?.brand || "",
+      dist: distance,
+      type: "directory",
+      cat: marketplaceCategory(shop),
+      product: `${titleCase(shop)} retailer`,
+      qty: null,
+      price: null,
+      urgency: "low",
+      source: "OpenStreetMap Search",
+      address: buildNominatimAddress(place),
+      phone: place.extratags?.phone || place.extratags?.["contact:phone"] || "",
+      website,
+      imageUrl,
+      lat,
+      lon,
+      osmUrl: place.osm_type && place.osm_id ? `https://www.openstreetmap.org/${place.osm_type}/${place.osm_id}` : "",
+      osmTags: { shop, brand: place.namedetails?.brand || "", operator: "", openingHours: "" },
+    };
+  }).filter(business => {
+    if (!business.retailer || business.dist === null || business.dist > radiusMiles) return false;
+    const key = `${business.retailer}|${business.address}|${business.lat}|${business.lon}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).sort((a, b) => a.dist - b.dist || a.retailer.localeCompare(b.retailer));
+}
+
 function normalizeOsmBusiness(element, origin, index) {
   const tags = element.tags || {};
   const lat = Number(element.lat ?? element.center?.lat);
@@ -979,13 +1948,21 @@ function normalizeOsmBusiness(element, origin, index) {
   const shop = String(tags.shop || "retail");
   const name = tags.name || tags.brand || titleCase(shop);
   const address = buildOsmAddress(tags);
-  const website = sanitizeExternalUrl(tags.website || tags["contact:website"]);
+  const website = sanitizeExternalUrl(
+    tags.website ||
+    tags["contact:website"] ||
+    tags.url ||
+    tags["contact:url"] ||
+    tags["brand:website"]
+  );
+  const imageUrl = sanitizeExternalUrl(tags.image || tags["contact:image"] || tags.logo);
   const distance = Number.isFinite(lat) && Number.isFinite(lon)
     ? Math.round(haversineMiles(origin, { lat, lon }))
     : null;
   return {
     id: `osm-${element.type}-${element.id || index}`,
     retailer: name,
+    brand: tags.brand || "",
     dist: distance,
     type: "directory",
     cat: marketplaceCategory(shop),
@@ -995,11 +1972,18 @@ function normalizeOsmBusiness(element, origin, index) {
     urgency: "low",
     source: "OpenStreetMap",
     address,
-    phone: tags.phone || tags["contact:phone"] || "",
+    phone: tags.phone || tags["contact:phone"] || tags["contact:mobile"] || "",
     website,
+    imageUrl,
     lat,
     lon,
     osmUrl: element.id ? `https://www.openstreetmap.org/${element.type}/${element.id}` : "",
+    osmTags: {
+      shop,
+      brand: tags.brand || "",
+      operator: tags.operator || "",
+      openingHours: tags.opening_hours || "",
+    },
   };
 }
 
@@ -1023,6 +2007,26 @@ const integrationProviders = {
     label: "Clover",
     defaultStatus: "not_connected",
     defaultDetail: "Clover OAuth is not configured yet. Add Clover app credentials before connecting.",
+  },
+  lightspeed: {
+    label: "Lightspeed",
+    defaultStatus: "not_connected",
+    defaultDetail: "Lightspeed OAuth is not configured yet. Add Lightspeed app credentials before connecting.",
+  },
+  toast: {
+    label: "Toast",
+    defaultStatus: "not_connected",
+    defaultDetail: "Toast API access is not configured yet. Add Toast partner credentials before connecting.",
+  },
+  woocommerce: {
+    label: "WooCommerce",
+    defaultStatus: "not_connected",
+    defaultDetail: "WooCommerce REST credentials are not configured yet. Add a store URL, consumer key, and secret.",
+  },
+  custom_pos: {
+    label: "Custom POS / Webhook",
+    defaultStatus: "not_connected",
+    defaultDetail: "Create a REST or webhook credential to stream sales, inventory, and catalog data.",
   },
 };
 
@@ -1202,6 +2206,15 @@ async function syncShopifyOrders(userId, shop, accessToken) {
   }
   const inventoryRows = [];
   const inventoryItemIds = [...variantByInventoryItemId.keys()];
+  const costByInventoryItemId = new Map();
+  for (let index = 0; index < inventoryItemIds.length; index += 50) {
+    const chunk = inventoryItemIds.slice(index, index + 50);
+    const costData = await shopifyApi(shop, accessToken, "inventory_items", { ids: chunk.join(","), limit: "250" }).catch(() => ({ inventory_items: [] }));
+    for (const item of costData.inventory_items || []) {
+      const cost = Number(item.cost);
+      if (Number.isFinite(cost) && cost > 0) costByInventoryItemId.set(String(item.id), cost);
+    }
+  }
   for (let index = 0; index < inventoryItemIds.length; index += 50) {
     const chunk = inventoryItemIds.slice(index, index + 50);
     if (!chunk.length) continue;
@@ -1217,13 +2230,14 @@ async function syncShopifyOrders(userId, shop, accessToken) {
       if (!variant) continue;
       inventoryRows.push({
         ...variant,
+        cost: costByInventoryItemId.get(String(level.inventory_item_id || "")) ?? null,
         current: Math.max(0, Number(level.available || 0)),
         location: locationById.get(String(level.location_id || "")) || shop,
       });
     }
   }
   if (!inventoryRows.length) {
-    for (const variant of variants) inventoryRows.push({ ...variant, location: shop });
+    for (const variant of variants) inventoryRows.push({ ...variant, cost: costByInventoryItemId.get(variant.inventoryItemId) ?? null, location: shop });
   }
   const ordersData = await shopifyApi(shop, accessToken, "orders", {
     status: "any",
@@ -1237,15 +2251,16 @@ async function syncShopifyOrders(userId, shop, accessToken) {
     await pool.query("DELETE FROM inventory_items WHERE user_id = $1 AND source = 'shopify'", [userId]);
     for (const item of inventoryRows) {
       await pool.query(
-        `INSERT INTO inventory_items (user_id, sku, product, current_quantity, unit_price, source, external_id, location)
-         VALUES ($1, $2, $3, $4, $5, 'shopify', $6, $7)
+        `INSERT INTO inventory_items (user_id, sku, product, current_quantity, unit_price, unit_cost, source, external_id, location)
+         VALUES ($1, $2, $3, $4, $5, $6, 'shopify', $7, $8)
          ON CONFLICT (user_id, source, sku, location) DO UPDATE
          SET product = EXCLUDED.product,
              current_quantity = EXCLUDED.current_quantity,
              unit_price = EXCLUDED.unit_price,
+             unit_cost = EXCLUDED.unit_cost,
              external_id = EXCLUDED.external_id,
              updated_at = now()`,
-        [userId, item.sku, item.product, item.current, item.price, item.externalId, item.location]
+        [userId, item.sku, item.product, item.current, item.price, item.cost, item.externalId, item.location]
       );
     }
     for (const order of orders) {
@@ -1275,6 +2290,7 @@ async function syncShopifyOrders(userId, shop, accessToken) {
     await pool.query("ROLLBACK");
     throw err;
   }
+  await migrateFlatDataToPlanning(userId);
   return { orders: orders.length, rows: totals.size, inventoryItems: inventoryRows.length };
 }
 
@@ -1820,7 +2836,7 @@ app.get("/api/integrations/sales", authUser, asyncRoute(async (req, res) => {
     [req.user.sub]
   );
   const inventoryResult = await pool.query(
-    `SELECT id, sku, product, current_quantity::float AS current, unit_price::float AS price, location, source, updated_at
+    `SELECT id, sku, product, current_quantity::float AS current, unit_price::float AS price, unit_cost::float AS cost, location, source, updated_at
      FROM inventory_items
      WHERE user_id = $1
      ORDER BY product ASC, sku ASC
@@ -1831,23 +2847,96 @@ app.get("/api/integrations/sales", authUser, asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/analytics/advanced", authUser, asyncRoute(async (req, res) => {
-  const salesResult = await pool.query(
-    `SELECT sku, sale_date AS date, quantity::float AS quantity, location, source
-     FROM sales_records
-     WHERE user_id = $1
-     ORDER BY sale_date ASC, sku ASC
-     LIMIT 10000`,
-    [req.user.sub]
+  res.json(await buildPlanningAnalytics(req.user.sub, { locationId: req.query.locationId || null }));
+}));
+
+app.get("/api/planning/overview", authUser, asyncRoute(async (req, res) => {
+  const analytics = await buildPlanningAnalytics(req.user.sub, { locationId: req.query.locationId || null });
+  apiOk(res, { analytics });
+}));
+
+app.post("/api/planning/recompute", authUser, asyncRoute(async (req, res) => {
+  const analytics = await buildPlanningAnalytics(req.user.sub, {
+    persist: true,
+    locationId: req.body?.locationId || null,
+  });
+  apiOk(res, { status: "completed", lastSyncedAt: new Date().toISOString(), analytics });
+}));
+
+app.post("/api/planning/scenario", authUser, asyncRoute(async (req, res) => {
+  const analytics = await buildPlanningAnalytics(req.user.sub, {
+    locationId: req.body?.locationId || null,
+    discountPct: req.body?.discountPct,
+  });
+  apiOk(res, {
+    discountPct: clamp(numeric(req.body?.discountPct), 0, 80),
+    summary: analytics.summary,
+    skus: analytics.skus,
+    forecasts: analytics.forecasts,
+  });
+}));
+
+app.get("/api/planning/data-quality", authUser, asyncRoute(async (req, res) => {
+  const analytics = await buildPlanningAnalytics(req.user.sub, { locationId: req.query.locationId || null });
+  apiOk(res, {
+    completeness: analytics.summary.dataCompleteness,
+    warnings: analytics.dataQuality?.warnings || [],
+    missingCostSkus: analytics.skus.filter((sku) => sku.flags?.includes("missing_cost_data")).map((sku) => sku.sku),
+    locations: analytics.locations,
+  });
+}));
+
+app.get("/api/planning/export.csv", authUser, asyncRoute(async (req, res) => {
+  const analytics = await buildPlanningAnalytics(req.user.sub, { locationId: req.query.locationId || null });
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=\"liquiditylens-planning-export.csv\"");
+  res.send(planningCsv(analytics.skus));
+}));
+
+app.get("/api/planning/connectors", authUser, asyncRoute(async (req, res) => {
+  const analytics = await buildPlanningAnalytics(req.user.sub);
+  apiOk(res, { connectors: analytics.connectorRoadmap });
+}));
+
+app.post("/api/planning/import/preview", authUser, asyncRoute(async (req, res) => {
+  const entityType = ["products", "sales", "inventory"].includes(req.body?.entityType) ? req.body.entityType : "sales";
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows.slice(0, 5000) : [];
+  const accepted = [];
+  const errors = [];
+  rows.forEach((row, index) => {
+    const issue = [];
+    if (entityType === "sales") {
+      if (!String(row.sku || "").trim()) issue.push("SKU is required.");
+      if (!String(row.date || row.sale_date || "").trim()) issue.push("Sale date is required.");
+      if (!Number.isFinite(Number(row.quantity || row.units_sold))) issue.push("Quantity must be numeric.");
+    }
+    if (entityType === "inventory") {
+      if (!String(row.sku || "").trim()) issue.push("SKU is required.");
+      if (!Number.isFinite(Number(row.on_hand || row.current_quantity))) issue.push("On-hand quantity must be numeric.");
+    }
+    if (issue.length) errors.push({ row: index + 1, errors: issue });
+    else accepted.push(row);
+  });
+  const batch = await pool.query(
+    `INSERT INTO planning_import_batches (user_id, entity_type, file_name, preview_payload, error_payload, status)
+     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, 'preview')
+     RETURNING id, entity_type, status, created_at`,
+    [req.user.sub, entityType, String(req.body?.fileName || "manual upload").slice(0, 180), JSON.stringify(accepted), JSON.stringify(errors)]
   );
-  const inventoryResult = await pool.query(
-    `SELECT sku, product, current_quantity::float AS current, unit_price::float AS price, location, source
-     FROM inventory_items
-     WHERE user_id = $1
-     ORDER BY product ASC, sku ASC
-     LIMIT 10000`,
-    [req.user.sub]
+  apiOk(res, { batch: batch.rows[0], acceptedRows: accepted.length, rejectedRows: errors.length, errors });
+}));
+
+app.post("/api/planning/import/:batchId/commit", authUser, asyncRoute(async (req, res) => {
+  const result = await pool.query(
+    `UPDATE planning_import_batches
+     SET status = 'committed', committed_at = now()
+     WHERE id = $1 AND user_id = $2 AND status = 'preview'
+     RETURNING id, entity_type, status, committed_at`,
+    [req.params.batchId, req.user.sub]
   );
-  res.json(buildAdvancedAnalytics(salesResult.rows, inventoryResult.rows));
+  if (!result.rows[0]) return error(res, 404, "Import batch not found or already committed.", "IMPORT_NOT_FOUND");
+  const analytics = await buildPlanningAnalytics(req.user.sub, { persist: true });
+  apiOk(res, { batch: result.rows[0], analytics });
 }));
 
 app.get("/api/organization", authUser, asyncRoute(async (req, res) => {
@@ -2122,44 +3211,21 @@ app.get("/api/activity", authUser, asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/forecasts", authUser, asyncRoute(async (req, res) => {
-  const salesResult = await pool.query(
-    `SELECT sku, sale_date AS date, quantity::float AS quantity, location, source
-     FROM sales_records
-     WHERE user_id = $1
-     ORDER BY sale_date ASC, sku ASC
-     LIMIT 10000`,
-    [req.user.sub]
-  );
-  const inventoryResult = await pool.query(
-    `SELECT sku, product, current_quantity::float AS current, unit_price::float AS price, location, source
-     FROM inventory_items
-     WHERE user_id = $1
-     ORDER BY product ASC, sku ASC
-     LIMIT 10000`,
-    [req.user.sub]
-  );
-  const analytics = buildAdvancedAnalytics(salesResult.rows, inventoryResult.rows);
-  apiOk(res, { summary: analytics.summary, skus: analytics.skus, assumptions: analytics.assumptions, formulas: analytics.formulas });
+  const analytics = await buildPlanningAnalytics(req.user.sub, { locationId: req.query.locationId || null });
+  apiOk(res, {
+    summary: analytics.summary,
+    skus: analytics.skus,
+    assumptions: analytics.assumptions,
+    formulas: analytics.formulas,
+    forecasts: analytics.forecasts,
+    riskHeatmap: analytics.riskHeatmap,
+    waterfall: analytics.waterfall,
+    dataQuality: analytics.dataQuality,
+  });
 }));
 
 app.get("/api/analytics", authUser, asyncRoute(async (req, res) => {
-  const salesResult = await pool.query(
-    `SELECT sku, sale_date AS date, quantity::float AS quantity, location, source
-     FROM sales_records
-     WHERE user_id = $1
-     ORDER BY sale_date ASC, sku ASC
-     LIMIT 10000`,
-    [req.user.sub]
-  );
-  const inventoryResult = await pool.query(
-    `SELECT sku, product, current_quantity::float AS current, unit_price::float AS price, location, source
-     FROM inventory_items
-     WHERE user_id = $1
-     ORDER BY product ASC, sku ASC
-     LIMIT 10000`,
-    [req.user.sub]
-  );
-  apiOk(res, { analytics: buildAdvancedAnalytics(salesResult.rows, inventoryResult.rows) });
+  apiOk(res, { analytics: await buildPlanningAnalytics(req.user.sub, { locationId: req.query.locationId || null }) });
 }));
 
 app.get("/api/reports", authUser, asyncRoute(async (req, res) => {
@@ -2172,27 +3238,18 @@ app.get("/api/reports", authUser, asyncRoute(async (req, res) => {
      LIMIT 50`,
     [org.id]
   );
-  const analytics = await pool.query(
-    `SELECT sku, sale_date AS date, quantity::float AS quantity, location, source
-     FROM sales_records
-     WHERE user_id = $1
-     ORDER BY sale_date ASC, sku ASC
-     LIMIT 10000`,
-    [req.user.sub]
-  );
-  const inventory = await pool.query(
-    `SELECT sku, product, current_quantity::float AS current, unit_price::float AS price, location, source
-     FROM inventory_items
-     WHERE user_id = $1
-     ORDER BY product ASC, sku ASC
-     LIMIT 10000`,
-    [req.user.sub]
-  );
+  const analytics = await buildPlanningAnalytics(req.user.sub, { locationId: req.query.locationId || null });
   apiOk(res, {
     reports: stored.rows,
     generated: {
       title: "Inventory Health Summary",
-      payload: buildAdvancedAnalytics(analytics.rows, inventory.rows).summary,
+      payload: analytics.summary,
+      charts: {
+        forecast: analytics.forecasts?.weekly || [],
+        riskHeatmap: analytics.riskHeatmap || [],
+        excessCostWaterfall: analytics.waterfall || [],
+      },
+      dataQuality: analytics.dataQuality,
       createdAt: new Date().toISOString(),
     },
   });
@@ -2201,7 +3258,7 @@ app.get("/api/reports", authUser, asyncRoute(async (req, res) => {
 app.get("/api/inventory", authUser, asyncRoute(async (req, res) => {
   const { limit, offset, page } = parsePagination(req, 50, 250);
   const result = await pool.query(
-    `SELECT id, sku, product, current_quantity::float AS current, unit_price::float AS price, location, source, updated_at
+    `SELECT id, sku, product, current_quantity::float AS current, unit_price::float AS price, unit_cost::float AS cost, location, source, updated_at
      FROM inventory_items
      WHERE user_id = $1
      ORDER BY product ASC, sku ASC
@@ -2307,7 +3364,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
     if (!elements.length && lastLookupError) throw lastLookupError;
 
     const seen = new Set();
-    const businesses = elements
+    let businesses = elements
       .map((element, index) => normalizeOsmBusiness(element, origin, index))
       .filter(business => {
         const key = `${business.retailer}|${business.address}|${business.lat}|${business.lon}`.toLowerCase();
@@ -2317,6 +3374,26 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
       })
       .sort((a, b) => a.dist - b.dist || a.retailer.localeCompare(b.retailer))
       .slice(0, 24);
+    let source = "OpenStreetMap";
+    let note = "These are public nearby business listings. Private inventory and transfer data is available only after a business connects to LiquidityLens.";
+
+    if (!businesses.length) {
+      const fallbackBusinesses = await searchNearbyNominatimBusinesses({
+        location,
+        origin,
+        radiusMiles,
+        category: selectedCategory,
+      }).catch(err => {
+        console.warn("Marketplace Nominatim fallback failed:", err.message);
+        return [];
+      });
+      if (fallbackBusinesses.length) {
+        businesses = fallbackBusinesses.slice(0, 24);
+        effectiveRadiusMiles = radiusMiles;
+        source = "OpenStreetMap Search";
+        note = "Showing public directory search results because the nearby map index returned no matching shops. Private inventory is available only after a business connects to LiquidityLens.";
+      }
+    }
 
     const limitedBroadSearch = effectiveRadiusMiles < radiusMiles;
     res.json({
@@ -2326,13 +3403,34 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
       category: selectedCategory,
       count: businesses.length,
       businesses,
-      source: "OpenStreetMap",
-      note: limitedBroadSearch
+      source,
+      note: limitedBroadSearch && source === "OpenStreetMap"
         ? `Showing public listings within ${effectiveRadiusMiles} miles for this broad search. Pick a category or enter a more specific city/state to search farther. Private inventory is available only after a business connects to LiquidityLens.`
-        : "These are public nearby business listings. Private inventory and transfer data is available only after a business connects to LiquidityLens.",
+        : note,
     });
   } catch (err) {
     console.error("Marketplace lookup failed:", err);
+    const fallbackBusinesses = await searchNearbyNominatimBusinesses({
+      location,
+      origin,
+      radiusMiles,
+      category: selectedCategory,
+    }).catch(fallbackErr => {
+      console.warn("Marketplace Nominatim fallback failed:", fallbackErr.message);
+      return [];
+    });
+    if (fallbackBusinesses.length) {
+      return res.json({
+        origin,
+        radiusMiles,
+        effectiveRadiusMiles: radiusMiles,
+        category: selectedCategory,
+        count: fallbackBusinesses.length,
+        businesses: fallbackBusinesses.slice(0, 24),
+        source: "OpenStreetMap Search",
+        note: "The live map index was temporarily unavailable, so LiquidityLens used public directory search results. Private inventory is available only after a business connects to LiquidityLens.",
+      });
+    }
     return error(res, 502, "Could not load nearby businesses from the public directory. Try a smaller radius, pick a category, or enter the city plus state.", "MARKETPLACE_LOOKUP_FAILED");
   }
 }));
@@ -2808,6 +3906,10 @@ for (const provider of Object.keys(oauthProviders)) {
 function metaForPath(pathname) {
   const pages = {
     "/": ["LiquidityLens | Inventory Intelligence", "Forecast demand, detect stockout risk, and coordinate inventory transfers from a single retail operations workspace."],
+    "/platform": ["Platform | LiquidityLens", "Inventory intelligence, forecasting, supplier risk, and executive reporting built for retail operators."],
+    "/features": ["Features | LiquidityLens", "Forecast accuracy, replenishment signals, risk scoring, marketplace matching, and reporting for modern retail teams."],
+    "/solutions": ["Solutions | LiquidityLens", "Inventory planning workflows for supply chain, operations, finance, and executive teams."],
+    "/industries": ["Industries | LiquidityLens", "Demand forecasting and inventory optimization for apparel, grocery, electronics, home, health, and specialty retail."],
     "/dashboard": ["LiquidityLens Dashboard", "Inventory risk score, revenue exposure, and SKU recommendations for retail operators."],
     "/connect": ["Connect Store | LiquidityLens", "Connect POS, ERP, or CSV inventory data to start forecasting."],
     "/forecasts": ["Forecasts | LiquidityLens", "Demand forecasts with confidence bands and model comparison."],
@@ -2816,6 +3918,14 @@ function metaForPath(pathname) {
     "/marketplace": ["Marketplace | LiquidityLens", "Find nearby retailers with matching inventory excess or shortage signals."],
     "/community": ["Community | LiquidityLens", "Coordinate markdowns, delivery routes, and bulk buys with retail peers."],
     "/pricing": ["Pricing | LiquidityLens", "Tiered LiquidityLens subscription plans for retailers from single-store teams to enterprise networks."],
+    "/resources": ["Resources | LiquidityLens", "Guides, frameworks, and operating playbooks for inventory risk teams."],
+    "/blog": ["Blog | LiquidityLens", "Inventory intelligence essays, forecasting methods, and retail operations analysis."],
+    "/docs": ["Documentation | LiquidityLens", "Implementation guides for connecting retail data and interpreting LiquidityLens analytics."],
+    "/security": ["Security | LiquidityLens", "Enterprise security, privacy, and data governance for retail inventory systems."],
+    "/integrations": ["Integrations | LiquidityLens", "Connect Shopify, Clover, Square, CSV, and retail data systems to LiquidityLens."],
+    "/about": ["About | LiquidityLens", "LiquidityLens helps retailers prevent stockouts, reduce excess inventory, and improve working capital."],
+    "/contact": ["Contact | LiquidityLens", "Talk to LiquidityLens about inventory intelligence, pilots, and enterprise deployments."],
+    "/book-demo": ["Book Demo | LiquidityLens", "Book a LiquidityLens demo for your retail planning, operations, or finance team."],
     "/reports": ["Reports | LiquidityLens", "Executive inventory health reports for finance and operations teams."],
     "/profile": ["Profile | LiquidityLens", "Manage your LiquidityLens account profile, password, and active session."],
     "/login": ["Sign In | LiquidityLens", "Secure access to LiquidityLens inventory intelligence."],
@@ -2837,18 +3947,21 @@ function renderShell(req) {
     <meta property="og:description" content="${description}" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="${canonical}" />
+    <meta property="og:image" content="${appBaseUrl}/assets/liquiditylens-logo.png" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="${appBaseUrl}/assets/liquiditylens-logo.png" />
     <link rel="canonical" href="${canonical}" />
+    <link rel="icon" href="/assets/liquiditylens-logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=8" />
+    <link rel="stylesheet" href="/styles.css?v=11" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.replace(" | LiquidityLens", "")}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=8"></script>
+    <script src="/app.js?v=11"></script>
   </body>
 </html>`;
 }

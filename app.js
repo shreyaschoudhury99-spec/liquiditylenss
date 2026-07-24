@@ -3,7 +3,20 @@ const toastRoot = document.getElementById("toastRoot");
 const modalRoot = document.getElementById("modalRoot");
 
 const routes = {
-  "/": "Dashboard",
+  "/": "Home",
+  "/platform": "Platform",
+  "/features": "Features",
+  "/solutions": "Solutions",
+  "/industries": "Industries",
+  "/pricing": "Pricing",
+  "/resources": "Resources",
+  "/blog": "Blog",
+  "/docs": "Documentation",
+  "/security": "Security",
+  "/integrations": "Integrations",
+  "/about": "About",
+  "/contact": "Contact",
+  "/book-demo": "Book Demo",
   "/dashboard": "Dashboard",
   "/connect": "Connect Store",
   "/forecasts": "Forecasts",
@@ -11,16 +24,15 @@ const routes = {
   "/analytics": "Advanced Analytics",
   "/marketplace": "Marketplace",
   "/community": "Community",
-  "/pricing": "Pricing",
   "/admin": "Admin",
   "/reports": "Reports",
   "/profile": "Profile",
 };
 const authRoutes = new Set(["/login", "/reset-password"]);
-const publicRoutes = new Set(["/pricing"]);
+const publicRoutes = new Set(["/", "/platform", "/features", "/solutions", "/industries", "/pricing", "/resources", "/blog", "/docs", "/security", "/integrations", "/about", "/contact", "/book-demo"]);
 
 const navItems = [
-  ["/", "Dashboard", "layout-dashboard"],
+  ["/dashboard", "Dashboard", "layout-dashboard"],
   ["/connect", "Connect Store", "plug"],
   ["/forecasts", "Forecasts", "chart-line"],
   ["/inventory", "Inventory", "boxes"],
@@ -114,6 +126,54 @@ const pricingTiers = [
   },
 ];
 
+const marketingNav = [
+  ["/platform", "Platform"],
+  ["/features", "Features"],
+  ["/solutions", "Solutions"],
+  ["/industries", "Industries"],
+  ["/pricing", "Pricing"],
+  ["/resources", "Resources"],
+  ["/security", "Security"],
+];
+
+const buyerQuestions = [
+  {
+    question: "Why should I care?",
+    headline: "Inventory mistakes are cash-flow mistakes.",
+    copy: "LiquidityLens helps retailers prevent stockouts, reduce excess inventory, and make replenishment decisions before margin is lost.",
+    visual: "A risk board showing forecasted demand, inventory exposure, and recommended actions by SKU.",
+  },
+  {
+    question: "How does it work?",
+    headline: "Connect sales data. Model demand. Act on the exceptions.",
+    copy: "The platform ingests POS, commerce, and CSV data, normalizes it by SKU and location, and turns demand signals into buy, hold, sell, and transfer recommendations.",
+    visual: "A three-step flow from data sources to forecast models to operator actions.",
+  },
+  {
+    question: "Why is AI better?",
+    headline: "Forecasts improve when models see the full operating context.",
+    copy: "Instead of a static reorder point, LiquidityLens blends observed velocity, seasonality, confidence bands, inventory on hand, and price exposure.",
+    visual: "Forecast bands comparing baseline, adjusted, and ensemble demand.",
+  },
+  {
+    question: "Can I trust you?",
+    headline: "Built for enterprise governance from the first integration.",
+    copy: "Security, auditability, role-based access, and transparent model explanations are part of the product, not enterprise add-ons.",
+    visual: "Security controls, data lineage, and model explanation cards.",
+  },
+];
+
+const enterpriseFaqs = [
+  ["How quickly can a retailer start seeing value?", "Most teams can run a pilot from CSV or Shopify data in days. Enterprise rollouts usually start with one region, one category, or one banner before expanding."],
+  ["Do we need perfect historical data?", "No. LiquidityLens flags limited history, widens confidence bands, and separates measured signals from assumptions so planners know where the model is certain."],
+  ["Does this replace planners?", "No. It gives planners earlier warnings, quantified risk, and clear action queues so they can spend less time hunting through reports."],
+  ["Can executives trust the numbers?", "Every forecast is tied back to observed demand, inventory position, model confidence, and the business rule used to produce the recommendation."],
+  ["What integrations are supported?", "CSV upload, Shopify, Clover, and Square are the current connection paths. The architecture is ready for ERPs, data warehouses, and private APIs."],
+  ["How do pilots work?", "We define a target outcome, connect a limited data set, measure forecast accuracy and working-capital impact, then present an executive readout with expansion options."],
+  ["What about data security?", "The product uses server-side secrets, authenticated sessions, access controls, and audit-oriented operational pages. Enterprise SSO, SOC 2 readiness, and custom retention policies can be added for larger deployments."],
+  ["How is LiquidityLens different from a BI dashboard?", "BI tools explain what already happened. LiquidityLens turns inventory data into forward-looking decisions, ranked risks, and replenishment actions."],
+];
+
 const providerFields = {
   shopify: [{ label: "Storefront URL", type: "text", placeholder: "yourstore.myshopify.com" }, { label: "Admin API Key", type: "password", placeholder: "shpat_..." }],
   square: [{ label: "Location ID", type: "text", placeholder: "LXXXXXXXXXXXXXXXXX" }, { label: "Access Token", type: "password", placeholder: "EAAAl..." }],
@@ -190,6 +250,9 @@ let state = {
   csv: null,
   inventoryFilter: "",
   actionFilter: "all",
+  inventoryPage: 1,
+  inventoryPageSize: 20,
+  inventorySort: "risk_desc",
   typeFilter: "all",
   catFilter: "all",
   distFilter: 100,
@@ -325,6 +388,16 @@ function fmtPercent(value) {
 
 function activeSkuData() {
   if (!state.salesRecords.length && !state.inventoryItems.length) return skuData;
+  if (state.advancedAnalytics?.skus?.length) {
+    return state.advancedAnalytics.skus.map((item, index) => ({
+      ...item,
+      id: index + 1,
+      current: item.currentUnits,
+      forecast: item.forecast8w,
+      stockout: item.stockoutRisk,
+      overstock: item.currentUnits ? Math.min(100, Math.max(0, ((item.currentUnits - item.forecast8w) / item.currentUnits) * 100)) : 0,
+    }));
+  }
   const hasSales = Boolean(state.salesRecords.length);
   const hasInventory = Boolean(state.inventoryItems.length);
   const bySku = new Map();
@@ -401,29 +474,24 @@ function riskLabel(score) {
 }
 
 function importedDashboardMetrics(products) {
-  const importedUnits = state.salesRecords.reduce((sum, record) => sum + (Number(record.quantity) || 0), 0);
+  const summary = state.advancedAnalytics?.summary || {};
+  const importedUnits = Number(summary.totalUnitsSold) || state.salesRecords.reduce((sum, record) => sum + (Number(record.quantity) || 0), 0);
   const skuCount = products.length;
   const forecastUnits = products.reduce((sum, product) => sum + product.forecast, 0);
   const currentUnits = products.reduce((sum, product) => sum + product.current, 0);
   const highRiskSkus = products.filter(product => product.stockout >= 70).length;
   const buyActions = products.filter(product => product.action === "buy").length;
   const holdActions = products.filter(product => product.action === "hold").length;
-  const riskScore = Math.max(1, Math.min(100, Math.round(
-    products.reduce((sum, product) => sum + product.stockout * Math.max(1, product.forecast), 0) / Math.max(1, forecastUnits)
-  )));
-  const estimatedRevenueRisk = products.reduce((sum, product) => (
-    sum + Math.max(0, product.forecast - product.current) * (product.price || 45)
-  ), 0);
-  const estimatedExcessCost = products.reduce((sum, product) => (
-    sum + Math.max(0, product.current - product.forecast) * ((product.price || 45) * 0.25)
-  ), 0);
+  const riskScore = Math.round(Number(summary.riskScore) || 0);
+  const estimatedRevenueRisk = Number(summary.revenueAtRisk) || 0;
+  const estimatedExcessCost = summary.excessCost;
   return {
     riskScore,
     cards: [
       ["Inventory Risk Score", riskScore, `${riskLabel(riskScore)} RISK`, `${highRiskSkus} high-risk ${highRiskSkus === 1 ? "SKU" : "SKUs"}`, `${buyActions} buy ${buyActions === 1 ? "action" : "actions"} recommended from imported data.`, riskScore >= 70 ? "bad" : riskScore >= 40 ? "warning" : "good", "accent", riskScore >= 70 ? "high" : riskScore >= 40 ? "warning" : "success"],
       ["Imported Units", fmt(importedUnits), `${skuCount} ${skuCount === 1 ? "SKU" : "SKUs"}`, "Live data", "Synced sales quantity from connected sources.", "good", "", "success"],
       ["8-Week Demand", fmt(forecastUnits), `${currentUnits} on hand`, `${buyActions} buy / ${holdActions} hold`, "Demand projection from synced order history.", buyActions ? "bad" : "good", "", buyActions ? "warning" : "success"],
-      ["Revenue at Risk", moneyShort(estimatedRevenueRisk), "", estimatedExcessCost ? `${moneyShort(estimatedExcessCost)} excess` : "No excess", "Estimated from demand gap and Shopify variant prices.", estimatedRevenueRisk ? "bad" : "good", "", estimatedRevenueRisk ? "warning" : "success"],
+      ["Revenue at Risk", summary.priceCompleteSkus ? moneyShort(estimatedRevenueRisk) : "Insufficient data", "", estimatedExcessCost === null ? "Missing cost data" : `${moneyShort(estimatedExcessCost)} excess`, "Only SKUs with valid price data are included.", estimatedRevenueRisk ? "bad" : "good", "", estimatedRevenueRisk ? "warning" : "success"],
     ],
   };
 }
@@ -439,26 +507,17 @@ function executiveSummaryRows() {
     ];
   }
   const products = activeSkuData();
-  const forecastUnits = products.reduce((sum, product) => sum + product.forecast, 0);
-  const riskScore = Math.max(1, Math.min(100, Math.round(
-    products.reduce((sum, product) => sum + product.stockout * Math.max(1, product.forecast), 0) / Math.max(1, forecastUnits)
-  )));
-  const revenueRisk = products.reduce((sum, product) => (
-    sum + Math.max(0, product.forecast - product.current) * (product.price || 45)
-  ), 0);
-  const excessCost = products.reduce((sum, product) => (
-    sum + Math.max(0, product.current - product.forecast) * ((product.price || 45) * 0.25)
-  ), 0);
-  const inventoryValue = products.reduce((sum, product) => sum + product.current * (product.price || 0), 0);
+  const summary = state.advancedAnalytics?.summary || {};
+  const riskScore = Math.round(Number(summary.riskScore) || 0);
   const recommendedUnits = products.reduce((sum, product) => {
     if (product.action === "hold") return sum;
     return sum + Math.abs(product.forecast - product.current);
   }, 0);
   return [
     ["Risk Score", `${riskScore} (${riskLabel(riskScore)})`],
-    ["Revenue at Risk", moneyShort(revenueRisk)],
-    ["Excess Cost", moneyShort(excessCost)],
-    ["Total Inventory Value", moneyShort(inventoryValue)],
+    ["Revenue at Risk", summary.priceCompleteSkus ? moneyShort(summary.revenueAtRisk) : "Insufficient price data"],
+    ["Excess Cost", summary.excessCost === null ? "Insufficient cost data" : moneyShort(summary.excessCost)],
+    ["Total Inventory Value", summary.priceCompleteSkus ? moneyShort(summary.inventoryValue) : "Insufficient price data"],
     ["Transfer Units Recommended", fmt(recommendedUnits)],
   ];
 }
@@ -612,13 +671,27 @@ function layout(content) {
   const unread = state.notifications.some(n => !n.read);
   const name = workspaceName();
   const initials = workspaceInitials();
+  const publicLinks = [
+    ["/", "Home"],
+    ["/platform", "Platform"],
+    ["/features", "Features"],
+    ["/pricing", "Pricing"],
+    ["/integrations", "Integrations"],
+    ["/security", "Security"],
+    ["/book-demo", "Book demo"],
+  ];
   return `
     ${state.sidebarOpen ? `<div class="drawer-overlay" data-close-sidebar></div>` : ""}
     <aside class="sidebar ${state.sidebarOpen ? "open" : ""}">
       <div class="sidebar-top">${logo()}</div>
       <div class="store-row"><div class="store-name">${esc(name)}</div><div class="online"><span class="dot"></span>online</div></div>
       <nav class="sidebar-nav" aria-label="Primary">${navItems.map(([path, label, name]) => `<a href="${path}" class="nav-link ${state.path === path ? "active" : ""}" data-route="${path}"><span class="nav-icon">${icon(name)}</span>${label}</a>`).join("")}</nav>
+      <div class="sidebar-public">
+        <div class="sidebar-label">Public website</div>
+        <div class="public-link-grid">${publicLinks.map(([path, label]) => `<a href="${path}" data-route="${path}">${esc(label)}</a>`).join("")}</div>
+      </div>
       <div class="sidebar-bottom">
+        <a class="bottom-link" href="/" data-route="/">${icon("globe-2")}<span>Public site</span></a>
         <button class="btn-icon bottom-link" data-how type="button">${icon("help")}<span>How this works</span></button>
         <button class="btn-icon bottom-link" data-signout type="button">${icon("signout")}<span>Sign out</span></button>
       </div>
@@ -656,6 +729,258 @@ function notificationsPanel() {
     <div class="notification-head"><strong>Notifications</strong><button class="btn-ghost" data-mark-read type="button">Mark all read</button></div>
     ${state.notifications.map(n => `<div class="notification-item ${n.read ? "" : "unread"}"><span class="dot" style="background: var(--${n.type === "warning" ? "yellow" : n.type === "success" ? "green" : "accent"})"></span><div>${esc(n.text)}<span class="notification-time">${n.time}</span></div></div>`).join("")}
   </div>`;
+}
+
+function marketingLayout(content) {
+  const signedIn = auth();
+  return `<div class="marketing-site">
+    <header class="marketing-header">
+      <a class="marketing-brand" href="/" data-route="/">${logo()}</a>
+      <nav class="marketing-nav" aria-label="Website navigation">
+        ${marketingNav.map(([path, label]) => `<a href="${path}" data-route="${path}" class="${state.path === path ? "active" : ""}">${label}</a>`).join("")}
+      </nav>
+      <div class="marketing-actions">
+        <a class="btn-ghost" href="${signedIn ? "/dashboard" : "/login"}" ${signedIn ? 'data-route="/dashboard"' : ""}>${signedIn ? "Open app" : "Sign in"}</a>
+        <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
+      </div>
+    </header>
+    <main class="marketing-main">${content}</main>
+    <footer class="marketing-footer">
+      <div>
+        ${logo()}
+        <p>Predictive inventory intelligence for retailers that need fewer surprises, cleaner cash flow, and faster replenishment decisions.</p>
+      </div>
+      <div class="marketing-footer-links">
+        ${["Platform", "Integrations", "Security", "Pricing", "Documentation", "Contact"].map(label => {
+          const path = label === "Documentation" ? "/docs" : `/${label.toLowerCase()}`;
+          return `<a href="${path}" data-route="${path}">${label}</a>`;
+        }).join("")}
+      </div>
+    </footer>
+  </div>`;
+}
+
+function marketingSection(eyebrow, headline, copy, content = "", extraClass = "") {
+  return `<section class="marketing-section ${extraClass}">
+    <div class="marketing-section-head">
+      <p class="eyebrow">${esc(eyebrow)}</p>
+      <h2>${esc(headline)}</h2>
+      <p>${esc(copy)}</p>
+    </div>
+    ${content}
+  </section>`;
+}
+
+function marketingCards(cards) {
+  return `<div class="marketing-card-grid">${cards.map(card => `<article class="marketing-card">
+    ${card.kicker ? `<p class="eyebrow">${esc(card.kicker)}</p>` : ""}
+    <h3>${esc(card.title)}</h3>
+    <p>${esc(card.copy)}</p>
+    ${card.metric ? `<strong class="marketing-metric">${esc(card.metric)}</strong>` : ""}
+  </article>`).join("")}</div>`;
+}
+
+function marketingPage(title, copy, cards, eyebrow = "LiquidityLens") {
+  return `<section class="marketing-page-hero">
+    <p class="eyebrow">${esc(eyebrow)}</p>
+    <h1>${esc(title)}</h1>
+    <p>${esc(copy)}</p>
+    <div class="hero-actions">
+      <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
+      <a class="btn-ghost" href="/docs" data-route="/docs">Read documentation</a>
+    </div>
+  </section>
+  ${marketingCards(cards)}`;
+}
+
+function executiveMockup() {
+  return `<div class="marketing-mockup" aria-label="Inventory intelligence preview">
+    <div class="mockup-row"><span>Inventory risk</span><strong>63 / 100</strong><em>Medium</em></div>
+    <div class="mockup-row"><span>8-week demand</span><strong>48 units</strong><em>Live</em></div>
+    <div class="mockup-row"><span>Revenue at risk</span><strong>$1K</strong><em>Down from $39K excess</em></div>
+    <div class="mockup-chart"><span></span><span></span><span></span><span></span><span></span></div>
+  </div>`;
+}
+
+function homePage() {
+  const outcomes = marketingCards([
+    { title: "Prevent stockouts before they hit revenue", copy: "Forecast SKU-level demand and expose shortages early enough for planners to reorder, transfer, or substitute.", metric: "Fewer lost sales" },
+    { title: "Reduce inventory costs without guessing", copy: "Identify excess stock, quantify carrying cost, and prioritize markdown or marketplace actions.", metric: "Cleaner working capital" },
+    { title: "Give executives one operating truth", copy: "Turn store, product, and supplier data into explainable decisions for CFOs, operators, and supply chain leaders.", metric: "Board-ready visibility" },
+  ]);
+  const questions = `<div class="question-stack">${buyerQuestions.map(item => `<article class="question-card">
+    <p class="eyebrow">${esc(item.question)}</p>
+    <h3>${esc(item.headline)}</h3>
+    <p>${esc(item.copy)}</p>
+    <span>${esc(item.visual)}</span>
+  </article>`).join("")}</div>`;
+  const trust = marketingCards([
+    { kicker: "Security", title: "Enterprise controls from day one", copy: "Role-based access, server-side credentials, auditable sync status, and clear data ownership boundaries." },
+    { kicker: "Pilot", title: "Start narrow, prove impact", copy: "Run a 30-day pilot on one category or region, measure forecast quality, then expand with confidence." },
+    { kicker: "Competition", title: "More action than BI", copy: "LiquidityLens does not stop at reporting. It ranks inventory risk and recommends what to do next." },
+  ]);
+  return `<section class="marketing-hero">
+    <div class="marketing-hero-copy">
+      <p class="eyebrow">Inventory intelligence for enterprise retail</p>
+      <h1>Prevent stockouts, overstocks, and cash-flow surprises before they happen.</h1>
+      <p>LiquidityLens gives retail leaders a predictive operating layer for demand, inventory risk, replenishment, supplier exposure, and marketplace coordination.</p>
+      <div class="hero-actions">
+        <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
+        <a class="btn-ghost" href="/platform" data-route="/platform">See platform</a>
+      </div>
+      <div class="proof-strip">
+        <span>Built for supply chain teams</span>
+        <span>POS and commerce data</span>
+        <span>Executive-ready reporting</span>
+      </div>
+    </div>
+    ${executiveMockup()}
+  </section>
+  ${marketingSection("Why it matters", "Inventory risk is now a board-level operating metric.", "Retail teams need earlier signals, not more dashboards. LiquidityLens connects demand, inventory, and cash exposure so every recommendation is tied to measurable business impact.", outcomes)}
+  ${marketingSection("Buyer questions", "Every section answers what an enterprise buyer needs to know.", "The site now follows the decision path a retail executive actually takes before trusting a platform with operational data.", questions)}
+  ${marketingSection("Trust", "Designed for pilots, procurement, and executive review.", "The message is built around measurable outcomes, transparent calculations, and expansion paths that work for large organizations.", trust)}
+  ${enterpriseFaq()}
+  <section class="marketing-cta">
+    <p class="eyebrow">Get started</p>
+    <h2>Run a focused inventory intelligence pilot.</h2>
+    <p>Connect one data source, pick a category, and measure the value of better replenishment decisions.</p>
+    <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
+  </section>`;
+}
+
+function enterpriseFaq() {
+  return marketingSection("FAQ", "Answers for enterprise buyers.", "Clear responses to the objections that slow down evaluations.", `<div class="marketing-faq">
+    ${enterpriseFaqs.map(([q, a]) => `<details><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join("")}
+  </div>`);
+}
+
+function platformPage() {
+  return marketingPage("A predictive operating layer for retail inventory.", "Unify sales, inventory, and supplier signals so every team can work from the same forward-looking plan.", [
+    { title: "Data ingestion", copy: "Connect Shopify, Clover, Square, CSV files, and private APIs into a normalized SKU and location model." },
+    { title: "Demand intelligence", copy: "Blend observed velocity, seasonality, inventory context, and confidence bands into operational forecasts." },
+    { title: "Decision queue", copy: "Translate forecast risk into buy, hold, sell, transfer, and outreach actions planners can execute." },
+    { title: "Executive reporting", copy: "Summarize inventory health, revenue exposure, cash impact, and risk trends for leadership." },
+  ], "Platform");
+}
+
+function featuresPage() {
+  return marketingPage("Features that turn inventory data into action.", "Everything is organized around decisions: what to buy, what to move, what to reduce, and where cash is exposed.", [
+    { title: "Stockout prediction", copy: "Identify items likely to miss demand before they become revenue leakage." },
+    { title: "Overstock detection", copy: "Rank excess inventory by value, carrying cost, and markdown urgency." },
+    { title: "Forecast confidence", copy: "Show planners when history is thin and when the model has enough evidence to be precise." },
+    { title: "Marketplace signals", copy: "Surface nearby retail partners and transfer opportunities when internal stock is imbalanced." },
+    { title: "Supplier and replenishment risk", copy: "Connect delayed replenishment, demand spikes, and stock position into one risk score." },
+    { title: "Downloadable reporting", copy: "Generate executive summaries for operating meetings, pilots, and budget conversations." },
+  ], "Features");
+}
+
+function solutionsPage() {
+  return marketingPage("Solutions for every inventory decision maker.", "LiquidityLens gives each role the level of detail they need without forcing everyone into the same dashboard.", [
+    { title: "Supply Chain Managers", copy: "Prioritize risk by location, SKU, supplier, and forecast window." },
+    { title: "Inventory Planners", copy: "Move from spreadsheet checks to daily exception management." },
+    { title: "Operations Directors", copy: "See regional exposure and coordinate stores before stockouts spread." },
+    { title: "CFOs", copy: "Quantify working-capital impact, carrying cost, and avoidable revenue leakage." },
+    { title: "Chief Supply Chain Officers", copy: "Standardize planning intelligence across banners, categories, and geographies." },
+    { title: "CEOs", copy: "Understand inventory health as a growth, margin, and customer experience driver." },
+  ], "Solutions");
+}
+
+function industriesPage() {
+  return marketingPage("Built for retailers with complex demand and capital pressure.", "The model works best where inventory decisions affect cash, margin, availability, and customer trust.", [
+    { title: "Specialty retail", copy: "Manage seasonal categories, long-tail SKUs, and local demand variation." },
+    { title: "Apparel and footwear", copy: "Track size curves, sell-through risk, and excess exposure before markdowns." },
+    { title: "Outdoor and sporting goods", copy: "Plan for regional demand swings and event-driven seasonality." },
+    { title: "Electronics and accessories", copy: "Balance high-value inventory with fast-moving demand changes." },
+    { title: "Grocery and perishables", copy: "Reduce waste by linking demand signals to replenishment timing." },
+    { title: "Multi-location operators", copy: "Use transfer recommendations before buying more inventory." },
+  ], "Industries");
+}
+
+function resourcesPage() {
+  return marketingPage("Resources for evaluating inventory intelligence.", "Buyer guides, pilot templates, and executive narratives that help teams decide where to start.", [
+    { title: "Pilot playbook", copy: "How to define scope, connect data, and measure impact in the first 30 days." },
+    { title: "Inventory risk score guide", copy: "The components behind demand gaps, stock position, and revenue exposure." },
+    { title: "Executive business case", copy: "A template for connecting forecast accuracy to cash flow and margin." },
+    { title: "Integration checklist", copy: "What to prepare before connecting POS, commerce, and warehouse data." },
+  ], "Resources");
+}
+
+function blogPage() {
+  return marketingPage("Thinking for modern inventory teams.", "Executive-level writing on forecasting, stockout prevention, working capital, and retail operating discipline.", [
+    { title: "Why stockouts are a finance problem", copy: "How availability failures quietly damage margin, retention, and inventory trust." },
+    { title: "The limits of reorder points", copy: "Why static thresholds break down when demand changes faster than planning cycles." },
+    { title: "How to run an inventory AI pilot", copy: "A practical sequence for proving value without a full platform migration." },
+  ], "Blog");
+}
+
+function documentationPage() {
+  return marketingPage("Documentation for implementation teams.", "Technical guidance for connecting data sources, validating imports, and understanding model outputs.", [
+    { title: "CSV import format", copy: "Required fields: SKU, date, quantity sold, and location." },
+    { title: "Shopify setup", copy: "OAuth connection, required scopes, sync status, and protected customer data requirements." },
+    { title: "Clover setup", copy: "Sandbox and production app configuration, callback path, and merchant installation flow." },
+    { title: "Model outputs", copy: "Definitions for risk score, 8-week demand, revenue at risk, and recommendation logic." },
+  ], "Documentation");
+}
+
+function securityPage() {
+  return marketingPage("Security built for enterprise evaluation.", "LiquidityLens is structured so procurement, IT, and operations can understand how data is handled before a pilot expands.", [
+    { title: "Access control", copy: "Authenticated sessions, role-oriented workspaces, and protected application routes." },
+    { title: "Credential handling", copy: "Provider secrets and tokens stay server-side and are never hardcoded into the browser." },
+    { title: "Audit readiness", copy: "Connection status, sync errors, and admin activity are visible for operational review." },
+    { title: "Data minimization", copy: "The platform focuses on SKU, order, location, and inventory signals needed for planning." },
+    { title: "Enterprise roadmap", copy: "SSO, SOC 2 readiness, custom retention, and private cloud deployment can be prioritized for larger accounts." },
+    { title: "Transparent models", copy: "Forecast pages explain inputs, outputs, confidence, and assumptions instead of hiding decisions." },
+  ], "Security");
+}
+
+function integrationsPage() {
+  return marketingPage("Connect the systems that already run your stores.", "Start with CSV, Shopify, Clover, or Square, then expand into ERPs, data warehouses, and private APIs.", [
+    { title: "CSV upload", copy: "Fastest path to a pilot when historical sales data is already available." },
+    { title: "Shopify", copy: "Pull products, orders, inventory levels, and store metadata through OAuth." },
+    { title: "Clover", copy: "Connect POS merchant data for item, order, and inventory signals." },
+    { title: "Square", copy: "Planned POS connection for sellers using Square locations and catalog data." },
+    { title: "Enterprise APIs", copy: "Private integration path for ERPs, OMS, WMS, and data lake environments." },
+    { title: "Marketplace data", copy: "Public business listings can support outreach, while private inventory requires store participation." },
+  ], "Integrations");
+}
+
+function aboutPage() {
+  return marketingPage("Built for retailers that cannot afford reactive inventory planning.", "LiquidityLens exists to make inventory decisions earlier, clearer, and easier to defend.", [
+    { title: "Mission", copy: "Help retailers convert operational uncertainty into measurable inventory action." },
+    { title: "Advisor program", copy: "A structured path for operators, supply chain leaders, and finance executives to shape the product." },
+    { title: "Customer success", copy: "Pilots focus on one category, one measurable target, and one executive readout." },
+    { title: "Competition wins", copy: "Where BI reports stop at visibility, LiquidityLens prioritizes decisions and action." },
+  ], "About");
+}
+
+function contactPage() {
+  return marketingPage("Talk to the LiquidityLens team.", "Use this page for enterprise evaluations, security reviews, partner integrations, or pilot scoping.", [
+    { title: "Sales", copy: "Discuss pricing, rollout scope, and category priorities." },
+    { title: "Security", copy: "Review data handling, access controls, and enterprise requirements." },
+    { title: "Partnerships", copy: "Explore integrations, marketplace participation, and private data connections." },
+  ], "Contact");
+}
+
+function bookDemoPage() {
+  return `<section class="marketing-page-hero">
+    <p class="eyebrow">Book demo</p>
+    <h1>Plan an inventory intelligence pilot.</h1>
+    <p>Tell us your retail footprint, core inventory pain, and data source. We will shape the first pilot around measurable business impact.</p>
+  </section>
+  <section class="marketing-demo-grid">
+    <form class="marketing-form" data-demo-form>
+      <label>Work email<input class="input" name="email" type="email" required placeholder="you@company.com" /></label>
+      <label>Company<input class="input" name="company" required placeholder="Retail organization" /></label>
+      <label>Store count<select class="input" name="stores"><option>1-5 stores</option><option>5-50 stores</option><option>50+ stores</option><option>Enterprise network</option></select></label>
+      <label>What do you want to improve?<textarea class="input" name="goal" rows="5" placeholder="Stockouts, excess inventory, cash flow, replenishment, marketplace coordination..."></textarea></label>
+      <button class="btn-primary" type="submit">Request demo</button>
+    </form>
+    <article class="marketing-card">
+      <p class="eyebrow">Pilot structure</p>
+      <h3>One data source. One category. One executive readout.</h3>
+      <p>We recommend starting with a narrow operating question, then measuring forecast quality, avoidable stockout risk, and inventory cost exposure.</p>
+    </article>
+  </section>`;
 }
 
 function loginPage() {
@@ -824,6 +1149,8 @@ function dashboard() {
       ? `${products.length} analyzed SKUs from ${state.inventoryItems.length} Shopify inventory records. Sync orders or upload CSV history to forecast demand.`
     : "Import CSV sales data or sync Shopify to replace the starter sample.";
   const importedMetrics = hasLiveData ? importedDashboardMetrics(products) : null;
+  const quality = state.advancedAnalytics?.summary || {};
+  const qualityBanners = hasLiveData ? `${quality.sampleCatalogDetected ? `<div class="data-warning"><strong>Sample catalog detected.</strong> ${fmt(quality.excludedSampleSkus)} Shopify default product${quality.excludedSampleSkus === 1 ? " was" : "s were"} excluded from analysis.</div>` : ""}${quality.enoughData === false ? `<div class="data-warning"><strong>Not enough data for reliable forecasting.</strong> Current outputs are directional only. Import at least 20 transactions across 3 selling SKUs.</div>` : ""}` : "";
   const cards = importedMetrics?.cards || [
     ["Inventory Risk Score", state.riskScore, "HIGH RISK", "↑ 8pts vs last week", "3 transfers recommended to reduce to medium.", "bad", "accent", "high"],
     ["Total Inventory Value", "$12.8M", "", "↑ 2.1%", "Across all connected stores.", "good", "", "success"],
@@ -832,6 +1159,7 @@ function dashboard() {
   ];
   const chartData = importedForecastData(products);
   return pageShell("Dashboard", state.lastUpdated, `
+    ${qualityBanners}
     <div class="toolbar-spread"><p class="muted">${esc(dataSourceCopy)}</p><button class="btn-primary" data-refresh type="button" ${state.refreshing ? "disabled" : ""}>${state.refreshing ? spinner("Refreshing...") : `${icon("chart-line")}Refresh analysis`}</button></div>
     <section class="kpi-grid">${cards.map((c, i) => kpiCard(c, i)).join("")}</section>
     <section class="grid-2">
@@ -990,6 +1318,7 @@ function forecastsPage() {
   const products = activeSkuData();
   const chartData = importedForecastData(products);
   const summary = forecastSummary(chartData);
+  const quality = state.advancedAnalytics?.summary || {};
   const dataNote = state.salesRecords.length
     ? `${state.salesRecords.length} synced sales rows and ${products.length} analyzed SKUs from ${state.inventoryItems.length} Shopify inventory records. Forecast confidence improves as more order history syncs.`
     : state.inventoryItems.length
@@ -1003,6 +1332,7 @@ function forecastsPage() {
       + accordion("XGBoost", "Signal adjustment", ["Uses promotions, holidays, stock levels, and regional signals", "Ranks demand drivers by predictive lift", "Output: demand-adjusted forecast"], "Sales + external signals", "Adjusted demand")
       + accordion("Ensemble", "Operational forecast", ["Blends statistical baseline with ML adjustment", "Weights models by recent forecast error", "Output: SKU action recommendations"], "ARIMA + XGBoost", "Buy, sell, hold, transfer");
   return pageShell("Forecasts", "Model output, confidence bands, and seasonal demand.", `
+    ${quality.enoughData === false ? `<div class="data-warning"><strong>Low-confidence forecast.</strong> Flat lines reflect limited order history, not stable demand. Add at least 20 transactions across 3 selling SKUs before using this forecast for purchasing.</div>` : ""}
     <p class="muted">${esc(dataNote)}</p>
     <section class="grid-3">
       <article class="card"><p class="eyebrow">${state.salesRecords.length ? "Observed baseline" : "ARIMA"}</p><div class="metric-value">${fmt(summary.arima)}</div><p class="muted">${esc(summary.label)}</p></article>
@@ -1010,7 +1340,7 @@ function forecastsPage() {
       <article class="card card--accent"><p class="eyebrow">Ensemble</p><div class="metric-value">${fmt(summary.ensemble)}</div><p class="muted">${esc(summary.ensembleLabel)}</p></article>
     </section>
     <section class="card"><div class="toolbar-spread"><div><p class="eyebrow">8-week demand forecast</p><h2 class="text-lg">Forecast blend</h2></div><div class="legend"><span><i style="background:var(--accent)"></i>Ensemble</span><span><i style="background:var(--blue)"></i>Adjusted</span><span><i style="background:var(--text-muted)"></i>Baseline</span></div></div><div id="forecastChart" class="chart">${lineChart(chartData, 900, 280)}</div></section>
-    <section class="grid-2"><article class="card"><p class="eyebrow">${state.salesRecords.length ? "Forecast confidence" : "Monte Carlo simulation"}</p><div id="mcChart" class="chart chart-small">${areaChart(chartData)}</div></article><article class="card"><p class="eyebrow">Seasonal demand</p><div id="seasonChart" class="chart chart-tiny">${barChart(seasonalDemandData())}</div></article></section>
+    <section class="grid-2"><article class="card"><p class="eyebrow">${state.salesRecords.length ? "Forecast confidence" : "Monte Carlo simulation"}</p><div id="mcChart" class="chart chart-small">${areaChart(chartData)}</div><p class="chart-caption"><strong>Uncertainty band</strong> ${state.salesRecords.length < 20 ? "Limited order history widens the range; treat the forecast as directional." : "Range is estimated from observed weekly demand variance."}</p></article><article class="card"><p class="eyebrow">Seasonal demand</p><div id="seasonChart" class="chart chart-tiny">${barChart(seasonalDemandData())}</div></article></section>
     <section class="card"><p class="eyebrow">How each model works</p><div class="accordion">${modelNotes}</div></section>
   `);
 }
@@ -1023,15 +1353,22 @@ function inventoryPage() {
   if (state.loading) return pageShell("Inventory", "SKU-level recommendations and risk signals.", skeletonPage("table"), "SKU RECOMMENDATIONS");
   const q = state.inventoryFilter.toLowerCase();
   const products = activeSkuData();
-  const rows = products.filter(s => (state.actionFilter === "all" || s.action === state.actionFilter) && (s.product.toLowerCase().includes(q) || s.sku.toLowerCase().includes(q)));
-  return pageShell("Inventory", `Showing ${rows.length} of ${products.length} products`, `
-    <div class="toolbar"><input class="input" data-inventory-search style="max-width:240px" value="${esc(state.inventoryFilter)}" placeholder="Search name or SKU" />${["all", "buy", "sell", "hold", "transfer"].map(a => `<button class="btn-ghost ${state.actionFilter === a ? "active" : ""}" data-action-filter="${a}" type="button">${a[0].toUpperCase() + a.slice(1)}</button>`).join("")}</div>
-    <div class="table-wrap"><table class="data-table"><thead><tr><th>Product + SKU</th><th>Current Stock</th><th>Forecasted Demand</th><th>Stockout %</th><th>Overstock %</th><th>Action</th></tr></thead><tbody>${rows.length ? rows.map(skuRow).join("") : `<tr><td colspan="6"><div class="empty-state">${icon("search")}No products match. Try a different name or SKU.</div></td></tr>`}</tbody></table></div>
+  const filtered = products.filter(s => (state.actionFilter === "all" || s.action === state.actionFilter) && (s.product.toLowerCase().includes(q) || s.sku.toLowerCase().includes(q)));
+  const sorters = { risk_desc: (a,b) => b.stockout-a.stockout, stock_desc: (a,b) => b.current-a.current, demand_desc: (a,b) => b.forecast-a.forecast, name_asc: (a,b) => a.product.localeCompare(b.product) };
+  const sorted = [...filtered].sort(sorters[state.inventorySort] || sorters.risk_desc);
+  const pages = Math.max(1, Math.ceil(sorted.length / state.inventoryPageSize));
+  state.inventoryPage = Math.min(state.inventoryPage, pages);
+  const rows = sorted.slice((state.inventoryPage - 1) * state.inventoryPageSize, state.inventoryPage * state.inventoryPageSize);
+  return pageShell("Inventory", `Showing ${rows.length} of ${filtered.length} matching products`, `
+    <div class="toolbar"><input class="input" data-inventory-search style="max-width:240px" value="${esc(state.inventoryFilter)}" placeholder="Search name or SKU" /><select class="select" data-inventory-sort><option value="risk_desc">Highest risk</option><option value="stock_desc">Most stock</option><option value="demand_desc">Highest demand</option><option value="name_asc">Product name</option></select>${["all", "buy", "sell", "hold", "transfer"].map(a => `<button class="btn-ghost ${state.actionFilter === a ? "active" : ""}" data-action-filter="${a}" type="button">${a[0].toUpperCase() + a.slice(1)}</button>`).join("")}</div>
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Product + SKU</th><th>Current Stock</th><th>Forecasted Demand</th><th>Stockout %</th><th>Overstock %</th><th>Data quality</th><th>Action</th></tr></thead><tbody>${rows.length ? rows.map(skuRow).join("") : `<tr><td colspan="7"><div class="empty-state">${icon("search")}No products match. Try a different name or SKU.</div></td></tr>`}</tbody></table></div>
+    <div class="pagination"><button class="btn-ghost" data-inventory-page="${state.inventoryPage - 1}" ${state.inventoryPage <= 1 ? "disabled" : ""}>Previous</button><span class="mono">Page ${state.inventoryPage} of ${pages}</span><button class="btn-ghost" data-inventory-page="${state.inventoryPage + 1}" ${state.inventoryPage >= pages ? "disabled" : ""}>Next</button></div>
   `, "SKU RECOMMENDATIONS");
 }
 
 function skuRow(s) {
-  return `<tr id="sku-${s.id}" class="${state.highlightedSku === s.id ? "highlight-row" : ""}"><td><strong>${esc(s.product)}</strong><br><span class="mono muted">${s.sku}</span></td><td class="mono">${s.current}</td><td class="mono">${s.forecast}</td><td class="mono ${severity(s.stockout)}">${s.stockout}%</td><td class="mono ${severity(s.overstock)}">${s.overstock}%</td><td><span class="badge badge--${s.action}">${s.action}</span></td></tr>`;
+  const flags = [s.missingCost ? "Missing cost" : "", s.missingPrice ? "Missing price" : "", !s.soldUnits ? "No sales history" : ""].filter(Boolean);
+  return `<tr id="sku-${s.id}" class="${state.highlightedSku === s.id ? "highlight-row" : ""}"><td><strong>${esc(s.product)}</strong><br><span class="mono muted">${s.sku}</span></td><td class="mono">${s.current}</td><td class="mono">${s.forecast}</td><td class="mono ${severity(s.stockout)}">${fmtDecimal(s.stockout, 1)}%</td><td class="mono ${severity(s.overstock)}">${fmtDecimal(s.overstock, 1)}%</td><td>${flags.length ? flags.map(flag => `<span class="badge badge--warning">${esc(flag)}</span>`).join(" ") : `<span class="badge badge--success">Complete</span>`}</td><td><span class="badge badge--${s.action}">${s.action}</span></td></tr>`;
 }
 
 function severity(n) {
@@ -1054,6 +1391,8 @@ function marketplaceMessage() {
 function marketplacePage() {
   const activeListings = marketplaceListings();
   const filtered = activeListings.filter(l => (state.typeFilter === "all" || l.type === state.typeFilter) && (state.catFilter === "all" || l.cat === state.catFilter) && Number(l.dist || 0) <= state.distFilter);
+  const rankedFiltered = [...filtered].sort((a, b) => listingRecommendationScore(b) - listingRecommendationScore(a) || Number(a.dist || 999) - Number(b.dist || 999) || String(a.retailer).localeCompare(String(b.retailer)));
+  const outreachRows = rankedFiltered.length ? rankedFiltered : activeListings;
   const hasRealResults = state.marketplaceListings.length > 0;
   const msg = marketplaceMessage();
   const subtitle = hasRealResults
@@ -1071,15 +1410,15 @@ function marketplacePage() {
       <p class="muted marketplace-note">${state.marketplaceDirectoryNote ? esc(state.marketplaceDirectoryNote) : "Search uses public OpenStreetMap business listings. These businesses do not expose private inventory unless they join or connect a store."}</p>
       ${state.marketplaceError ? `<p class="severity-high">${esc(state.marketplaceError)}</p>` : ""}
     </section>
-    <article class="card map-panel">${mapSvg(filtered)}</article>
+    <article class="card map-panel">${mapSvg(rankedFiltered)}</article>
     <div class="toolbar">
       <select class="select" data-market-filter="typeFilter" style="max-width:190px"><option value="all">All listing types</option><option value="directory">Nearby directory</option><option value="excess">Demo excess</option><option value="shortage">Demo shortage</option></select>
       <select class="select" data-market-filter="catFilter" style="max-width:210px"><option value="all">All categories</option><option value="retail">General retail</option><option value="food">Food and grocery</option><option value="apparel">Apparel and outdoor</option><option value="electronics">Electronics</option><option value="home">Home and hardware</option><option value="health">Health and beauty</option><option value="footwear">Demo footwear</option><option value="outdoor">Demo outdoor</option></select>
       <select class="select" data-market-filter="distFilter" style="max-width:160px"><option value="10">10 miles</option><option value="25">25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select>
     </div>
-    ${marketplaceInsights(filtered)}
-    <section class="listing-grid">${filtered.length ? filtered.map((l, index) => listingCard(l, filtered, index)).join("") : `<article class="card empty-state">No businesses match your filters. Try a broader category, radius, or nearby city.</article>`}</section>
-    <section class="card message-layout"><div>${activeListings.map(l => `<button class="btn-ghost retailer-row ${String(state.selectedRetailer?.id) === String(l.id) ? "selected" : ""}" data-retailer="${attr(l.id)}" type="button"><span>${esc(l.retailer)}</span><span class="mono">${l.dist ?? "?"} mi</span></button>`).join("")}</div><form class="form-stack" data-message><textarea class="textarea" name="message">${esc(msg)}</textarea><button class="btn-primary" type="submit" ${state.marketplaceBusy ? "disabled" : ""}>${state.marketplaceBusy ? spinner("Sending...") : state.selectedRetailer?.source === "OpenStreetMap" ? "Save outreach note" : "Send request"}</button>${state.messageSent ? `<p class="severity-low">${esc(state.messageSent)}</p>` : ""}</form></section>
+    ${marketplaceInsights(rankedFiltered)}
+    <section class="listing-grid">${rankedFiltered.length ? rankedFiltered.map((l, index) => listingCard(l, rankedFiltered, index)).join("") : `<article class="card empty-state">No businesses match your filters. Try a broader category, radius, or nearby city.</article>`}</section>
+    <section class="card message-layout"><div>${outreachRows.map(l => `<button class="btn-ghost retailer-row ${String(state.selectedRetailer?.id) === String(l.id) ? "selected" : ""}" data-retailer="${attr(l.id)}" type="button"><span>${esc(l.retailer)}</span><span class="mono">${l.dist ?? "?"} mi</span></button>`).join("")}</div><form class="form-stack" data-message><textarea class="textarea" name="message">${esc(msg)}</textarea><button class="btn-primary" type="submit" ${state.marketplaceBusy ? "disabled" : ""}>${state.marketplaceBusy ? spinner("Sending...") : state.selectedRetailer?.source === "OpenStreetMap" ? "Save outreach note" : "Send request"}</button>${state.messageSent ? `<p class="severity-low">${esc(state.messageSent)}</p>` : ""}</form></section>
   `);
 }
 
@@ -1101,7 +1440,7 @@ function marketplaceInsights(items) {
 function listingRecommendationScore(l) {
   const distance = Number(l.dist);
   const distanceScore = Number.isFinite(distance) ? Math.max(0, 100 - distance) : 0;
-  const contactScore = (l.website ? 18 : 0) + (l.phone ? 12 : 0);
+  const contactScore = (listingWebsite(l) ? 18 : 0) + (phoneLink(l.phone) ? 12 : 0);
   const categoryScore = state.catFilter !== "all" && l.cat === state.catFilter ? 16 : 0;
   const demoScore = l.source === "OpenStreetMap" ? 0 : (l.urgency === "high" ? 24 : l.urgency === "medium" ? 12 : 0);
   return distanceScore + contactScore + categoryScore + demoScore;
@@ -1122,10 +1461,10 @@ function listingSignalBadges(l, rankedListings, index) {
   };
 
   if (isDirectory) {
-    if (listingRecommendationScore(l) === bestScore) add("Recommended", "success");
+    if (index === 0 || Math.round(listingRecommendationScore(l)) === Math.round(bestScore)) add("Recommended", "success");
     if (closest !== null && Number(l.dist) === closest) add("Closest", "success");
     if (state.catFilter !== "all" && l.cat === state.catFilter) add("Category match", "info");
-    if (l.website || l.phone) add(l.website ? "Best contact" : "Phone listed", "info");
+    if (listingWebsite(l) || phoneLink(l.phone)) add(listingWebsite(l) ? "Best contact" : "Phone listed", "info");
     if (Number(l.dist) <= 3) add("Nearby", "success");
   } else {
     if (index === 0 || l.urgency === "high") add("Recommended", l.urgency);
@@ -1154,11 +1493,23 @@ function listingCard(l, rankedListings = [l], index = 0) {
 }
 
 function listingPreview(l) {
-  if (l.imageUrl) return `<div class="listing-preview has-image"><img src="${attr(l.imageUrl)}" alt="${attr(l.retailer)} storefront" loading="lazy"></div>`;
-  return `<div class="listing-preview preview--${attr(normalizedCategory(l.cat))}">
-    <span class="preview-icon">${icon(categoryIcon(l.cat))}</span>
-    <strong>${esc(initials(l.retailer))}</strong>
-    <span>${esc(displayCategory(l.cat))} preview</span>
+  const directImage = normalizeExternalUrl(l.imageUrl);
+  if (directImage) return `<div class="listing-preview has-image"><img src="${attr(directImage)}" alt="${attr(l.retailer)} storefront" loading="lazy" referrerpolicy="no-referrer"></div>`;
+  const domain = listingDomain(l);
+  const logoUrl = domain ? faviconUrl(domain) : "";
+  const mapUrl = listingMapPreview(l);
+  const imageStyle = mapUrl ? ` style="--preview-image: url(&quot;${attr(mapUrl)}&quot;)"` : "";
+  const label = domain ? "Official logo" : mapUrl ? "Map preview" : `${displayCategory(l.cat)} preview`;
+  return `<div class="listing-preview listing-preview--brand preview--${attr(normalizedCategory(l.cat))}"${imageStyle}>
+    ${mapUrl ? `<span class="listing-preview-bg" aria-hidden="true"></span>` : ""}
+    <span class="listing-logo-tile">
+      ${logoUrl ? `<img src="${attr(logoUrl)}" alt="${attr(l.retailer)} logo" loading="lazy" referrerpolicy="no-referrer" onerror="this.hidden=true;this.nextElementSibling.hidden=false">` : ""}
+      <strong ${logoUrl ? "hidden" : ""}>${esc(initials(l.retailer))}</strong>
+    </span>
+    <div class="listing-preview-copy">
+      <small>${esc(label)}</small>
+      <b>${esc(domain || displayCategory(l.cat))}</b>
+    </div>
   </div>`;
 }
 
@@ -1171,21 +1522,128 @@ function listingDetails(l, isDirectory) {
     </div>`;
   }
   const phoneHref = phoneLink(l.phone);
+  const website = listingWebsite(l);
   return `<div class="listing-detail-grid">
     <span>Address</span><strong>${esc(l.address || "Address not listed")}</strong>
     <span>Phone</span>${phoneHref ? `<a href="${attr(phoneHref)}">${esc(l.phone)}</a>` : `<strong>Not listed</strong>`}
-    <span>Website</span>${l.website ? `<a href="${attr(l.website)}" target="_blank" rel="noreferrer">${esc(shortUrl(l.website))}</a>` : `<strong>Not listed</strong>`}
+    <span>Website</span>${website ? `<a href="${attr(website)}" target="_blank" rel="noreferrer">${esc(shortUrl(website))}</a>` : `<strong>Not listed</strong>`}
   </div>`;
 }
 
 function listingActions(l, isDirectory) {
   const actions = [];
   const phoneHref = phoneLink(l.phone);
+  const website = listingWebsite(l);
   if (phoneHref) actions.push(`<a class="btn-ghost contact-action" href="${attr(phoneHref)}">${icon("phone")}Call</a>`);
-  if (l.website) actions.push(`<a class="btn-ghost contact-action" href="${attr(l.website)}" target="_blank" rel="noreferrer">${icon("globe-2")}Website</a>`);
+  if (website) actions.push(`<a class="btn-ghost contact-action" href="${attr(website)}" target="_blank" rel="noreferrer">${icon("globe-2")}Website</a>`);
   if (l.osmUrl) actions.push(`<a class="btn-ghost contact-action" href="${attr(l.osmUrl)}" target="_blank" rel="noreferrer">${icon("map-pin")}Map</a>`);
   actions.push(`<button class="btn-primary contact-action" data-contact="${attr(l.id)}" type="button">${isDirectory ? "Select" : "Contact"}</button>`);
   return `<div class="contact-actions">${actions.join("")}</div>`;
+}
+
+const knownBrandDomains = [
+  ["academy sports", "academy.com"],
+  ["academy sports + outdoors", "academy.com"],
+  ["academy sports & outdoors", "academy.com"],
+  ["at&t", "att.com"],
+  ["boost mobile", "boostmobile.com"],
+  ["verizon", "verizon.com"],
+  ["best buy", "bestbuy.com"],
+  ["northern tool", "northerntool.com"],
+  ["target", "target.com"],
+  ["walmart", "walmart.com"],
+  ["the home depot", "homedepot.com"],
+  ["home depot", "homedepot.com"],
+  ["lowe's", "lowes.com"],
+  ["lowes", "lowes.com"],
+  ["cvs", "cvs.com"],
+  ["walgreens", "walgreens.com"],
+  ["kroger", "kroger.com"],
+  ["heb", "heb.com"],
+  ["h-e-b", "heb.com"],
+  ["costco", "costco.com"],
+  ["sam's club", "samsclub.com"],
+  ["dollar general", "dollargeneral.com"],
+  ["dollar tree", "dollartree.com"],
+  ["family dollar", "familydollar.com"],
+  ["petsmart", "petsmart.com"],
+  ["petco", "petco.com"],
+  ["autozone", "autozone.com"],
+  ["o'reilly", "oreillyauto.com"],
+  ["advance auto parts", "advanceautoparts.com"],
+  ["dick's sporting goods", "dickssportinggoods.com"],
+  ["five below", "fivebelow.com"],
+  ["kohl's", "kohls.com"],
+  ["macys", "macys.com"],
+  ["macy's", "macys.com"],
+  ["jcpenney", "jcpenney.com"],
+  ["ulta", "ulta.com"],
+  ["sephora", "sephora.com"],
+  ["starbucks", "starbucks.com"],
+  ["mcdonald", "mcdonalds.com"],
+  ["subway", "subway.com"],
+  ["chipotle", "chipotle.com"],
+  ["chick-fil-a", "chick-fil-a.com"],
+  ["gamestop", "gamestop.com"],
+  ["t-mobile", "t-mobile.com"],
+  ["cricket wireless", "cricketwireless.com"],
+  ["metro by t-mobile", "metrobyt-mobile.com"],
+  ["apple", "apple.com"],
+  ["nike", "nike.com"],
+  ["adidas", "adidas.com"],
+  ["foot locker", "footlocker.com"],
+  ["whole foods", "wholefoodsmarket.com"],
+  ["trader joe", "traderjoes.com"],
+  ["aldi", "aldi.us"],
+];
+
+function listingWebsite(l) {
+  const explicit = normalizeExternalUrl(l.website || l.url || l.contactWebsite || l.brandWebsite);
+  if (explicit) return explicit;
+  const domain = knownBrandDomain(l.retailer) || knownBrandDomain(l.brand);
+  return domain ? `https://${domain}` : "";
+}
+
+function listingDomain(l) {
+  return domainFromUrl(l.website || l.url || l.contactWebsite || l.brandWebsite) || knownBrandDomain(l.retailer) || knownBrandDomain(l.brand);
+}
+
+function knownBrandDomain(name) {
+  const value = String(name || "").toLowerCase();
+  const match = knownBrandDomains.find(([brand]) => value.includes(brand));
+  return match ? match[1] : "";
+}
+
+function normalizeExternalUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
+function domainFromUrl(value) {
+  const url = normalizeExternalUrl(value);
+  if (!url) return "";
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function faviconUrl(domain) {
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
+}
+
+function listingMapPreview(l) {
+  const lat = Number(l.lat ?? l.latitude ?? l.location?.lat);
+  const lon = Number(l.lon ?? l.lng ?? l.longitude ?? l.location?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
+  return `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lon}&zoom=16&size=640x240&markers=${lat},${lon},red-pushpin`;
 }
 
 function normalizedCategory(value) {
@@ -1220,16 +1678,43 @@ function shortUrl(value) {
 }
 
 function mapSvg(items = marketplaceListings()) {
-  const pins = items.slice(0, 5).map((item, index) => {
-    const x = 260 + ((index * 137) % 420);
-    const y = 42 + ((index * 53) % 96);
+  const visibleItems = items.slice(0, 7);
+  const pins = visibleItems.map((item, index) => {
+    const x = 174 + ((index * 131) % 600);
+    const y = 50 + ((index * 47) % 112);
     const color = item.source === "OpenStreetMap" ? "var(--green)" : index % 2 ? "var(--blue)" : "var(--yellow)";
-    return pin(x, y, color, item.retailer, 6);
+    const distance = Number.isFinite(Number(item.dist)) ? `${Number(item.dist)} mi` : "nearby";
+    return pin(x, y, color, `${shortRetailerName(item.retailer)} · ${distance}`, 6, index + 1);
   }).join("");
-  return `<svg viewBox="0 0 900 180" role="img" aria-label="Partner map"><defs><pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="var(--border-default)" stroke-width="1"/></pattern></defs><rect width="900" height="180" fill="url(#grid)"/><g font-family="var(--font-mono)" font-size="11">${pin(450, 88, "var(--accent)", workspaceName(), 8)}${pins}</g></svg>`;
+  const list = visibleItems.map((item, index) => `<li><span>${index + 1}</span><strong>${esc(item.retailer)}</strong><em>${Number.isFinite(Number(item.dist)) ? `${Number(item.dist)} mi` : "nearby"}</em></li>`).join("");
+  return `<div class="market-map">
+    <svg viewBox="0 0 900 220" role="img" aria-label="Nearby partner map">
+      <defs><pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="var(--border-default)" stroke-width="1"/></pattern></defs>
+      <rect width="900" height="220" fill="url(#grid)"/>
+      <g font-family="var(--font-mono)" font-size="11">${pin(450, 110, "var(--accent)", workspaceName(), 8, "LL")}${pins}</g>
+    </svg>
+    <div class="map-overlay">
+      <span class="eyebrow">LIVE PARTNER MAP</span>
+      <strong>${visibleItems.length ? `${visibleItems.length} visible listings` : "No listings in view"}</strong>
+      <p>${state.marketplaceListings.length ? "Public directory results near your search." : "Demo partner map. Search nearby for live businesses."}</p>
+      ${list ? `<ol>${list}</ol>` : ""}
+    </div>
+  </div>`;
 }
-function pin(x, y, color, label, r) {
-  return `<circle class="map-pin" cx="${x}" cy="${y}" r="${r + 6}" fill="${color}" opacity=".16"/><circle class="map-pin" cx="${x}" cy="${y}" r="${r}" fill="${color}"/><circle class="map-pin" cx="${x}" cy="${y}" r="2" fill="var(--bg-base)"/><text class="map-label" x="${x + 14}" y="${y - 8}" fill="var(--text-primary)">${esc(label)}</text>`;
+function shortRetailerName(value) {
+  const text = String(value || "Retailer").replace(/\s+/g, " ").trim();
+  return text.length > 24 ? `${text.slice(0, 21)}...` : text;
+}
+function pin(x, y, color, label, r, number = "") {
+  const safeLabel = shortRetailerName(label);
+  const labelWidth = Math.max(64, Math.min(210, safeLabel.length * 7 + 24));
+  return `<g class="map-pin-group">
+    <circle class="map-pin-halo" cx="${x}" cy="${y}" r="${r + 10}" fill="${color}" opacity=".18"/>
+    <circle class="map-pin" cx="${x}" cy="${y}" r="${r}" fill="${color}"/>
+    <text class="map-pin-number" x="${x}" y="${y + 3}" text-anchor="middle" fill="var(--bg-base)">${esc(number)}</text>
+    <rect class="map-label-bg" x="${x + 13}" y="${y - 19}" width="${labelWidth}" height="25" rx="12"/>
+    <text class="map-label" x="${x + 25}" y="${y - 2}" fill="var(--text-primary)">${esc(safeLabel)}</text>
+  </g>`;
 }
 
 function communityPage() {
@@ -1259,6 +1744,10 @@ function analyticsMetric(label, value, badge, body, tone = "info") {
     <strong class="metric-value">${esc(value)}</strong>
     <p class="analytics-note">${esc(body)}</p>
   </article>`;
+}
+
+function analyticsValue(value, formatter, suffix = "") {
+  return value === null || value === undefined ? "Insufficient data" : `${formatter(value)}${suffix}`;
 }
 
 function actionBadge(action) {
@@ -1291,10 +1780,12 @@ function advancedAnalyticsPage() {
     items: (data.abc || []).filter(item => item.group === group).slice(0, 5),
   }));
   return pageShell("Advanced Analytics", "GMROI, service levels, reorder math, and SKU diagnostics from connected data.", `
+    ${summary.sampleCatalogDetected ? `<div class="data-warning"><strong>Shopify sample products excluded.</strong> ${fmt(summary.excludedSampleSkus)} default catalog item${summary.excludedSampleSkus === 1 ? " was" : "s were"} removed from all metrics.</div>` : ""}
+    ${summary.enoughData === false ? `<div class="data-warning"><strong>Low statistical confidence.</strong> Forecast and service metrics need at least 20 transactions across 3 selling SKUs.</div>` : ""}
     <section class="analytics-metric-grid">
-      ${analyticsMetric("Service Level", fmtPercent(summary.serviceLevel), `${fmt(summary.highRiskSkus || 0)} high risk`, "Percent of analyzed SKUs with stock above reorder point.", (summary.serviceLevel || 0) >= 90 ? "good" : (summary.serviceLevel || 0) >= 70 ? "warning" : "bad")}
-      ${analyticsMetric("GMROI", `${fmtDecimal(summary.gmroi, 2)}x`, moneyShort(summary.grossMargin), "Gross margin dollars divided by inventory value.", (summary.gmroi || 0) >= 2 ? "good" : (summary.gmroi || 0) >= 1 ? "warning" : "bad")}
-      ${analyticsMetric("Inventory Turnover", `${fmtDecimal(summary.inventoryTurnover, 2)}x`, `${fmt(summary.totalOnHand || 0)} on hand`, "Annualized units sold divided by average on-hand inventory.", (summary.inventoryTurnover || 0) >= 4 ? "good" : (summary.inventoryTurnover || 0) >= 1 ? "warning" : "bad")}
+      ${analyticsMetric("Service Level", analyticsValue(summary.serviceLevel, value => fmtPercent(value)), `${fmt(summary.highRiskSkus || 0)} high risk`, "Projected fulfilled demand divided by forecast demand.", summary.serviceLevel === null ? "warning" : summary.serviceLevel >= 90 ? "good" : summary.serviceLevel >= 70 ? "warning" : "bad")}
+      ${analyticsMetric("GMROI", analyticsValue(summary.gmroi, value => fmtDecimal(value, 2), "x"), `${fmt(summary.missingCostSkus || 0)} missing cost`, "Gross margin dollars divided by inventory cost; incomplete SKUs are excluded.", summary.gmroi === null ? "warning" : summary.gmroi >= 2 ? "good" : summary.gmroi >= 1 ? "warning" : "bad")}
+      ${analyticsMetric("Inventory Turnover", analyticsValue(summary.inventoryTurnover, value => fmtDecimal(value, 2), "x"), `${fmt(summary.totalOnHand || 0)} on hand`, "Annualized COGS divided by inventory cost; requires unit cost.", summary.inventoryTurnover === null ? "warning" : summary.inventoryTurnover >= 4 ? "good" : summary.inventoryTurnover >= 1 ? "warning" : "bad")}
       ${analyticsMetric("Demand Volatility", fmtPercent(summary.demandVolatility), `${fmtDecimal(summary.avgDaysCover, 1)} days cover`, "Coefficient of variation across SKU weekly demand.", (summary.demandVolatility || 0) <= 45 ? "good" : (summary.demandVolatility || 0) <= 90 ? "warning" : "bad")}
     </section>
 
@@ -1346,7 +1837,7 @@ function advancedAnalyticsPage() {
             <td class="mono">${fmt(item.reorderPoint)}</td>
             <td class="mono">${fmt(item.safetyStock)}</td>
             <td class="mono">${fmtDecimal(item.daysCover, 1)}</td>
-            <td class="mono">${fmtDecimal(item.gmroi, 2)}x</td>
+            <td class="mono">${item.gmroi === null ? `<span class="badge badge--warning">Missing cost</span>` : `${fmtDecimal(item.gmroi, 2)}x`}</td>
             <td class="mono severity-${item.riskScore >= 70 ? "high" : item.riskScore >= 40 ? "medium" : "low"}">${fmt(item.riskScore)}</td>
           </tr>`).join("")}</tbody>
         </table>
@@ -1360,16 +1851,29 @@ function advancedAnalyticsPage() {
         <div class="abc-list">${group.items.length ? group.items.map(item => `<div class="abc-row"><span>${esc(item.product || item.sku)}</span><strong class="mono">${fmtPercent(item.cumulativeShare)}</strong></div>`).join("") : `<p class="muted">No SKUs in this class yet.</p>`}</div>
       </article>`).join("")}
     </section>
+    ${analyticsDecisionVisuals(data)}
   `);
+}
+
+function analyticsDecisionVisuals(data) {
+  const skus = (data.skus || []).slice(0, 12);
+  const excess = [...skus].filter(item => Number(item.excessCost) > 0).sort((a,b) => b.excessCost-a.excessCost).slice(0, 6);
+  const maxExcess = Math.max(1, ...excess.map(item => Number(item.excessCost) || 0));
+  return `<section class="analytics-visual-grid">
+    <article class="card"><p class="eyebrow">Risk heatmap</p><h2 class="text-lg">SKU risk across the next 8 weeks</h2><div class="risk-heatmap">${skus.map(item => `<div class="heat-row"><strong title="${attr(item.product)}">${esc(item.sku)}</strong>${Array.from({length:8},(_,week) => { const risk=Math.min(100, Number(item.riskScore||0)*(0.72+week*0.04)); return `<span class="heat-cell" style="--risk:${risk}%" title="Week ${week+1}: ${Math.round(risk)}% risk"></span>`; }).join("")}</div>`).join("")}</div></article>
+    <article class="card"><p class="eyebrow">Excess cost waterfall</p><h2 class="text-lg">What is driving carrying cost</h2>${excess.length ? `<div class="waterfall">${excess.map(item => `<div class="waterfall-row"><span>${esc(item.product)}</span><i style="width:${Math.max(4,(item.excessCost/maxExcess)*100)}%"></i><strong>${moneyShort(item.excessCost)}</strong></div>`).join("")}</div>` : `<p class="muted">Insufficient cost data. Sync Shopify inventory-item cost or add costs manually.</p>`}</article>
+    <article class="card scenario-card"><p class="eyebrow">Scenario planner</p><h2 class="text-lg">Discount elasticity what-if</h2><label class="field"><span>Discount <strong data-discount-output>10%</strong></span><input type="range" min="0" max="50" value="10" step="5" data-discount-slider></label><div class="scenario-result"><span>Estimated demand lift</span><strong data-demand-lift>8%</strong></div><p class="muted">Uses a configurable demonstration elasticity of 0.8 until promotion-response history is available.</p></article>
+    <article class="card"><p class="eyebrow">Peer benchmark</p><h2 class="text-lg">Operating context</h2><div class="benchmark-list"><div><span>Service level</span><strong>${analyticsValue(data.summary?.serviceLevel, v => fmtPercent(v))}</strong><small>Peer target 95%</small></div><div><span>GMROI</span><strong>${analyticsValue(data.summary?.gmroi, v => fmtDecimal(v,2), "x")}</strong><small>Illustrative peer 2.5x</small></div><div><span>Turnover</span><strong>${analyticsValue(data.summary?.inventoryTurnover, v => fmtDecimal(v,2), "x")}</strong><small>Illustrative peer 4.0x</small></div></div><p class="muted">Peer values are labeled illustrative until a licensed anonymized benchmark dataset is connected.</p></article>
+  </section>`;
 }
 
 function reportsPage() {
   const rows = executiveSummaryRows();
   const advanced = state.advancedAnalytics?.summary;
   const advancedRows = advanced ? [
-    ["Service Level", fmtPercent(advanced.serviceLevel)],
-    ["GMROI", `${fmtDecimal(advanced.gmroi, 2)}x`],
-    ["Inventory Turnover", `${fmtDecimal(advanced.inventoryTurnover, 2)}x`],
+    ["Service Level", analyticsValue(advanced.serviceLevel, value => fmtPercent(value))],
+    ["GMROI", analyticsValue(advanced.gmroi, value => fmtDecimal(value, 2), "x")],
+    ["Inventory Turnover", analyticsValue(advanced.inventoryTurnover, value => fmtDecimal(value, 2), "x")],
     ["Average Days Cover", `${fmtDecimal(advanced.avgDaysCover, 1)} days`],
     ["Demand Volatility", fmtPercent(advanced.demandVolatility)],
   ] : [];
@@ -1414,6 +1918,39 @@ function pricingPage() {
       <p>This pricing model lets LiquidityLens support small retailers while still leaving room for national accounts, custom model training, and enterprise services.</p>
     </section>
   `);
+}
+
+function marketingPricingPage() {
+  return `
+    <section class="marketing-page-hero">
+      <p class="eyebrow">Pricing</p>
+      <h1>Pricing that scales with store complexity, not seat count.</h1>
+      <p>Choose the operating tier that matches your retail footprint today, then expand into optimization, integrations, marketplace coordination, and dedicated analytics support as your inventory network grows.</p>
+      <div class="hero-actions">
+        <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
+        <a class="btn-ghost" href="/contact" data-route="/contact">Talk to sales</a>
+      </div>
+    </section>
+    <section class="pricing-grid marketing-pricing-grid">
+      ${pricingTiers.map(tier => `<article class="pricing-card ${tier.featured ? "pricing-card--featured" : ""}">
+        ${tier.featured ? `<span class="badge badge--info pricing-featured-badge">Most relevant</span>` : ""}
+        <div>
+          <p class="eyebrow">${esc(tier.size)}</p>
+          <h2 class="text-lg">${esc(tier.name)}</h2>
+          <p class="pricing-summary">${esc(tier.summary)}</p>
+        </div>
+        <div class="pricing-price"><strong>${esc(tier.price)}</strong><span>${esc(tier.cadence)}</span></div>
+        <ul class="pricing-feature-list">${tier.features.map(feature => `<li>${esc(feature)}</li>`).join("")}</ul>
+        <button class="${tier.featured ? "btn-primary" : "btn-ghost"}" data-pricing-plan="${attr(tier.name)}" type="button">${esc(tier.cta)}</button>
+      </article>`).join("")}
+    </section>
+    ${marketingSection("Commercial model", "Start with a focused pilot. Expand when the economics are proven.", "Most teams begin with a 30 to 60 day pilot against a contained SKU set, store region, or category. Success is measured against stockout reduction, forecast accuracy lift, inventory carrying cost, and cash conversion impact.", marketingCards([
+      { title: "Pilot design", copy: "Use real Shopify, Clover, Square, or CSV data to validate recommendations before broad rollout.", metric: "30-60 days" },
+      { title: "Procurement fit", copy: "Support sales-led contracts, annual invoices, or future checkout integration depending on customer size.", metric: "Flexible" },
+      { title: "Enterprise expansion", copy: "Move from category-level forecasting to full network optimization, custom models, and private integrations.", metric: "Scale ready" },
+    ]))}
+    ${enterpriseFaq()}
+  `;
 }
 
 function adminPage() {
@@ -1620,12 +2157,23 @@ function render() {
     app.innerHTML = `<main class="auth-loading"><span class="spinner" aria-hidden="true"></span><span>Checking your session...</span></main>`;
     return;
   }
-  if (authRoutes.has(location.pathname) || (!auth() && !publicRoutes.has(location.pathname))) {
+  if (authRoutes.has(location.pathname)) {
     app.innerHTML = loginPage();
     bind();
     return;
   }
-  const views = { "/": dashboard, "/dashboard": dashboard, "/connect": connectPage, "/forecasts": forecastsPage, "/inventory": inventoryPage, "/analytics": advancedAnalyticsPage, "/marketplace": marketplacePage, "/community": communityPage, "/pricing": pricingPage, "/admin": adminPage, "/reports": reportsPage, "/profile": profilePage };
+  const publicViews = { "/": homePage, "/platform": platformPage, "/features": featuresPage, "/solutions": solutionsPage, "/industries": industriesPage, "/pricing": marketingPricingPage, "/resources": resourcesPage, "/blog": blogPage, "/docs": documentationPage, "/security": securityPage, "/integrations": integrationsPage, "/about": aboutPage, "/contact": contactPage, "/book-demo": bookDemoPage };
+  if (publicRoutes.has(state.path)) {
+    app.innerHTML = marketingLayout((publicViews[state.path] || homePage)());
+    bind();
+    return;
+  }
+  if (!auth()) {
+    app.innerHTML = loginPage();
+    bind();
+    return;
+  }
+  const views = { "/dashboard": dashboard, "/connect": connectPage, "/forecasts": forecastsPage, "/inventory": inventoryPage, "/analytics": advancedAnalyticsPage, "/marketplace": marketplacePage, "/community": communityPage, "/admin": adminPage, "/reports": reportsPage, "/profile": profilePage };
   app.innerHTML = layout((views[state.path] || dashboard)());
   bind();
 }
@@ -1679,8 +2227,19 @@ function bind() {
   });
   document.querySelector("[data-import-csv]")?.addEventListener("click", importCsv);
   document.querySelectorAll("[data-check]").forEach(el => el.addEventListener("click", () => runChecklist(el.dataset.check)));
-  document.querySelector("[data-inventory-search]")?.addEventListener("input", e => { state.inventoryFilter = e.target.value; render(); });
-  document.querySelectorAll("[data-action-filter]").forEach(el => el.addEventListener("click", () => { state.actionFilter = el.dataset.actionFilter; render(); }));
+  document.querySelector("[data-inventory-search]")?.addEventListener("input", e => { state.inventoryFilter = e.target.value; state.inventoryPage = 1; render(); });
+  document.querySelector("[data-inventory-sort]")?.addEventListener("change", e => { state.inventorySort = e.target.value; state.inventoryPage = 1; render(); });
+  const inventorySort = document.querySelector("[data-inventory-sort]");
+  if (inventorySort) inventorySort.value = state.inventorySort;
+  document.querySelectorAll("[data-inventory-page]").forEach(el => el.addEventListener("click", () => { state.inventoryPage = Number(el.dataset.inventoryPage); render(); }));
+  document.querySelectorAll("[data-action-filter]").forEach(el => el.addEventListener("click", () => { state.actionFilter = el.dataset.actionFilter; state.inventoryPage = 1; render(); }));
+  document.querySelector("[data-discount-slider]")?.addEventListener("input", e => {
+    const discount = Number(e.target.value) || 0;
+    const output = document.querySelector("[data-discount-output]");
+    const lift = document.querySelector("[data-demand-lift]");
+    if (output) output.textContent = `${discount}%`;
+    if (lift) lift.textContent = `${Math.round(discount * 0.8)}%`;
+  });
   document.querySelectorAll("[data-market-filter]").forEach(el => { el.value = state[el.dataset.marketFilter]; el.addEventListener("change", () => { state[el.dataset.marketFilter] = el.dataset.marketFilter === "distFilter" ? Number(el.value) : el.value; render(); }); });
   document.querySelector("[data-marketplace-search]")?.addEventListener("submit", searchMarketplaceBusinesses);
   const marketplaceSearchForm = document.querySelector("[data-marketplace-search]");
@@ -1698,6 +2257,11 @@ function bind() {
   document.querySelectorAll("[data-topic]").forEach(el => el.addEventListener("click", () => { state.selectedTopic = el.dataset.topic; render(); }));
   document.querySelector("[data-post]")?.addEventListener("submit", postCommunity);
   document.querySelectorAll("[data-pricing-plan]").forEach(el => el.addEventListener("click", () => showToast(`${el.dataset.pricingPlan} checkout is ready for payment backend wiring.`, "success")));
+  document.querySelector("[data-demo-form]")?.addEventListener("submit", e => {
+    e.preventDefault();
+    showToast("Demo request captured. Payment and CRM backend wiring can be added next.", "success");
+    e.currentTarget.reset();
+  });
   document.querySelector("[data-profile-form]")?.addEventListener("submit", updateProfile);
   document.querySelector("[data-password-form]")?.addEventListener("submit", changePassword);
   document.querySelector("[data-send-profile-reset]")?.addEventListener("click", sendProfileReset);
@@ -1877,13 +2441,17 @@ async function loadConnectionData() {
     const [statusData, salesData, advancedData] = await Promise.all([
       apiAuthedGet("/api/integrations/status"),
       apiAuthedGet("/api/integrations/sales"),
-      apiAuthedGet("/api/analytics/advanced"),
+      apiAuthedGet("/api/planning/overview").catch(() => apiAuthedGet("/api/analytics/advanced")),
     ]);
-    for (const provider of statusData.providers || []) state.connectionStatus[provider.provider] = provider;
-    state.salesRecords = salesData.records || [];
-    state.inventoryItems = salesData.inventory || [];
-    state.advancedAnalytics = advancedData;
-    if (state.salesRecords.length) {
+    const providers = apiPayload(statusData, "providers");
+    const salesPayload = apiPayload(salesData);
+    const advancedPayload = apiPayload(advancedData);
+    for (const provider of providers || []) state.connectionStatus[provider.provider] = provider;
+    state.salesRecords = salesPayload.records || [];
+    state.inventoryItems = salesPayload.inventory || [];
+    state.advancedAnalytics = advancedPayload.analytics || advancedPayload;
+    const hasPlanningData = Boolean(state.advancedAnalytics?.summary?.salesRows || state.advancedAnalytics?.summary?.inventoryRows);
+    if (state.salesRecords.length || hasPlanningData) {
       state.checklist.sales = true;
       state.checklist.inventory = true;
       state.checklist.analysis = true;
@@ -2507,7 +3075,7 @@ function areaChart(data = null) {
     const x = i => p + i * ((w - p * 2) / Math.max(1, confidence.length - 1));
     const y = v => h - p - (v / max) * (h - p * 2);
     const d = confidence.map((point, i) => `${i ? "L" : "M"}${x(i)},${y(point.band)}`).join(" ");
-    return `<svg viewBox="0 0 ${w} ${h}"><path d="${d} L${w - p},${h - p} L${p},${h - p}Z" fill="var(--blue-dim)"/><path d="${d}" fill="none" stroke="var(--blue)" stroke-width="2"/><text x="${p}" y="${p}" fill="var(--blue)">Uncertainty band</text><text x="${p}" y="${p + 20}" fill="var(--text-muted)">${state.salesRecords.length < 12 ? "Limited order history" : "Synced order history"}</text>${confidence.map((point, i) => {
+    return `<svg viewBox="0 0 ${w} ${h}" aria-label="Forecast uncertainty by week"><path d="${d} L${w - p},${h - p} L${p},${h - p}Z" fill="var(--blue-dim)"/><path d="${d}" fill="none" stroke="var(--blue)" stroke-width="2"/>${confidence.map((point, i) => {
       const tip = `<strong>${point.week} forecast confidence</strong><span>Band width: ${point.band}%</span><span>${state.salesRecords.length < 12 ? "Needs more history for stronger confidence." : "Based on synced sales variance."}</span>`;
       return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}"><circle cx="${x(i)}" cy="${y(point.band)}" r="12" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x(i)}" cy="${y(point.band)}" r="4" fill="var(--blue)"/></g><text x="${x(i)}" y="${h - 8}" text-anchor="middle">${point.week.replace("Wk ", "W")}</text>`;
     }).join("")}</svg>`;
