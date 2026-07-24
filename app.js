@@ -249,6 +249,7 @@ let state = {
     settings: null,
     apiKeys: [],
     activity: [],
+    demoRequests: [],
   },
   enterpriseError: "",
   adminBusy: false,
@@ -1149,13 +1150,13 @@ function securityPage() {
   ${pageInteractive("Review connected data without exposing secrets.", "The interactive view uses planning outputs while provider tokens stay server-side.", "understock")}
   <section class="security-table">
     ${[
-    { title: "Access control", copy: "Authenticated sessions, role-oriented workspaces, and protected application routes." },
-    { title: "Credential handling", copy: "Provider secrets and tokens stay server-side and are never hardcoded into the browser." },
-    { title: "Audit readiness", copy: "Connection status, sync errors, and admin activity are visible for operational review." },
-    { title: "Data minimization", copy: "The platform focuses on SKU, order, location, and inventory signals needed for planning." },
-    { title: "Enterprise roadmap", copy: "SSO, SOC 2 readiness, custom retention, and private cloud deployment can be prioritized for larger accounts." },
-    { title: "Transparent models", copy: "Forecast pages explain inputs, outputs, confidence, and assumptions instead of hiding decisions." },
-    ].map(card => `<article><span>${icon("shield")}</span><div><h3>${esc(card.title)}</h3><p>${esc(card.copy)}</p></div><b>Planned / active</b></article>`).join("")}
+    { title: "Access control", copy: "Authenticated sessions, role-based workspaces, and protected application routes.", status: "Active" },
+    { title: "Credential handling", copy: "Provider secrets and tokens stay server-side instead of being exposed in browser code.", status: "Active" },
+    { title: "Audit readiness", copy: "Connection status, sync errors, and admin activity are organized for operational review.", status: "Active" },
+    { title: "Data minimization", copy: "The product focuses on SKU, order, location, and inventory signals needed for planning.", status: "Active" },
+    { title: "Enterprise roadmap", copy: "SSO, SOC 2 readiness, custom retention, and private deployment paths can be prioritized for larger accounts.", status: "Planned" },
+    { title: "Transparent models", copy: "Forecast pages explain inputs, confidence, assumptions, and recommended actions.", status: "Active" },
+    ].map(card => `<article><span>${icon("shield")}</span><div><h3>${esc(card.title)}</h3><p>${esc(card.copy)}</p></div><b>${esc(card.status)}</b></article>`).join("")}
   </section>`;
 }
 
@@ -1376,8 +1377,8 @@ function forecastMockup() {
 }
 
 function inventoryMockup() {
-  return `<svg viewBox="0 0 520 250" role="img" aria-label="Inventory recommendations demo">
-    <rect width="520" height="250" rx="8" fill="var(--bg-elevated)"/>
+  return `<svg viewBox="0 0 520 280" role="img" aria-label="Inventory recommendations demo">
+    <rect width="520" height="280" rx="8" fill="var(--bg-elevated)"/>
     <text x="34" y="27" fill="var(--text-primary)" font-weight="700">SKU recommendation queue</text>
     <text x="34" y="45" fill="var(--text-muted)">Risk percent, action tag, and planner priority</text>
     ${[
@@ -1385,7 +1386,7 @@ function inventoryMockup() {
       ["Insulated Bottle", "78% overstock", "sell", "var(--yellow)"],
       ["Dry Bag 10L", "transfer match", "transfer", "var(--blue)"],
     ].map((row, i) => {
-      const y = 42 + i * 62;
+      const y = 68 + i * 58;
       return `<rect x="34" y="${y}" width="452" height="46" rx="6" fill="var(--bg-surface)" stroke="var(--border-default)"/>
         <text x="52" y="${y + 20}" fill="var(--text-primary)">${row[0]}</text>
         <text x="52" y="${y + 35}" fill="var(--text-muted)">${row[1]}</text>
@@ -2209,6 +2210,7 @@ function marketingPricingPage() {
       </div>
       ${productFrame("Pricing model", pricingModelVisual(), "This replaces the previous broken pricing graphic with a rendered, responsive in-app visual.")}
     </section>
+    ${tractionBand()}
     ${pageInteractive("Pilot scope changes the commercial model.", "Switch the action queue while evaluating plans to connect pricing to the operating work each tier supports.", "overstock")}
     <section class="pricing-grid marketing-pricing-grid">
       ${pricingTiers.map(tier => `<article class="pricing-card ${tier.featured ? "pricing-card--featured" : ""}">
@@ -2242,6 +2244,7 @@ function adminPage() {
   const alerts = enterprise.alerts || [];
   const apiKeys = enterprise.apiKeys || [];
   const activity = enterprise.activity || [];
+  const demoRequests = enterprise.demoRequests || [];
   const settings = enterprise.settings?.config || {};
   const alertThresholds = settings.alertThresholds || {};
   const marketplaceSettings = settings.marketplace || {};
@@ -2283,6 +2286,16 @@ function adminPage() {
   const activityRows = activity.length ? activity.slice(0, 8).map(item => `
     <div class="report-row"><span><strong>${esc(item.action)}</strong><br><span class="muted">${esc(item.entityType || "system")}</span></span><span class="mono">${esc(new Date(item.createdAt).toLocaleString())}</span></div>
   `).join("") : `<p class="muted">No activity has been recorded yet.</p>`;
+  const demoRows = demoRequests.length ? demoRequests.map(item => {
+    const createdAt = item.createdAt || item.created_at;
+    const delivery = item.emailDelivery || item.email_delivery || "pending";
+    return `<tr>
+      <td><strong>${esc(item.company)}</strong><br><span class="muted mono">${esc(item.email)}</span></td>
+      <td>${esc(item.stores)}</td>
+      <td>${esc(item.goal)}</td>
+      <td><span class="badge badge--${delivery === "sent" ? "success" : delivery === "failed" ? "warning" : "info"}">${esc(delivery.replaceAll("_", " "))}</span><br><span class="muted">${esc(createdAt ? new Date(createdAt).toLocaleString() : "No timestamp")}</span></td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="4" class="muted">No demo requests yet. New Book Demo submissions will appear here.</td></tr>`;
 
   return pageShell("Admin", "Production controls for users, permissions, alerts, integrations, API access, and audit history.", `
     ${state.enterpriseError ? `<article class="card"><p class="form-error">${esc(state.enterpriseError)}</p></article>` : ""}
@@ -2330,6 +2343,11 @@ function adminPage() {
     </section>
 
     <section class="grid-2">
+      <article class="card">
+        <p class="eyebrow">Marketing leads</p>
+        <h2 class="text-lg">Demo requests</h2>
+        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Stores</th><th>Goal</th><th>Status</th></tr></thead><tbody>${demoRows}</tbody></table></div>
+      </article>
       <article class="card">
         <p class="eyebrow">Settings</p>
         <h2 class="text-lg">Forecast and risk configuration</h2>
@@ -2785,7 +2803,7 @@ function apiPayload(response, key) {
 async function loadEnterpriseData() {
   if (!state.accessToken) return;
   try {
-    const [overview, users, alerts, notifications, settings, apiKeys, activity] = await Promise.all([
+    const [overview, users, alerts, notifications, settings, apiKeys, activity, demoRequests] = await Promise.all([
       apiAuthedGet("/api/admin/overview"),
       apiAuthedGet("/api/users"),
       apiAuthedGet("/api/alerts"),
@@ -2793,6 +2811,7 @@ async function loadEnterpriseData() {
       apiAuthedGet("/api/settings"),
       apiAuthedGet("/api/api-keys"),
       apiAuthedGet("/api/activity?limit=25"),
+      apiAuthedGet("/api/demo-requests?limit=25"),
     ]);
     state.enterprise = {
       overview: apiPayload(overview),
@@ -2802,6 +2821,7 @@ async function loadEnterpriseData() {
       settings: apiPayload(settings, "settings"),
       apiKeys: apiPayload(apiKeys, "apiKeys"),
       activity: apiPayload(activity, "activity"),
+      demoRequests: apiPayload(demoRequests, "demoRequests"),
     };
     state.enterpriseError = "";
   } catch (err) {

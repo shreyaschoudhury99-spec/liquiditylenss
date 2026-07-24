@@ -66,6 +66,18 @@ async function ensureSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS password_reset_tokens_lookup_idx
     ON password_reset_tokens (token_hash, expires_at)
     WHERE used_at IS NULL`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS demo_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT NOT NULL,
+    company TEXT NOT NULL,
+    stores TEXT NOT NULL,
+    goal TEXT NOT NULL,
+    email_delivery TEXT NOT NULL DEFAULT 'pending',
+    ip_address TEXT,
+    user_agent TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS demo_requests_created_idx ON demo_requests (created_at DESC)");
   await pool.query(`CREATE TABLE IF NOT EXISTS refresh_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -2660,6 +2672,13 @@ app.post("/api/demo-request", demoLimiter, asyncRoute(async (req, res) => {
     `IP: ${req.ip || "unknown"}`,
     `User agent: ${req.get("user-agent") || "unknown"}`,
   ];
+  const storedRequest = await pool.query(
+    `INSERT INTO demo_requests (email, company, stores, goal, email_delivery, ip_address, user_agent)
+     VALUES ($1, $2, $3, $4, 'pending', $5, $6)
+     RETURNING id`,
+    [email, company, stores, goal, req.ip || "", req.get("user-agent") || ""]
+  );
+  const demoRequestId = storedRequest.rows[0].id;
   const emailPayload = {
     to: demoRequestInbox,
     from: process.env.SENDGRID_FROM_EMAIL,
@@ -2678,14 +2697,17 @@ app.post("/api/demo-request", demoLimiter, asyncRoute(async (req, res) => {
   };
 
   if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
+    await pool.query("UPDATE demo_requests SET email_delivery = 'not_configured' WHERE id = $1", [demoRequestId]);
     console.warn(`Demo request received without email delivery configured. Forward to ${demoRequestInbox}:\n${lines.join("\n")}`);
     return res.json({ ok: true, emailDelivery: "not_configured" });
   }
 
   try {
     await sgMail.send(emailPayload);
+    await pool.query("UPDATE demo_requests SET email_delivery = 'sent' WHERE id = $1", [demoRequestId]);
     return res.json({ ok: true, emailDelivery: "sent" });
   } catch (err) {
+    await pool.query("UPDATE demo_requests SET email_delivery = 'failed' WHERE id = $1", [demoRequestId]);
     console.error("SendGrid demo request delivery failed. Request was accepted for manual follow-up.", {
       message: err.message,
       code: err.code,
@@ -2694,6 +2716,20 @@ app.post("/api/demo-request", demoLimiter, asyncRoute(async (req, res) => {
     });
     return res.json({ ok: true, emailDelivery: "failed" });
   }
+}));
+
+app.get("/api/demo-requests", authUser, asyncRoute(async (req, res) => {
+  const org = await ensureDefaultOrganization(req.user.sub);
+  if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can view demo requests.", "FORBIDDEN");
+  const { limit, offset, page } = parsePagination(req, 25, 100);
+  const result = await pool.query(
+    `SELECT id, email, company, stores, goal, email_delivery, created_at
+     FROM demo_requests
+     ORDER BY created_at DESC
+     LIMIT $1 OFFSET $2`,
+    [limit, offset]
+  );
+  apiOk(res, { demoRequests: result.rows }, { page, limit });
 }));
 
 app.post("/api/auth/signin", authLimiter, asyncRoute(async (req, res) => {
@@ -4025,13 +4061,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=16" />
+    <link rel="stylesheet" href="/styles.css?v=17" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=16"></script>
+    <script src="/app.js?v=17"></script>
   </body>
 </html>`;
 }

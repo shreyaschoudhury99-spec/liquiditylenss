@@ -81,6 +81,7 @@ body {
   background: var(--bg-base);
   overflow-x: hidden;
   overflow-y: auto;
+  touch-action: pan-y;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -1229,7 +1230,9 @@ a { color: inherit; text-decoration: none; }
   position: relative;
   --page-gutter: clamp(32px, 5vw, 104px);
   min-height: 100vh;
+  overflow-y: visible;
   overflow-x: clip;
+  touch-action: pan-y;
   background:
     linear-gradient(135deg, rgba(0, 212, 255, 0.14) 0%, transparent 34%),
     linear-gradient(225deg, rgba(0, 230, 118, 0.08) 0%, transparent 30%),
@@ -1335,6 +1338,7 @@ a { color: inherit; text-decoration: none; }
   width: min(1680px, calc(100% - (var(--page-gutter) * 2)));
   margin: 0 auto;
   padding: var(--space-10) 0 var(--space-12);
+  overflow-y: visible;
 }
 .marketing-hero {
   display: grid;
@@ -1771,20 +1775,32 @@ a { color: inherit; text-decoration: none; }
 }
 .security-table {
   display: grid;
-  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
+  gap: var(--space-4);
   margin-top: var(--space-8);
 }
 .security-table article {
   display: grid;
-  grid-template-columns: 42px 1fr auto;
-  align-items: center;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: start;
   gap: var(--space-4);
+  min-height: 156px;
+  position: relative;
+  overflow: hidden;
+}
+.security-table article::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--green));
+  opacity: 0.6;
 }
 .security-table span {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 46px;
+  height: 46px;
   border-radius: 8px;
   color: var(--accent);
   background: var(--accent-dim);
@@ -1795,6 +1811,14 @@ a { color: inherit; text-decoration: none; }
 .security-table p,
 .editorial-grid p { color: var(--text-secondary); }
 .security-table b {
+  grid-column: 2;
+  justify-self: start;
+  width: max-content;
+  margin-top: var(--space-2);
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--green) 28%, transparent);
+  border-radius: 999px;
+  background: var(--green-dim);
   color: var(--green);
   font-family: var(--font-mono);
   font-size: 12px;
