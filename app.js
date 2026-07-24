@@ -136,6 +136,19 @@ const marketingNav = [
   ["/security", "Security"],
 ];
 
+const companyLinks = {
+  email: "liquiditylink@gmail.com",
+  linkedin: "https://www.linkedin.com/company/liquiditylink",
+  instagram: "https://www.instagram.com/liquiditylink/",
+};
+
+const juneJulyMetrics = [
+  ["200+", "Instagram followers", "Since the first LiquidityLink Instagram post on 7/22."],
+  ["7", "Local retailers connected", "Retailers ready to kick-start the pilot program."],
+  ["5", "Interns recruited", "Supporting outreach, marketing, website development, and business administration."],
+  ["500+", "LinkedIn impressions", "Since the company page was created on 7/22."],
+];
+
 const buyerQuestions = [
   {
     question: "Why should I care?",
@@ -321,6 +334,9 @@ function icon(name) {
     user: '<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/>',
     shield: '<path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3Z"/><path d="m9 12 2 2 4-5"/>',
     phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.4 19.4 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2.1Z"/>',
+    mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+    linkedin: '<path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4v-7a6 6 0 0 1 6-6Z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/>',
+    instagram: '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r=".8"/>',
     "globe-2": '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 0 20"/><path d="M12 2a15.3 15.3 0 0 0 0 20"/>',
     "map-pin": '<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
     image: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="m21 15-5-5L5 19"/>',
@@ -624,12 +640,19 @@ function toggleTheme() {
 
 function navigate(path) {
   if (!(path in routes)) path = "/";
+  if (state.path === path && location.pathname === path) return;
   pushPath(path);
   state.path = path;
-  state.loading = true;
   state.searchOpen = false;
   state.notificationsOpen = false;
   state.sidebarOpen = false;
+  if (publicRoutes.has(path)) {
+    state.loading = false;
+    render();
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
+    return;
+  }
+  state.loading = true;
   render();
   setTimeout(() => {
     state.loading = false;
@@ -739,6 +762,7 @@ function notificationsPanel() {
 function marketingLayout(content) {
   const signedIn = auth();
   return `<div class="marketing-site">
+    <div class="ambient-product-backdrop" aria-hidden="true"><span></span><span></span><span></span></div>
     <header class="marketing-header">
       <a class="marketing-brand" href="/" data-route="/">${logo()}</a>
       <nav class="marketing-nav" aria-label="Website navigation">
@@ -755,6 +779,11 @@ function marketingLayout(content) {
       <div>
         ${logo()}
         <p>Predictive inventory intelligence for retailers that need fewer surprises, cleaner cash flow, and faster replenishment decisions.</p>
+        <div class="footer-contact-links">
+          <a href="mailto:${companyLinks.email}">${icon("mail")}${companyLinks.email}</a>
+          <a href="${companyLinks.linkedin}" target="_blank" rel="noreferrer">${icon("linkedin")}LinkedIn</a>
+          <a href="${companyLinks.instagram}" target="_blank" rel="noreferrer">${icon("instagram")}Instagram</a>
+        </div>
       </div>
       <div class="marketing-footer-links">
         ${["Platform", "Integrations", "Security", "Pricing", "Documentation", "Contact"].map(label => {
@@ -764,6 +793,50 @@ function marketingLayout(content) {
       </div>
     </footer>
   </div>`;
+}
+
+function socialLinkStrip() {
+  return `<div class="social-link-strip">
+    <a href="mailto:${companyLinks.email}">${icon("mail")}Email</a>
+    <a href="${companyLinks.linkedin}" target="_blank" rel="noreferrer">${icon("linkedin")}LinkedIn</a>
+    <a href="${companyLinks.instagram}" target="_blank" rel="noreferrer">${icon("instagram")}Instagram</a>
+  </div>`;
+}
+
+function tractionBand() {
+  return `<section class="traction-band" aria-label="June-July traction check">
+    <div>
+      <p class="eyebrow">June-July check</p>
+      <h2>Early traction is already turning into pilot momentum.</h2>
+      <p>In the first operating push, LiquidityLink moved from social launch to retailer conversations, recruiting support, and measurable audience growth.</p>
+      ${socialLinkStrip()}
+    </div>
+    <div class="traction-grid">
+      ${juneJulyMetrics.map(([value, label, detail]) => `<button class="traction-card" data-traction-detail="${attr(detail)}" type="button">
+        <strong>${esc(value)}</strong>
+        <span>${esc(label)}</span>
+        <em>${esc(detail)}</em>
+      </button>`).join("")}
+    </div>
+  </section>`;
+}
+
+function signalPlayground() {
+  return `<section class="signal-playground">
+    <div>
+      <p class="eyebrow">Explore the signal</p>
+      <h2>Hover the background panels to see how the product thinks.</h2>
+      <p>These lightweight previews add motion and context without hiding the main content: demand lift, cash exposure, transfer fit, and forecast confidence.</p>
+    </div>
+    <div class="signal-tiles">
+      ${[
+        ["Demand lift", "+38%", "Headlamps rising over the next 4 weeks."],
+        ["Cash exposure", "$39K", "Excess cost surfaced before markdown urgency."],
+        ["Transfer fit", "80 units", "West store excess can cover North shortage."],
+        ["Confidence", "18%", "Band width narrows as order history grows."],
+      ].map(([label, value, detail]) => `<button class="signal-tile" type="button" data-traction-detail="${attr(detail)}"><span>${esc(label)}</span><strong>${esc(value)}</strong><em>${esc(detail)}</em></button>`).join("")}
+    </div>
+  </section>`;
 }
 
 function marketingSection(eyebrow, headline, copy, content = "", extraClass = "") {
@@ -977,7 +1050,9 @@ function homePage() {
       <div class="hero-interactive">${queuePanel()}<div class="hero-forecast">${forecastMockup()}</div></div>
     </div>
   </section>
+  ${tractionBand()}
   ${pageInteractive("A planner can move between shortage risk and excess recovery.", "The full-width queue demonstrates the same operating motion inside the app: switch the mode, review the ranked SKUs, then act with context.", "understock")}
+  ${signalPlayground()}
   ${marketingSection("Why it matters", "Inventory risk is now a board-level operating metric.", "Retail teams need earlier signals, not more dashboards. LiquidityLink connects demand, inventory, and cash exposure so every recommendation is tied to measurable business impact.", outcomes)}
   ${marketingSection("Buyer questions", "Every section answers what an enterprise buyer needs to know.", "The site now follows the decision path a retail executive actually takes before trusting a platform with operational data.", questions)}
   ${marketingSection("Trust", "Designed for pilots, procurement, and executive review.", "The message is built around measurable outcomes, transparent calculations, and expansion paths that work for large organizations.", trust)}
@@ -1105,11 +1180,21 @@ function aboutPage() {
 }
 
 function contactPage() {
-  return marketingPage("Talk to the LiquidityLink team.", "Use this page for enterprise evaluations, security reviews, partner integrations, or pilot scoping.", [
+  return `${pageHero("Contact", "Talk to the LiquidityLink team.", "Use this page for enterprise evaluations, security reviews, partner integrations, or pilot scoping.", "", "contact")}
+  <section class="contact-band">
+    <div>
+      <p class="eyebrow">Direct contact</p>
+      <h2>Reach us where you already are.</h2>
+      <p>Email us for pilots, retailer partnerships, and product feedback. Follow the social channels for launch updates and June-July traction progress.</p>
+    </div>
+    ${socialLinkStrip()}
+  </section>
+  ${tractionBand()}
+  <section class="mixed-card-band">${[
     { title: "Sales", copy: "Discuss pricing, rollout scope, and category priorities." },
     { title: "Security", copy: "Review data handling, access controls, and enterprise requirements." },
     { title: "Partnerships", copy: "Explore integrations, marketplace participation, and private data connections." },
-  ], "Contact");
+  ].map((card, index) => insightCard(card, index % 2 ? "gauge" : "bars")).join("")}</section>`;
 }
 
 function bookDemoPage() {
@@ -1260,6 +1345,15 @@ function demoSlides() {
 }
 
 function forecastMockup() {
+  const marketingPoints = [
+    [45, 162, "W1 · Ensemble", "163K units projected; baseline 142K; confidence band 148K-178K."],
+    [185, 111, "W3 · Ensemble", "172K units projected; demand is lifting faster than the baseline."],
+    [330, 86, "W6 · Ensemble", "181K units projected; +5K vs baseline with transfer planning recommended."],
+    [480, 52, "W8 · Ensemble", "184K units projected; strongest signal for replenishment timing."],
+    [45, 185, "W1 · Baseline", "142K baseline units from recurring cycles."],
+    [330, 112, "W6 · Baseline", "176K baseline units before inventory adjustment."],
+    [480, 76, "W8 · Baseline", "178K baseline units; ensemble remains higher."],
+  ];
   return `<svg viewBox="0 0 520 250" role="img" aria-label="Forecast chart demo">
     <rect width="520" height="250" rx="8" fill="var(--bg-elevated)"/>
     <text x="40" y="26" fill="var(--text-primary)" font-weight="700">8-week demand forecast</text>
@@ -1268,7 +1362,11 @@ function forecastMockup() {
     ${[200, 150, 100, 50].map((v, i) => `<text x="14" y="${49 + i * 45}" fill="var(--text-muted)">${v}</text>`).join("")}
     <path d="M45 162 C110 132 135 142 185 111 C240 78 285 118 330 86 C390 42 430 78 480 52" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round"/>
     <path d="M45 185 C125 150 160 176 220 132 C280 96 320 142 380 102 C430 72 450 98 480 76" fill="none" stroke="var(--blue)" stroke-width="3" stroke-linecap="round"/>
-    <circle cx="330" cy="86" r="11" fill="var(--accent)"/>
+    ${marketingPoints.map(([x, y, label, detail], index) => {
+      const ensemble = String(label).includes("Ensemble");
+      const tip = `<strong>${label}</strong><span>${detail}</span><span>Inspect points across marketing and app charts for the same forecast detail pattern.</span>`;
+      return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}"><circle cx="${x}" cy="${y}" r="13" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x}" cy="${y}" r="${index === 2 ? 11 : 4}" fill="${ensemble ? "var(--accent)" : "var(--blue)"}"/></g>`;
+    }).join("")}
     <rect x="330" y="28" width="126" height="45" rx="6" fill="var(--bg-surface)" stroke="var(--border-default)"/>
     <text x="344" y="48" fill="var(--text-primary)">Wk 6: 181K</text>
     <text x="344" y="64" fill="var(--text-muted)">+5K vs baseline</text>
@@ -2441,6 +2539,7 @@ function bind() {
   document.querySelectorAll("[data-pricing-plan]").forEach(el => el.addEventListener("click", () => showToast(`${el.dataset.pricingPlan} checkout is ready for payment backend wiring.`, "success")));
   document.querySelectorAll("[data-queue-tab]").forEach(el => el.addEventListener("click", handleQueueTab));
   document.querySelectorAll("[data-queue-detail]").forEach(el => el.addEventListener("click", handleQueueRowPreview));
+  document.querySelectorAll("[data-traction-detail]").forEach(el => el.addEventListener("click", () => showToast(el.dataset.tractionDetail, "info")));
   document.querySelector("[data-demo-form]")?.addEventListener("submit", submitDemoRequest);
   document.querySelector("[data-profile-form]")?.addEventListener("submit", updateProfile);
   document.querySelector("[data-password-form]")?.addEventListener("submit", changePassword);
@@ -3352,15 +3451,17 @@ function lineChart(data, w, h) {
   const y = v => h - pad.b - ((v - min) / (max - min)) * (h - pad.t - pad.b);
   const path = key => data.map((d, i) => `${i ? "L" : "M"}${x(i)},${y(d[key])}`).join(" ");
   const area = `${data.map((d, i) => `${i ? "L" : "M"}${x(i)},${y(d.upper)}`).join(" ")} ${[...data].reverse().map((d, i) => `L${x(data.length - 1 - i)},${y(d.lower)}`).join(" ")} Z`;
-  return `<svg viewBox="0 0 ${w} ${h}"><text x="${pad.l}" y="14" fill="var(--text-muted)">Projected units</text>${[0, 1, 2, 3].map(i => { const value = Math.round(max - ((max - min) * i) / 3); return `<line class="chart-grid" x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + i * 55}" y2="${pad.t + i * 55}"/><text x="8" y="${pad.t + i * 55 + 4}" fill="var(--text-muted)">${fmt(value)}</text>`; }).join("")}<path d="${area}" fill="var(--accent-dim)"/><path d="${path("arima")}" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-dasharray="5 5"/><path d="${path("xgboost")}" fill="none" stroke="var(--blue)" stroke-width="1.5"/><path d="${path("ensemble")}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>${data.map((d, i) => {
+  const series = [
+    ["arima", "ARIMA baseline", "var(--text-muted)", "Observed baseline from recurring demand cycles."],
+    ["xgboost", "XGBoost adjusted", "var(--blue)", "Inventory- and signal-adjusted forecast."],
+    ["ensemble", "Ensemble forecast", "var(--accent)", "Blended operating forecast used for recommendations."],
+  ];
+  const points = series.map(([key, label, color, note]) => data.map((d, i) => {
     const variance = Math.round(((d.upper - d.lower) / Math.max(1, d.ensemble)) * 100);
-    const tip = `<strong>${d.week} demand forecast</strong>
-      <span>Ensemble: ${fmt(d.ensemble)} units</span>
-      <span>XGBoost: ${fmt(d.xgboost)} units</span>
-      <span>ARIMA: ${fmt(d.arima)} units</span>
-      <span>Confidence: ${fmt(d.lower)}-${fmt(d.upper)} units (${variance}% band)</span>`;
-    return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}"><line x1="${x(i)}" x2="${x(i)}" y1="${pad.t}" y2="${h - pad.b}" class="chart-hit-line"/><circle cx="${x(i)}" cy="${y(d.ensemble)}" r="12" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x(i)}" cy="${y(d.ensemble)}" r="4" fill="var(--accent)"/></g><text x="${x(i)}" y="${h - 10}" text-anchor="middle">${d.week}</text>`;
-  }).join("")}</svg>`;
+    const tip = `<strong>${d.week} · ${label}</strong><span>Projected demand: ${fmt(d[key])} units</span><span>Confidence band: ${fmt(d.lower)}-${fmt(d.upper)} units (${variance}% width)</span><span>${note}</span>`;
+    return `<g class="chart-point" tabindex="0" data-chart-tip="${attr(tip)}" aria-label="${attr(`${d.week} ${label}: ${fmt(d[key])} units`)}"><circle cx="${x(i)}" cy="${y(d[key])}" r="12" fill="var(--bg-base)" opacity="0.001"/><circle cx="${x(i)}" cy="${y(d[key])}" r="${key === "ensemble" ? 4.5 : 3.5}" fill="${color}"/></g>`;
+  }).join("")).join("");
+  return `<svg viewBox="0 0 ${w} ${h}"><text x="${pad.l}" y="14" fill="var(--text-muted)">Projected units</text>${[0, 1, 2, 3].map(i => { const value = Math.round(max - ((max - min) * i) / 3); return `<line class="chart-grid" x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + i * 55}" y2="${pad.t + i * 55}"/><text x="8" y="${pad.t + i * 55 + 4}" fill="var(--text-muted)">${fmt(value)}</text>`; }).join("")}<path d="${area}" fill="var(--accent-dim)"/><path d="${path("arima")}" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-dasharray="5 5"/><path d="${path("xgboost")}" fill="none" stroke="var(--blue)" stroke-width="1.5"/><path d="${path("ensemble")}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>${data.map((d, i) => `<line x1="${x(i)}" x2="${x(i)}" y1="${pad.t}" y2="${h - pad.b}" class="chart-hit-line"/>`).join("")}${points}${data.map((d, i) => `<text x="${x(i)}" y="${h - 10}" text-anchor="middle">${d.week}</text>`).join("")}</svg>`;
 }
 
 function areaChart(data = null) {
