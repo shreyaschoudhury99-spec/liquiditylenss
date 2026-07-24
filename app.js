@@ -143,10 +143,10 @@ const companyLinks = {
 };
 
 const juneJulyMetrics = [
-  ["200+", "Instagram followers", "Since the first LiquidityLink Instagram post on 7/22."],
-  ["7", "Local retailers connected", "Retailers ready to kick-start the pilot program."],
-  ["5", "Interns recruited", "Supporting outreach, marketing, website development, and business administration."],
-  ["500+", "LinkedIn impressions", "Since the company page was created on 7/22."],
+  { key: "instagramFollowers", value: "200+", label: "Instagram followers", detail: "Live count from the LiquidityLink Instagram account when Meta API credentials are configured; fallback is the July launch count." },
+  { key: "retailers", value: "7", label: "Local retailers connected", detail: "Retailers ready to kick-start the pilot program." },
+  { key: "interns", value: "5", label: "Interns recruited", detail: "Supporting outreach, marketing, website development, and business administration." },
+  { key: "linkedinImpressions", value: "500+", label: "LinkedIn impressions", detail: "Since the company page was created on 7/22." },
 ];
 
 const buyerQuestions = [
@@ -804,19 +804,20 @@ function socialLinkStrip() {
   </div>`;
 }
 
-function tractionBand() {
-  return `<section class="traction-band" aria-label="June-July traction check">
+function tractionBand({ eyebrow = "June-July check", title = "Early traction is already turning into pilot momentum.", copy = "In the first operating push, LiquidityLink moved from social launch to retailer conversations, recruiting support, and measurable audience growth.", live = false } = {}) {
+  return `<section class="traction-band" aria-label="${attr(eyebrow)}"${live ? " data-live-statistics" : ""}>
     <div>
-      <p class="eyebrow">June-July check</p>
-      <h2>Early traction is already turning into pilot momentum.</h2>
-      <p>In the first operating push, LiquidityLink moved from social launch to retailer conversations, recruiting support, and measurable audience growth.</p>
+      <p class="eyebrow">${esc(eyebrow)}</p>
+      <h2>${esc(title)}</h2>
+      <p>${esc(copy)}</p>
+      ${live ? `<p class="traction-meta" data-live-stat-status>Instagram follower count uses the live Meta API when connected.</p>` : ""}
       ${socialLinkStrip()}
     </div>
     <div class="traction-grid">
-      ${juneJulyMetrics.map(([value, label, detail]) => `<button class="traction-card" data-traction-detail="${attr(detail)}" type="button">
-        <strong>${esc(value)}</strong>
-        <span>${esc(label)}</span>
-        <em>${esc(detail)}</em>
+      ${juneJulyMetrics.map(item => `<button class="traction-card" data-traction-detail="${attr(item.detail)}" type="button">
+        <strong${live ? ` data-live-stat-value="${attr(item.key)}"` : ""}>${esc(item.value)}</strong>
+        <span>${esc(item.label)}</span>
+        <em${live ? ` data-live-stat-detail="${attr(item.key)}"` : ""}>${esc(item.detail)}</em>
       </button>`).join("")}
     </div>
   </section>`;
@@ -1051,7 +1052,12 @@ function homePage() {
       <div class="hero-interactive">${queuePanel()}<div class="hero-forecast">${forecastMockup()}</div></div>
     </div>
   </section>
-  ${tractionBand()}
+  ${tractionBand({
+    eyebrow: "Live statistics",
+    title: "July momentum, refreshed from live channels where possible.",
+    copy: "The homepage now shows the July launch proof investors and pilots ask for first: audience growth, retailer interest, recruiting support, and LinkedIn reach.",
+    live: true,
+  })}
   ${pageInteractive("A planner can move between shortage risk and excess recovery.", "The full-width queue demonstrates the same operating motion inside the app: switch the mode, review the ranked SKUs, then act with context.", "understock")}
   ${signalPlayground()}
   ${marketingSection("Why it matters", "Inventory risk is now a board-level operating metric.", "Retail teams need earlier signals, not more dashboards. LiquidityLink connects demand, inventory, and cash exposure so every recommendation is tied to measurable business impact.", outcomes)}
@@ -1217,10 +1223,19 @@ function bookDemoPage() {
       <button class="btn-primary" type="submit" ${state.demoBusy ? "disabled" : ""}>${state.demoBusy ? spinner("Sending...") : "Request demo"}</button>
       ${state.demoMessage ? `<p class="form-status form-status--${esc(state.demoMessageType)}">${esc(state.demoMessage)}</p>` : ""}
     </form>
-    <article class="marketing-card">
+    <article class="marketing-card pilot-structure-card">
+      <div class="pilot-card-logo">
+        <img src="assets/liquiditylink-logo.png?v=9" alt="" aria-hidden="true" />
+        <span>LiquidityLink</span>
+      </div>
       <p class="eyebrow">Pilot structure</p>
       <h3>One data source. One category. One executive readout.</h3>
       <p>We recommend starting with a narrow operating question, then measuring forecast quality, avoidable stockout risk, and inventory cost exposure.</p>
+      <div class="pilot-steps" aria-label="Pilot steps">
+        <span>Connect data</span>
+        <span>Model risk</span>
+        <span>Review actions</span>
+      </div>
     </article>
   </section>`;
 }
@@ -2568,8 +2583,38 @@ function bind() {
   document.querySelector("[data-disable-mfa]")?.addEventListener("click", disableMfa);
   document.querySelectorAll("[data-accordion]").forEach(el => el.addEventListener("click", () => el.closest(".accordion-item").classList.toggle("open")));
   bindMarketingBackground();
+  loadLiveStatistics();
   setupReveals();
   bindChartTips();
+}
+
+async function loadLiveStatistics() {
+  const container = document.querySelector("[data-live-statistics]");
+  if (!container || window.llLiveStatsLoading) return;
+  window.llLiveStatsLoading = true;
+  const status = container.querySelector("[data-live-stat-status]");
+  try {
+    const response = await fetch("/api/live-statistics", { credentials: "same-origin" });
+    const payload = await response.json().catch(() => ({}));
+    const stats = payload.data || {};
+    const followerValue = container.querySelector('[data-live-stat-value="instagramFollowers"]');
+    const followerDetail = container.querySelector('[data-live-stat-detail="instagramFollowers"]');
+    if (stats.instagramFollowers && followerValue) followerValue.textContent = stats.instagramFollowers;
+    if (followerDetail) {
+      followerDetail.textContent = stats.instagramFollowersSource === "instagram_graph_api"
+        ? `Live follower count from ${companyLinks.instagram}. Updated ${new Date(stats.updatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`
+        : "Fallback July launch count. Add Meta Instagram Graph API credentials in Render to make this update live.";
+    }
+    if (status) {
+      status.textContent = stats.instagramFollowersSource === "instagram_graph_api"
+        ? "Instagram follower count is live."
+        : "Instagram follower count is using the fallback until Meta API credentials are connected.";
+    }
+  } catch {
+    if (status) status.textContent = "Live statistics are temporarily using fallback values.";
+  } finally {
+    window.llLiveStatsLoading = false;
+  }
 }
 
 function setupReveals() {

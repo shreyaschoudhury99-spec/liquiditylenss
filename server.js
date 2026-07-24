@@ -25,6 +25,8 @@ const mfaTokenMs = 10 * 60 * 1000;
 const bcryptCost = 12;
 const marketplaceUserAgent = process.env.MARKETPLACE_USER_AGENT || `LiquidityLink/1.0 (${appBaseUrl})`;
 const demoRequestInbox = process.env.DEMO_REQUEST_INBOX || "liquiditylink@gmail.com";
+const instagramFallbackFollowers = process.env.INSTAGRAM_FOLLOWERS_FALLBACK || "200+";
+let liveStatsCache = { expiresAt: 0, data: null };
 
 if (process.env.SENDGRID_API_KEY) sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
@@ -2718,6 +2720,45 @@ app.post("/api/demo-request", demoLimiter, asyncRoute(async (req, res) => {
   }
 }));
 
+app.get("/api/live-statistics", asyncRoute(async (req, res) => {
+  const fallback = {
+    instagramFollowers: instagramFallbackFollowers,
+    instagramFollowersSource: "fallback",
+    instagramProfileUrl: "https://www.instagram.com/liquiditylink/",
+    updatedAt: new Date().toISOString(),
+  };
+  if (liveStatsCache.data && liveStatsCache.expiresAt > Date.now()) return res.json({ ok: true, data: liveStatsCache.data });
+
+  const accountId = process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID;
+  const accessToken = process.env.META_ACCESS_TOKEN || process.env.INSTAGRAM_GRAPH_ACCESS_TOKEN;
+  if (!accountId || !accessToken) {
+    liveStatsCache = { expiresAt: Date.now() + 5 * 60 * 1000, data: fallback };
+    return res.json({ ok: true, data: fallback });
+  }
+
+  try {
+    const graphVersion = process.env.META_GRAPH_VERSION || "v23.0";
+    const url = new URL(`https://graph.facebook.com/${graphVersion}/${accountId}`);
+    url.searchParams.set("fields", "followers_count");
+    url.searchParams.set("access_token", accessToken);
+    const response = await fetch(url, { headers: { "user-agent": marketplaceUserAgent } });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !Number.isFinite(Number(data.followers_count))) throw new Error(data.error?.message || "Instagram follower count unavailable");
+    const liveData = {
+      ...fallback,
+      instagramFollowers: Number(data.followers_count).toLocaleString(),
+      instagramFollowersSource: "instagram_graph_api",
+      updatedAt: new Date().toISOString(),
+    };
+    liveStatsCache = { expiresAt: Date.now() + 15 * 60 * 1000, data: liveData };
+    return res.json({ ok: true, data: liveData });
+  } catch (err) {
+    console.warn("Instagram live statistics fallback used.", { message: err.message });
+    liveStatsCache = { expiresAt: Date.now() + 5 * 60 * 1000, data: fallback };
+    return res.json({ ok: true, data: fallback });
+  }
+}));
+
 app.get("/api/demo-requests", authUser, asyncRoute(async (req, res) => {
   const org = await ensureDefaultOrganization(req.user.sub);
   if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can view demo requests.", "FORBIDDEN");
@@ -4061,13 +4102,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=17" />
+    <link rel="stylesheet" href="/styles.css?v=18" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=17"></script>
+    <script src="/app.js?v=18"></script>
   </body>
 </html>`;
 }
