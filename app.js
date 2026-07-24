@@ -210,6 +210,7 @@ let state = {
   accessToken: null,
   authBusy: false,
   authMessage: "",
+  authFieldError: null,
   loading: true,
   syncing: false,
   sidebarOpen: false,
@@ -641,6 +642,7 @@ function navigate(path) {
 function goToAuth(mode = "signin", message = "") {
   state.authMode = mode;
   state.authMessage = message;
+  state.authFieldError = null;
   state.authBusy = false;
   replacePath(mode === "reset" ? "/reset-password" : "/login");
   state.path = "/";
@@ -805,16 +807,16 @@ function dashboardPreview() {
 function queueRows(mode = "understock") {
   const rows = {
     understock: [
-      ["Trail Running Shoes M10", "Stockout risk 91% · 8 days cover", "buy"],
-      ["Merino Base Layer L", "Lead-time gap 74% · supplier ETA 21 days", "buy"],
-      ["Headlamp 350 Lumen", "Forecast demand +38% next 4 weeks", "buy"],
-      ["Dry Bag 10L", "North store shortage · West has excess", "transfer"],
+      ["Trail Running Shoes M10", "Stockout risk 91% · 8 days cover", "buy", "Recommended next step: place a 240-unit buy before the next replenishment window closes."],
+      ["Merino Base Layer L", "Lead-time gap 74% · supplier ETA 21 days", "buy", "Recommended next step: pull forward the supplier order and reserve safety stock for top stores."],
+      ["Headlamp 350 Lumen", "Forecast demand +38% next 4 weeks", "buy", "Recommended next step: increase reorder quantity because observed velocity is outrunning current stock."],
+      ["Dry Bag 10L", "North store shortage · West has excess", "transfer", "Recommended next step: transfer 80 units from West to North before buying more inventory."],
     ],
     overstock: [
-      ["Insulated Bottle 32oz", "Overstock risk 78% · $18K tied up", "sell"],
-      ["Packable Rain Jacket S", "Markdown window closing · 64 days cover", "sell"],
-      ["Camp Towel Large", "Slow velocity · 3.2x target cover", "discount"],
-      ["Fleece Pullover XL", "Transfer 80 units to ecommerce demand", "transfer"],
+      ["Insulated Bottle 32oz", "Overstock risk 78% · $18K tied up", "sell", "Recommended next step: run a targeted markdown before carrying cost compounds next month."],
+      ["Packable Rain Jacket S", "Markdown window closing · 64 days cover", "sell", "Recommended next step: move surplus into a 14-day promotion while weather demand is still active."],
+      ["Camp Towel Large", "Slow velocity · 3.2x target cover", "discount", "Recommended next step: discount long-tail stock and stop replenishment until cover returns to target."],
+      ["Fleece Pullover XL", "Transfer 80 units to ecommerce demand", "transfer", "Recommended next step: transfer excess store units to ecommerce where forecasted demand is stronger."],
     ],
   };
   return rows[mode] || rows.understock;
@@ -822,7 +824,7 @@ function queueRows(mode = "understock") {
 
 function skuActionRows(rows = queueRows("understock")) {
   return `<div class="sku-action-list">
-    ${rows.map(([name, note, action]) => `<button class="sku-action-row" type="button">
+    ${rows.map(([name, note, action, detail]) => `<button class="sku-action-row" data-queue-detail="${attr(detail || note)}" type="button" aria-expanded="false">
       <span><strong>${esc(name)}</strong><em>${esc(note)}</em></span><b class="badge badge--${action}">${action}</b>
     </button>`).join("")}
   </div>`;
@@ -834,6 +836,7 @@ function queuePanel(mode = "understock", caption = "Understock mode highlights s
       ${["understock", "overstock"].map(tab => `<button class="${tab === mode ? "active" : ""}" data-queue-tab="${tab}" type="button" role="tab" aria-selected="${tab === mode}">${tab === "understock" ? "Understock" : "Overstock"}</button>`).join("")}
     </div>
     <div data-queue-rows>${skuActionRows(queueRows(mode))}</div>
+    <div class="queue-detail" data-queue-detail-output>Click a SKU row to preview the recommended next step.</div>
     <p class="chart-caption">${esc(caption)}</p>
   </div>`;
 }
@@ -1147,8 +1150,9 @@ function loginPage() {
           <div class="feature-row">${icon("store")} Nearby transfer marketplace</div>
         </div>
       </div>
-      <div class="auth-slideshow" aria-label="Product feature preview">
-        ${demoSlides()}
+      <div class="auth-preview" aria-label="Interactive product preview">
+        ${queuePanel("understock", "Switch the tabs or click a SKU to see how LiquidityLink explains the next action before you sign in.")}
+        <div class="hero-forecast">${forecastMockup()}</div>
       </div>
       <p class="mono text-sm">LiquidityLink demo workspace</p>
     </aside>
@@ -1178,18 +1182,29 @@ function socialButton(provider, label) {
   return `<button class="btn-ghost social-btn" data-social-auth="${provider}" type="button" ${state.authBusy ? "disabled" : ""} aria-label="Continue with ${label}"><span class="social-mark">${label[0]}</span>${label}</button>`;
 }
 
+function authInputClass(name) {
+  return state.authFieldError?.field === name && authRoutes.has(location.pathname) ? " input--error" : "";
+}
+
+function authInlineError(name) {
+  return state.authFieldError?.field === name && authRoutes.has(location.pathname)
+    ? `<span class="input-error-msg">${esc(state.authFieldError.message)}</span>`
+    : "";
+}
+
 function passwordField(id, name, label, autocomplete) {
-  return `<div class="field"><label for="${id}">${label}</label><div class="password-wrap"><input id="${id}" class="input" name="${name}" type="password" autocomplete="${autocomplete}" /><button class="btn-icon password-toggle" data-toggle-password="${id}" type="button" aria-label="Show ${label.toLowerCase()}">${icon("eye")}</button></div></div>`;
+  return `<div class="field"><label for="${id}">${label}</label><div class="password-wrap"><input id="${id}" class="input${authInputClass(name)}" name="${name}" type="password" autocomplete="${autocomplete}" /><button class="btn-icon password-toggle" data-toggle-password="${id}" type="button" aria-label="Show ${label.toLowerCase()}">${icon("eye")}</button></div>${authInlineError(name)}</div>`;
 }
 
 function authForm(mode) {
   if (mode === "signup") {
     return `<form class="form-stack" data-auth-form="signup" novalidate>
       <div class="auth-name-grid">
-        <div class="field"><label for="firstName">First name</label><input id="firstName" class="input" name="firstName" autocomplete="given-name" /></div>
-        <div class="field"><label for="lastName">Last name</label><input id="lastName" class="input" name="lastName" autocomplete="family-name" /></div>
+        <div class="field"><label for="firstName">First name</label><input id="firstName" class="input${authInputClass("firstName")}" name="firstName" autocomplete="given-name" />${authInlineError("firstName")}</div>
+        <div class="field"><label for="lastName">Last name</label><input id="lastName" class="input${authInputClass("lastName")}" name="lastName" autocomplete="family-name" />${authInlineError("lastName")}</div>
       </div>
-      <div class="field"><label for="signupEmail">Work email</label><input id="signupEmail" class="input" name="email" type="email" autocomplete="email" /></div>
+      <div class="field"><label for="signupCompany">Company</label><input id="signupCompany" class="input" name="company" autocomplete="organization" /></div>
+      <div class="field"><label for="signupEmail">Work email</label><input id="signupEmail" class="input${authInputClass("email")}" name="email" type="email" autocomplete="email" />${authInlineError("email")}</div>
       ${passwordField("signupPassword", "password", "Password", "new-password")}
       ${passwordField("confirmPassword", "confirmPassword", "Confirm password", "new-password")}
       <p class="password-policy">Minimum 8 characters with uppercase, number, and special character.</p>
@@ -1198,7 +1213,7 @@ function authForm(mode) {
   }
   if (mode === "forgot") {
     return `<form class="form-stack" data-auth-form="forgot" novalidate>
-      <div class="field"><label for="forgotEmail">Work email</label><input id="forgotEmail" class="input" name="email" type="email" autocomplete="email" /></div>
+      <div class="field"><label for="forgotEmail">Work email</label><input id="forgotEmail" class="input${authInputClass("email")}" name="email" type="email" autocomplete="email" />${authInlineError("email")}</div>
       <button class="btn-primary" type="submit" ${state.authBusy ? "disabled" : ""}>${state.authBusy ? spinner("Sending...") : "Send reset link"}</button>
       <button class="btn-ghost" data-auth-mode="signin" type="button">Back to sign in</button>
     </form>`;
@@ -1213,13 +1228,13 @@ function authForm(mode) {
   }
   if (mode === "mfa") {
     return `<form class="form-stack" data-auth-form="mfa" novalidate>
-      <div class="field"><label for="mfaCode">Verification code</label><input id="mfaCode" class="input" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" /></div>
+      <div class="field"><label for="mfaCode">Verification code</label><input id="mfaCode" class="input${authInputClass("code")}" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />${authInlineError("code")}</div>
       <button class="btn-primary" type="submit" ${state.authBusy ? "disabled" : ""}>${state.authBusy ? spinner("Verifying...") : "Verify and sign in"}</button>
       <button class="btn-ghost" data-auth-mode="signin" type="button">Back to sign in</button>
     </form>`;
   }
   return `<form class="form-stack" data-auth-form="signin" novalidate>
-    <div class="field"><label for="email">Work email</label><input id="email" class="input" name="email" type="email" autocomplete="email" /></div>
+    <div class="field"><label for="email">Work email</label><input id="email" class="input${authInputClass("email")}" name="email" type="email" autocomplete="email" />${authInlineError("email")}</div>
     ${passwordField("password", "password", "Password", "current-password")}
     <button class="btn-primary" type="submit" ${state.authBusy ? "disabled" : ""}>${state.authBusy ? spinner("Signing in...") : "Sign in"}</button>
     <button class="auth-link" data-auth-mode="forgot" type="button">Forgot password?</button>
@@ -2344,6 +2359,7 @@ function bind() {
   document.querySelectorAll("[data-auth-mode]").forEach(el => el.addEventListener("click", () => {
     state.authMode = el.dataset.authMode;
     state.authMessage = "";
+    state.authFieldError = null;
     if (state.authMode !== "mfa") clearMfaState();
     replacePath("/login");
     render();
@@ -2418,6 +2434,7 @@ function bind() {
   document.querySelector("[data-post]")?.addEventListener("submit", postCommunity);
   document.querySelectorAll("[data-pricing-plan]").forEach(el => el.addEventListener("click", () => showToast(`${el.dataset.pricingPlan} checkout is ready for payment backend wiring.`, "success")));
   document.querySelectorAll("[data-queue-tab]").forEach(el => el.addEventListener("click", handleQueueTab));
+  document.querySelectorAll("[data-queue-detail]").forEach(el => el.addEventListener("click", handleQueueRowPreview));
   document.querySelector("[data-demo-form]")?.addEventListener("submit", submitDemoRequest);
   document.querySelector("[data-profile-form]")?.addEventListener("submit", updateProfile);
   document.querySelector("[data-password-form]")?.addEventListener("submit", changePassword);
@@ -2463,6 +2480,21 @@ function handleQueueTab(e) {
     tab.setAttribute("aria-selected", String(selected));
   });
   target.innerHTML = skuActionRows(queueRows(button.dataset.queueTab));
+  panel.querySelector("[data-queue-detail-output]").textContent = "Click a SKU row to preview the recommended next step.";
+  target.querySelectorAll("[data-queue-detail]").forEach(el => el.addEventListener("click", handleQueueRowPreview));
+}
+
+function handleQueueRowPreview(e) {
+  const row = e.currentTarget;
+  const panel = row.closest("[data-queue-panel]");
+  const output = panel?.querySelector("[data-queue-detail-output]");
+  if (!output) return;
+  panel.querySelectorAll("[data-queue-detail]").forEach(item => {
+    const selected = item === row;
+    item.classList.toggle("selected", selected);
+    item.setAttribute("aria-expanded", String(selected));
+  });
+  output.textContent = row.dataset.queueDetail || "Review the recommended action and supporting forecast context.";
 }
 
 function bindMarketingBackground() {
@@ -2508,6 +2540,7 @@ async function authStatus() {
 async function startSocialAuth(provider) {
   state.authBusy = true;
   state.authMessage = "";
+  state.authFieldError = null;
   render();
   try {
     const status = await authStatus();
@@ -2519,6 +2552,7 @@ async function startSocialAuth(provider) {
   } catch (err) {
     state.authBusy = false;
     state.authMessage = err.message;
+    state.authFieldError = null;
     render();
   }
 }
@@ -2732,6 +2766,7 @@ async function handleAuthSubmit(e) {
   const values = Object.fromEntries(new FormData(form).entries());
   state.authBusy = true;
   state.authMessage = "";
+  state.authFieldError = null;
   render();
   try {
     if (mode === "forgot") {
@@ -2783,9 +2818,28 @@ async function handleAuthSubmit(e) {
     showToast(mode === "signup" ? "Account created." : "Signed in.", "success");
   } catch (err) {
     state.authBusy = false;
-    state.authMessage = err.message;
+    state.authFieldError = authFieldErrorFor(mode, err);
+    state.authMessage = state.authFieldError ? "" : err.message;
     render();
   }
+}
+
+function authFieldErrorFor(mode, err) {
+  const message = err.message || "Please check this field and try again.";
+  const byCode = {
+    INVALID_EMAIL: "email",
+    EMAIL_NOT_FOUND: "email",
+    EMAIL_EXISTS: "email",
+    SOCIAL_ACCOUNT: "email",
+    WEAK_PASSWORD: "password",
+    WRONG_PASSWORD: "password",
+    PASSWORD_MISMATCH: "confirmPassword",
+    NAME_REQUIRED: "firstName",
+    INVALID_MFA_CODE: "code",
+    MFA_CHALLENGE_EXPIRED: "code",
+  };
+  const field = byCode[err.code] || (mode === "mfa" ? "code" : "");
+  return field ? { field, message } : null;
 }
 
 function errorAfter(input, text) {
