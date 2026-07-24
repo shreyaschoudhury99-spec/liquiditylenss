@@ -142,7 +142,7 @@ const companyLinks = {
 };
 
 const juneJulyMetrics = [
-  { key: "instagramFollowers", value: "200+", label: "Instagram followers", detail: "Live count from the LiquidityLink Instagram account when Meta API credentials are configured; fallback is the July launch count." },
+  { key: "instagramFollowers", value: "250+", label: "Instagram followers", detail: "Followers since the first LiquidityLink Instagram launch posts in July." },
   { key: "retailers", value: "7", label: "Local retailers connected", detail: "Retailers ready to kick-start the pilot program." },
   { key: "interns", value: "5", label: "Interns recruited", detail: "Supporting outreach, marketing, website development, and business administration." },
   { key: "linkedinImpressions", value: "500+", label: "LinkedIn impressions", detail: "Since the company page was created on 7/22." },
@@ -252,6 +252,9 @@ let state = {
   },
   enterpriseError: "",
   adminBusy: false,
+  inviteBusy: false,
+  inviteMessage: "",
+  inviteMessageType: "success",
   connectionStatus: {
     csv: { status: "not_connected", detail: "Upload a sales CSV to populate forecasts." },
     shopify: { status: "not_connected", detail: "Shopify OAuth is not configured yet." },
@@ -270,6 +273,9 @@ let state = {
   typeFilter: "all",
   catFilter: "all",
   distFilter: 100,
+  marketplaceBusinessQuery: "",
+  marketplaceCityFilter: "",
+  marketplaceStateFilter: "",
   marketplaceLocation: localStorage.getItem("ll_marketplace_location") || "",
   marketplaceListings: [],
   marketplaceOrigin: null,
@@ -854,24 +860,12 @@ function layout(content) {
   const unread = state.notifications.some(n => !n.read);
   const name = workspaceName();
   const initials = workspaceInitials();
-  const publicLinks = [
-    ["/", "Home"],
-    ["/platform", "Platform"],
-    ["/features", "Features"],
-    ["/integrations", "Integrations"],
-    ["/security", "Security"],
-    ["/book-demo", "Book demo"],
-  ];
   return `
     ${state.sidebarOpen ? `<div class="drawer-overlay" data-close-sidebar></div>` : ""}
     <aside class="sidebar ${state.sidebarOpen ? "open" : ""}">
       <div class="sidebar-top">${logo()}</div>
       <div class="store-row"><div class="store-name">${esc(name)}</div><div class="online"><span class="dot"></span>online</div></div>
       <nav class="sidebar-nav" aria-label="Primary">${navItems.map(([path, label, name]) => `<a href="${path}" class="nav-link ${state.path === path ? "active" : ""}" data-route="${path}"><span class="nav-icon">${icon(name)}</span>${label}</a>`).join("")}</nav>
-      <div class="sidebar-public">
-        <div class="sidebar-label">Public website</div>
-        <div class="public-link-grid">${publicLinks.map(([path, label]) => `<a href="${path}" data-route="${path}">${esc(label)}</a>`).join("")}</div>
-      </div>
       <div class="sidebar-bottom">
         <a class="bottom-link" href="/" data-route="/">${icon("globe-2")}<span>Public site</span></a>
         <button class="btn-icon bottom-link" data-how type="button">${icon("help")}<span>How this works</span></button>
@@ -963,7 +957,7 @@ function tractionBand({ eyebrow = "June-July check", title = "Early traction is 
       <p class="eyebrow">${esc(eyebrow)}</p>
       <h2>${esc(title)}</h2>
       <p>${esc(copy)}</p>
-      ${live ? `<p class="traction-meta" data-live-stat-status>Instagram follower count uses the live Meta API when connected.</p>` : ""}
+      ${live ? `<p class="traction-meta" data-live-stat-status>July launch traction snapshot.</p>` : ""}
       ${socialLinkStrip()}
     </div>
     <div class="traction-grid">
@@ -1747,6 +1741,19 @@ function integrationPanel() {
     const validCount = state.csv?.records?.length || 0;
     return `<div class="form-stack">
       <label class="drop-zone" data-drop><input class="hidden" data-csv type="file" accept=".csv" />${icon("upload")}<span>Drop a .csv file here, or click to browse</span></label>
+      <div class="card connection-help csv-help">
+        <div>
+          <p class="eyebrow">Accepted CSV format</p>
+          <p>Upload a plain <strong>.csv</strong> file exported from Shopify, a POS, or a spreadsheet. The first row must contain column headers.</p>
+        </div>
+        <div class="csv-schema-grid">
+          <span><strong>sku</strong><em>Product or variant SKU</em></span>
+          <span><strong>date</strong><em>Sale date, best as YYYY-MM-DD</em></span>
+          <span><strong>quantity sold</strong><em>Units sold on that date</em></span>
+          <span><strong>location</strong><em>Store, warehouse, or region</em></span>
+        </div>
+        <button class="btn-ghost" data-sample-csv type="button">${icon("download")}Download sample CSV</button>
+      </div>
       ${state.csv?.loading ? `<div class="progress"><span></span></div>` : ""}
       ${state.csv?.name && !state.csv.loading ? `<p class="muted">File loaded: ${esc(state.csv.name)}. ${validCount} valid rows ready${errors.length ? `, ${errors.length} rows need fixes` : ""}.</p>` : ""}
       ${state.csv?.rows ? previewTable(state.csv.rows) : ""}
@@ -1765,16 +1772,17 @@ function integrationPanel() {
       <details class="connection-instructions">
         <summary>${icon("help")}<span>How do I connect Shopify?</span></summary>
         <ol class="instruction-list">
-          <li>Paste your Shopify store domain, for example <code>liquiditylink.myshopify.com</code>. Do not paste the Shopify admin settings URL.</li>
-          <li>Press <strong>Connect Shopify</strong>, then approve or install the LiquidityLink app in Shopify.</li>
-          <li>After Shopify sends you back here, press <strong>Sync now</strong> to import orders, products, and inventory.</li>
-          <li>Make sure the Shopify app has <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>, and <code>read_locations</code>.</li>
-          <li>If the dashboard still looks empty, create a completed test order in Shopify and press <strong>Sync now</strong> again.</li>
+          <li><strong>Find your Shopify store domain.</strong> In Shopify Admin, look at the browser address or store settings and copy the domain that ends in <code>.myshopify.com</code>, such as <code>your-store.myshopify.com</code>. Do not paste <code>admin.shopify.com/store/...</code> or a customer-facing domain like <code>yourstore.com</code>.</li>
+          <li><strong>Click Connect Shopify.</strong> LiquidityLink opens Shopify's approval screen. The word “app” here means the Shopify integration connection that lets LiquidityLink read store data after the store owner approves it.</li>
+          <li><strong>Approve the requested read-only permissions.</strong> The integration needs <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>, and <code>read_locations</code>. These let LiquidityLink read order history, product and variant SKUs, inventory quantities, and store locations.</li>
+          <li><strong>Return to LiquidityLink.</strong> Shopify redirects back to this site after approval. LiquidityLink stores the access token server-side, not in the browser.</li>
+          <li><strong>Press Sync now.</strong> Sync imports Shopify products, variants, inventory levels, locations, and recent orders into the dashboard, forecasts, inventory table, and advanced analytics.</li>
+          <li><strong>If forecasts still look empty, check order history.</strong> Inventory can sync without enough sales history. Add or sync completed Shopify orders for the SKUs you want forecasted, then press <strong>Sync now</strong> again.</li>
         </ol>
       </details>
       <div class="card connection-help">
         <p class="eyebrow">Required Shopify scopes</p>
-        <p>Use read_orders, read_products, read_inventory, and read_locations in the Shopify developer dashboard.</p>
+        <p>In the Shopify developer dashboard for the LiquidityLink integration, enable <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>, and <code>read_locations</code>. The callback URL must be <code>/api/integrations/shopify/callback</code> on this site.</p>
       </div>
       <div class="toolbar">
         <button class="btn-primary" type="submit" ${state.connectionsBusy === "shopify" ? "disabled" : ""}>${state.connectionsBusy === "shopify" ? spinner("Opening Shopify...") : "Connect Shopify"}</button>
@@ -1917,7 +1925,18 @@ function marketplaceMessage() {
 
 function marketplacePage() {
   const activeListings = marketplaceListings();
-  const filtered = activeListings.filter(l => (state.typeFilter === "all" || l.type === state.typeFilter) && (state.catFilter === "all" || l.cat === state.catFilter) && Number(l.dist || 0) <= state.distFilter);
+  const query = state.marketplaceBusinessQuery.trim().toLowerCase();
+  const city = state.marketplaceCityFilter.trim().toLowerCase();
+  const stateName = state.marketplaceStateFilter.trim().toLowerCase();
+  const filtered = activeListings.filter(l => {
+    const haystack = `${l.retailer || ""} ${l.product || ""} ${l.address || ""} ${l.brand || ""}`.toLowerCase();
+    return (state.typeFilter === "all" || l.type === state.typeFilter)
+      && (state.catFilter === "all" || l.cat === state.catFilter)
+      && Number(l.dist || 0) <= state.distFilter
+      && (!query || haystack.includes(query))
+      && (!city || haystack.includes(city))
+      && (!stateName || haystack.includes(stateName));
+  });
   const rankedFiltered = [...filtered].sort((a, b) => listingRecommendationScore(b) - listingRecommendationScore(a) || Number(a.dist || 999) - Number(b.dist || 999) || String(a.retailer).localeCompare(String(b.retailer)));
   const outreachRows = rankedFiltered.length ? rankedFiltered : activeListings;
   const hasRealResults = state.marketplaceListings.length > 0;
@@ -1930,6 +1949,9 @@ function marketplacePage() {
     <section class="card marketplace-search-card">
       <form class="marketplace-search" data-marketplace-search>
         <label class="field"><span>Find real nearby businesses</span><input class="input" name="location" value="${attr(state.marketplaceLocation)}" placeholder="City, ZIP, or street address" autocomplete="off"></label>
+        <label class="field"><span>Business name</span><input class="input" name="business" value="${attr(state.marketplaceBusinessQuery)}" placeholder="Optional name search" autocomplete="off"></label>
+        <label class="field"><span>City</span><input class="input" name="city" value="${attr(state.marketplaceCityFilter)}" placeholder="Optional city" autocomplete="off"></label>
+        <label class="field"><span>State</span><input class="input" name="state" value="${attr(state.marketplaceStateFilter)}" placeholder="Optional state" autocomplete="off"></label>
         <label class="field"><span>Category</span><select class="select" name="category"><option value="all">All retail</option><option value="food">Food and grocery</option><option value="apparel">Apparel and outdoor</option><option value="electronics">Electronics</option><option value="home">Home and hardware</option><option value="health">Health and beauty</option></select></label>
         <label class="field"><span>Radius</span><select class="select" name="radius"><option value="10">10 miles</option><option value="25">25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select></label>
         <button class="btn-primary" type="submit" ${state.marketplaceSearchBusy ? "disabled" : ""}>${state.marketplaceSearchBusy ? spinner("Searching...") : "Search nearby"}</button>
@@ -1942,6 +1964,9 @@ function marketplacePage() {
       <select class="select" data-market-filter="typeFilter" style="max-width:190px"><option value="all">All listing types</option><option value="directory">Nearby directory</option><option value="excess">Demo excess</option><option value="shortage">Demo shortage</option></select>
       <select class="select" data-market-filter="catFilter" style="max-width:210px"><option value="all">All categories</option><option value="retail">General retail</option><option value="food">Food and grocery</option><option value="apparel">Apparel and outdoor</option><option value="electronics">Electronics</option><option value="home">Home and hardware</option><option value="health">Health and beauty</option><option value="footwear">Demo footwear</option><option value="outdoor">Demo outdoor</option></select>
       <select class="select" data-market-filter="distFilter" style="max-width:160px"><option value="10">10 miles</option><option value="25">25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select>
+      <input class="input" data-market-text-filter="marketplaceBusinessQuery" style="max-width:240px" value="${attr(state.marketplaceBusinessQuery)}" placeholder="Filter business name" />
+      <input class="input" data-market-text-filter="marketplaceCityFilter" style="max-width:180px" value="${attr(state.marketplaceCityFilter)}" placeholder="Filter city" />
+      <input class="input" data-market-text-filter="marketplaceStateFilter" style="max-width:150px" value="${attr(state.marketplaceStateFilter)}" placeholder="Filter state" />
     </div>
     ${marketplaceInsights(rankedFiltered)}
     <section class="listing-grid">${rankedFiltered.length ? rankedFiltered.map((l, index) => listingCard(l, rankedFiltered, index)).join("") : `<article class="card empty-state">No businesses match your filters. Try a broader category, radius, or nearby city.</article>`}</section>
@@ -2046,13 +2071,16 @@ function listingDetails(l, isDirectory) {
       <span>Quantity</span><strong>${Number(l.qty || 0).toLocaleString()} units</strong>
       <span>Price</span><strong>$${Number(l.price || 0).toLocaleString()}/unit</strong>
       <span>Category</span><strong>${esc(displayCategory(l.cat))}</strong>
+      <span>Email</span>${emailLink(l.email) ? `<a href="${attr(emailLink(l.email))}">${esc(l.email)}</a>` : `<strong>Not listed</strong>`}
     </div>`;
   }
   const phoneHref = phoneLink(l.phone);
+  const emailHref = emailLink(l.email);
   const website = listingWebsite(l);
   return `<div class="listing-detail-grid">
     <span>Address</span><strong>${esc(l.address || "Address not listed")}</strong>
     <span>Phone</span>${phoneHref ? `<a href="${attr(phoneHref)}">${esc(l.phone)}</a>` : `<strong>Not listed</strong>`}
+    <span>Email</span>${emailHref ? `<a href="${attr(emailHref)}">${esc(l.email)}</a>` : `<strong>Not listed</strong>`}
     <span>Website</span>${website ? `<a href="${attr(website)}" target="_blank" rel="noreferrer">${esc(shortUrl(website))}</a>` : `<strong>Not listed</strong>`}
   </div>`;
 }
@@ -2060,8 +2088,10 @@ function listingDetails(l, isDirectory) {
 function listingActions(l, isDirectory) {
   const actions = [];
   const phoneHref = phoneLink(l.phone);
+  const emailHref = emailLink(l.email);
   const website = listingWebsite(l);
   if (phoneHref) actions.push(`<a class="btn-ghost contact-action" href="${attr(phoneHref)}">${icon("phone")}Call</a>`);
+  if (emailHref) actions.push(`<a class="btn-ghost contact-action" href="${attr(emailHref)}">${icon("mail")}Email</a>`);
   if (website) actions.push(`<a class="btn-ghost contact-action" href="${attr(website)}" target="_blank" rel="noreferrer">${icon("globe-2")}Website</a>`);
   if (l.osmUrl) actions.push(`<a class="btn-ghost contact-action" href="${attr(l.osmUrl)}" target="_blank" rel="noreferrer">${icon("map-pin")}Map</a>`);
   actions.push(`<button class="btn-primary contact-action" data-contact="${attr(l.id)}" type="button">${isDirectory ? "Select" : "Contact"}</button>`);
@@ -2193,6 +2223,11 @@ function initials(value) {
 function phoneLink(value) {
   const cleaned = String(value || "").replace(/[^\d+]/g, "");
   return cleaned.length >= 7 ? `tel:${cleaned}` : "";
+}
+
+function emailLink(value) {
+  const email = String(value || "").trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? `mailto:${email}` : "";
 }
 
 function shortUrl(value) {
@@ -2571,36 +2606,65 @@ function adminPage() {
       ${kpiCard("API keys", fmt(activeKeys), "Active integration keys for partner systems.", "info", "secure", false)}
     </section>
 
-    <section class="grid-2">
+    <section class="admin-explainer-grid">
+      <article class="card admin-explainer">
+        <p class="eyebrow">What this page controls</p>
+        <h2 class="text-lg">Admin is the operating control room for the workspace.</h2>
+        <p class="muted">Use it to invite teammates, review who can see the data, check whether Shopify/CSV syncs are healthy, track demo requests, and audit important workspace activity.</p>
+      </article>
+      <article class="card admin-explainer">
+        <p class="eyebrow">Invite collaborators</p>
+        <h2 class="text-lg">Give teammates access to the same planning data.</h2>
+        <form class="admin-invite-form" data-invite-user>
+          <input class="input" name="email" type="email" placeholder="teammate@company.com" required />
+          <select class="select" name="roleName">
+            <option value="viewer">Viewer</option>
+            <option value="member">Member</option>
+            <option value="analyst">Analyst</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button class="btn-primary" type="submit" ${state.inviteBusy ? "disabled" : ""}>${state.inviteBusy ? spinner("Inviting...") : "Invite"}</button>
+        </form>
+        <p class="muted">Viewers can inspect dashboards and reports. Analysts and members are intended for people working with forecasts and inventory. Admins can manage users and settings.</p>
+        ${state.inviteMessage ? `<p class="${state.inviteMessageType === "error" ? "form-error" : "severity-low"}">${esc(state.inviteMessage)}</p>` : ""}
+      </article>
+    </section>
+
+    <section class="admin-section-grid">
       <article class="card">
         <p class="eyebrow">Team and roles</p>
         <h2 class="text-lg">Access control</h2>
+        <p class="muted admin-card-note">Who can view or manage LiquidityLink data for this workspace.</p>
         <div class="table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Email</th><th>Last login</th></tr></thead><tbody>${userRows}</tbody></table></div>
       </article>
       <article class="card">
         <p class="eyebrow">Integrations</p>
         <h2 class="text-lg">Provider health</h2>
+        <p class="muted admin-card-note">Connection status for Shopify, CSV, and other providers feeding forecasts.</p>
         <div class="table-wrap"><table><thead><tr><th>Provider</th><th>Status</th><th>Last sync</th><th>Detail</th></tr></thead><tbody>${providerRows}</tbody></table></div>
       </article>
     </section>
 
-    <section class="grid-2">
+    <section class="admin-section-grid">
       <article class="card">
         <p class="eyebrow">Alerting</p>
         <h2 class="text-lg">Operational alerts</h2>
+        <p class="muted admin-card-note">Threshold breaches and integration problems show up here.</p>
         <div class="table-wrap"><table><thead><tr><th>Alert</th><th>Severity</th><th>Status</th><th>Created</th></tr></thead><tbody>${alertRows}</tbody></table></div>
       </article>
       <article class="card">
         <p class="eyebrow">API access</p>
         <h2 class="text-lg">Keys and scopes</h2>
+        <p class="muted admin-card-note">Controls for future partner APIs and private system connections.</p>
         <div class="table-wrap"><table><thead><tr><th>Key</th><th>Scopes</th><th>Status</th><th>Last used</th></tr></thead><tbody>${keyRows}</tbody></table></div>
       </article>
     </section>
 
-    <section class="grid-2">
+    <section class="admin-section-grid">
       <article class="card">
         <p class="eyebrow">Marketing leads</p>
         <h2 class="text-lg">Demo requests</h2>
+        <p class="muted admin-card-note">Book Demo form submissions are stored here and emailed when SendGrid is configured.</p>
         <div class="table-wrap"><table><thead><tr><th>Company</th><th>Stores</th><th>Goal</th><th>Status</th></tr></thead><tbody>${demoRows}</tbody></table></div>
       </article>
       <article class="card">
@@ -2618,6 +2682,7 @@ function adminPage() {
       <article class="card">
         <p class="eyebrow">Audit log</p>
         <h2 class="text-lg">Recent activity</h2>
+        <p class="muted admin-card-note">Recent system events such as invites, imports, syncs, and settings changes.</p>
         <div class="report-list" style="margin-top:var(--space-4)">${activityRows}</div>
       </article>
     </section>
@@ -2773,12 +2838,14 @@ function bind() {
   document.querySelector("[data-clover-connect]")?.addEventListener("submit", startCloverConnect);
   document.querySelectorAll("[data-sync-source]").forEach(el => el.addEventListener("click", () => syncSource(el.dataset.syncSource)));
   document.querySelector("[data-csv]")?.addEventListener("change", handleCsvFile);
+  document.querySelector("[data-sample-csv]")?.addEventListener("click", downloadSampleCsv);
   document.querySelector("[data-drop]")?.addEventListener("dragover", e => e.preventDefault());
   document.querySelector("[data-drop]")?.addEventListener("drop", e => {
     e.preventDefault();
     loadCsvFile(e.dataTransfer.files[0]);
   });
   document.querySelector("[data-import-csv]")?.addEventListener("click", importCsv);
+  document.querySelector("[data-invite-user]")?.addEventListener("submit", inviteUser);
   document.querySelectorAll("[data-check]").forEach(el => el.addEventListener("click", () => runChecklist(el.dataset.check)));
   document.querySelector("[data-inventory-search]")?.addEventListener("input", e => { state.inventoryFilter = e.target.value; state.inventoryPage = 1; render(); });
   document.querySelector("[data-inventory-sort]")?.addEventListener("change", e => { state.inventorySort = e.target.value; state.inventoryPage = 1; render(); });
@@ -2794,6 +2861,14 @@ function bind() {
     if (lift) lift.textContent = `${Math.round(discount * 0.8)}%`;
   });
   document.querySelectorAll("[data-market-filter]").forEach(el => { el.value = state[el.dataset.marketFilter]; el.addEventListener("change", () => { state[el.dataset.marketFilter] = el.dataset.marketFilter === "distFilter" ? Number(el.value) : el.value; render(); }); });
+  document.querySelectorAll("[data-market-text-filter]").forEach(el => el.addEventListener("input", e => {
+    const key = e.currentTarget.dataset.marketTextFilter;
+    clearTimeout(window.llMarketFilterTimer);
+    window.llMarketFilterTimer = setTimeout(() => {
+      state[key] = e.currentTarget.value;
+      render();
+    }, 180);
+  }));
   document.querySelector("[data-marketplace-search]")?.addEventListener("submit", searchMarketplaceBusinesses);
   const marketplaceSearchForm = document.querySelector("[data-marketplace-search]");
   if (marketplaceSearchForm) {
@@ -2842,16 +2917,16 @@ async function loadLiveStatistics() {
     if (stats.instagramFollowers && followerValue) followerValue.textContent = stats.instagramFollowers;
     if (followerDetail) {
       followerDetail.textContent = stats.instagramFollowersSource === "instagram_graph_api"
-        ? `Live follower count from ${companyLinks.instagram}. Updated ${new Date(stats.updatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`
-        : "Fallback July launch count. Add Meta Instagram Graph API credentials in Render to make this update live.";
+        ? `Current follower count from ${companyLinks.instagram}. Updated ${new Date(stats.updatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`
+        : "Followers since the first LiquidityLink Instagram launch posts in July.";
     }
     if (status) {
       status.textContent = stats.instagramFollowersSource === "instagram_graph_api"
-        ? "Instagram follower count is live."
-        : "Instagram follower count is using the fallback until Meta API credentials are connected.";
+        ? "Instagram follower count is current."
+        : "July launch traction snapshot.";
     }
   } catch {
-    if (status) status.textContent = "Live statistics are temporarily using fallback values.";
+    if (status) status.textContent = "July launch traction snapshot.";
   } finally {
     window.llLiveStatsLoading = false;
   }
@@ -3406,6 +3481,23 @@ function parseSalesCsv(text) {
   return { rows, records, errors };
 }
 
+function downloadSampleCsv() {
+  const csv = [
+    ["sku", "date", "quantity sold", "location"],
+    ["TRAIL-SHOE-M10", "2026-07-01", "12", "North Store"],
+    ["DRY-BAG-10L", "2026-07-01", "4", "West Store"],
+    ["MERINO-LAYER-L", "2026-07-02", "7", "Online"],
+  ].map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "liquiditylink-sales-template.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function importCsv() {
   if (!state.csv?.records?.length) return showToast("Choose a CSV with valid sales rows first.", "error");
   state.providerBusy = true;
@@ -3423,6 +3515,30 @@ async function importCsv() {
     showToast(`Imported ${data.imported} rows. Forecasts are using CSV data now.`, "success");
   } catch (err) {
     state.providerBusy = false;
+    render();
+    showToast(err.message, "error");
+  }
+}
+
+async function inviteUser(e) {
+  e.preventDefault();
+  const form = e.currentTarget;
+  const values = Object.fromEntries(new FormData(form).entries());
+  state.inviteBusy = true;
+  state.inviteMessage = "";
+  render();
+  try {
+    const data = apiPayload(await apiAuthedPost("/api/users", values));
+    state.inviteBusy = false;
+    state.inviteMessageType = "success";
+    state.inviteMessage = `${data.email || values.email} was invited as ${data.roleName || values.roleName || "viewer"}.`;
+    await loadEnterpriseData();
+    render();
+    showToast(state.inviteMessage, "success");
+  } catch (err) {
+    state.inviteBusy = false;
+    state.inviteMessageType = "error";
+    state.inviteMessage = err.message;
     render();
     showToast(err.message, "error");
   }
@@ -3507,6 +3623,9 @@ async function searchMarketplaceBusinesses(e) {
   state.marketplaceSearchBusy = true;
   state.marketplaceError = "";
   state.marketplaceLocation = locationValue;
+  state.marketplaceBusinessQuery = String(values.business || "").trim();
+  state.marketplaceCityFilter = String(values.city || "").trim();
+  state.marketplaceStateFilter = String(values.state || "").trim();
   state.catFilter = values.category || "all";
   state.distFilter = Number(values.radius || 25);
   localStorage.setItem("ll_marketplace_location", locationValue);

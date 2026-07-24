@@ -25,7 +25,7 @@ const mfaTokenMs = 10 * 60 * 1000;
 const bcryptCost = 12;
 const marketplaceUserAgent = process.env.MARKETPLACE_USER_AGENT || `LiquidityLink/1.0 (${appBaseUrl})`;
 const demoRequestInbox = process.env.DEMO_REQUEST_INBOX || "liquiditylink@gmail.com";
-const instagramFallbackFollowers = process.env.INSTAGRAM_FOLLOWERS_FALLBACK || "200+";
+const instagramFallbackFollowers = process.env.INSTAGRAM_FOLLOWERS_FALLBACK || "250+";
 let liveStatsCache = { expiresAt: 0, data: null };
 
 if (process.env.SENDGRID_API_KEY) sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -1937,6 +1937,7 @@ async function searchNearbyNominatimBusinesses({ location, origin, radiusMiles, 
       ? Math.round(haversineMiles(origin, { lat, lon }))
       : null;
     const website = sanitizeExternalUrl(place.extratags?.website || place.extratags?.["contact:website"] || place.extratags?.url);
+    const email = String(place.extratags?.email || place.extratags?.["contact:email"] || "").trim();
     const imageUrl = sanitizeExternalUrl(place.extratags?.image || place.extratags?.logo);
     return {
       id: `nominatim-${place.osm_type || "place"}-${place.osm_id || index}`,
@@ -1952,6 +1953,7 @@ async function searchNearbyNominatimBusinesses({ location, origin, radiusMiles, 
       source: "OpenStreetMap Search",
       address: buildNominatimAddress(place),
       phone: place.extratags?.phone || place.extratags?.["contact:phone"] || "",
+      email,
       website,
       imageUrl,
       lat,
@@ -1982,6 +1984,7 @@ function normalizeOsmBusiness(element, origin, index) {
     tags["contact:url"] ||
     tags["brand:website"]
   );
+  const email = String(tags.email || tags["contact:email"] || "").trim();
   const imageUrl = sanitizeExternalUrl(tags.image || tags["contact:image"] || tags.logo);
   const distance = Number.isFinite(lat) && Number.isFinite(lon)
     ? Math.round(haversineMiles(origin, { lat, lon }))
@@ -2000,6 +2003,7 @@ function normalizeOsmBusiness(element, origin, index) {
     source: "OpenStreetMap",
     address,
     phone: tags.phone || tags["contact:phone"] || tags["contact:mobile"] || "",
+    email,
     website,
     imageUrl,
     lat,
@@ -3165,7 +3169,7 @@ app.post("/api/users", authUser, asyncRoute(async (req, res) => {
   const org = await ensureDefaultOrganization(req.user.sub);
   if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can invite users.", "FORBIDDEN");
   const email = normalizeEmail(req.body.email);
-  if (!isEmail(email)) return error(res, 400, "Enter a valid email address.", "INVALID_EMAIL");
+  if (!isValidEmail(email)) return error(res, 400, "Enter a valid email address.", "INVALID_EMAIL");
   const firstName = String(req.body.firstName || "Invited").trim().slice(0, 80) || "Invited";
   const lastName = String(req.body.lastName || "User").trim().slice(0, 80) || "User";
   const roleName = ["admin", "analyst", "member", "viewer"].includes(req.body.roleName) ? req.body.roleName : "viewer";
@@ -4107,13 +4111,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=18" />
+    <link rel="stylesheet" href="/styles.css?v=21" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=18"></script>
+    <script src="/app.js?v=21"></script>
   </body>
 </html>`;
 }
