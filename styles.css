@@ -1327,6 +1327,15 @@ a { color: inherit; text-decoration: none; }
   padding: clamp(28px, 4vw, 64px) 0 var(--space-12);
 }
 .marketing-hero-copy { align-self: center; }
+.marketing-hero > *,
+.marketing-page-hero > *,
+.interactive-band > *,
+.feature-zigzag article > *,
+.traction-band > *,
+.signal-playground > *,
+.contact-band > * {
+  min-width: 0;
+}
 .marketing-hero h1,
 .marketing-page-hero h1 {
   max-width: 900px;
@@ -1338,6 +1347,7 @@ a { color: inherit; text-decoration: none; }
   letter-spacing: 0;
   text-wrap: balance;
   overflow-wrap: anywhere;
+  word-break: normal;
 }
 .marketing-hero h1 { font-size: clamp(42px, 4.8vw, 76px); }
 .marketing-hero-copy > p:not(.eyebrow),
@@ -2187,6 +2197,33 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .demo-slide:not(:first-child) { display: none; }
 }
 
+@media (max-width: 1280px) {
+  .marketing-hero,
+  .marketing-demo-grid,
+  .marketing-page-hero,
+  .interactive-band,
+  .traction-band,
+  .signal-playground,
+  .contact-band,
+  .feature-zigzag article,
+  .feature-zigzag article.flip {
+    grid-template-columns: 1fr;
+  }
+  .feature-zigzag article.flip > div:first-child { order: 0; }
+  .marketing-page-hero { min-height: auto; }
+  .marketing-page-hero > .product-frame { min-height: 360px; }
+  .marketing-hero,
+  .marketing-page-hero {
+    padding-left: clamp(20px, 3vw, 40px);
+    padding-right: clamp(20px, 3vw, 40px);
+  }
+  .marketing-hero h1,
+  .marketing-page-hero h1 {
+    max-width: min(900px, 100%);
+    font-size: clamp(36px, 5.2vw, 56px);
+  }
+}
+
 @media (max-width: 1000px) {
   .marketing-header {
     grid-template-columns: 1fr;
@@ -2201,18 +2238,6 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .marketing-actions {
     justify-content: flex-start;
   }
-  .marketing-hero,
-  .marketing-demo-grid,
-  .marketing-page-hero,
-  .interactive-band,
-  .traction-band,
-  .signal-playground,
-  .contact-band,
-  .feature-zigzag article,
-  .feature-zigzag article.flip {
-    grid-template-columns: 1fr;
-  }
-  .feature-zigzag article.flip > div:first-child { order: 0; }
   .marketing-card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
