@@ -24,7 +24,7 @@ const resetTokenMs = 60 * 60 * 1000;
 const mfaTokenMs = 10 * 60 * 1000;
 const bcryptCost = 12;
 const marketplaceUserAgent = process.env.MARKETPLACE_USER_AGENT || `LiquidityLink/1.0 (${appBaseUrl})`;
-const demoRequestInbox = "liquiditylens1@gmail.com";
+const demoRequestInbox = process.env.DEMO_REQUEST_INBOX || "liquiditylink@gmail.com";
 
 if (process.env.SENDGRID_API_KEY) sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
@@ -2648,11 +2648,7 @@ app.post("/api/demo-request", demoLimiter, asyncRoute(async (req, res) => {
   if (!company) return error(res, 400, "Company is required.", "COMPANY_REQUIRED");
   if (!stores) return error(res, 400, "Store count is required.", "STORES_REQUIRED");
   if (!goal) return error(res, 400, "Tell us what you want to improve.", "GOAL_REQUIRED");
-  if (!process.env.SENDGRID_API_KEY) {
-    return error(res, 503, "Demo email is not configured yet. Add SENDGRID_API_KEY in Render, then retry.", "EMAIL_NOT_CONFIGURED");
-  }
 
-  const fromEmail = process.env.SENDGRID_FROM_EMAIL || "no-reply@liquiditylink.example";
   const lines = [
     "New LiquidityLink demo request",
     "",
@@ -2664,9 +2660,9 @@ app.post("/api/demo-request", demoLimiter, asyncRoute(async (req, res) => {
     `IP: ${req.ip || "unknown"}`,
     `User agent: ${req.get("user-agent") || "unknown"}`,
   ];
-  await sgMail.send({
+  const emailPayload = {
     to: demoRequestInbox,
-    from: fromEmail,
+    from: process.env.SENDGRID_FROM_EMAIL,
     replyTo: email,
     subject: `LiquidityLink demo request from ${company}`,
     text: lines.join("\n"),
@@ -2679,8 +2675,25 @@ app.post("/api/demo-request", demoLimiter, asyncRoute(async (req, res) => {
       ["IP", req.ip || "unknown"],
       ["User agent", req.get("user-agent") || "unknown"],
     ].map(([label, value]) => `<tr><th align="left" style="padding:6px 12px 6px 0;">${label}</th><td style="padding:6px 0;">${String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char])}</td></tr>`).join("")}</table>`,
-  });
-  res.json({ ok: true });
+  };
+
+  if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
+    console.warn(`Demo request received without email delivery configured. Forward to ${demoRequestInbox}:\n${lines.join("\n")}`);
+    return res.json({ ok: true, emailDelivery: "not_configured" });
+  }
+
+  try {
+    await sgMail.send(emailPayload);
+    return res.json({ ok: true, emailDelivery: "sent" });
+  } catch (err) {
+    console.error("SendGrid demo request delivery failed. Request was accepted for manual follow-up.", {
+      message: err.message,
+      code: err.code,
+      response: err.response?.body,
+      demoRequest: { email, company, stores, goal, submittedAt: submittedAt.toISOString() },
+    });
+    return res.json({ ok: true, emailDelivery: "failed" });
+  }
 }));
 
 app.post("/api/auth/signin", authLimiter, asyncRoute(async (req, res) => {
