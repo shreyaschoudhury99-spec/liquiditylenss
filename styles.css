@@ -1912,16 +1912,29 @@ a { color: inherit; text-decoration: none; }
 }
 .product-frame-art .clean-forecast-visual > svg,
 .forecast-mockup-svg {
-  max-height: clamp(210px, 26vw, 360px);
+  width: min(100%, 760px);
+  max-height: clamp(180px, 20vw, 280px);
+  justify-self: center;
 }
 .clean-forecast-visual {
   min-height: auto;
+  max-width: 860px;
+  width: 100%;
+  justify-self: center;
 }
 .product-frame-art .clean-forecast-visual {
   align-content: center;
 }
 .product-frame-art .forecast-mockup-svg {
   align-self: center;
+}
+.hero-forecast {
+  display: grid;
+  place-items: center;
+}
+.hero-forecast .forecast-mockup-svg {
+  width: min(100%, 760px);
+  max-height: clamp(180px, 20vw, 280px);
 }
 .sku-action-list {
   display: grid;

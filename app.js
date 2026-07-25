@@ -915,7 +915,7 @@ function searchDropdown() {
 function notificationsPanel() {
   return `<div class="notification-panel">
     <div class="notification-head"><strong>Notifications</strong><button class="btn-ghost" data-mark-read type="button">Mark all read</button></div>
-    ${state.notifications.map(n => `<div class="notification-item ${n.read ? "" : "unread"}"><span class="dot" style="background: var(--${n.type === "warning" ? "yellow" : n.type === "success" ? "green" : "accent"})"></span><div>${esc(n.text)}<span class="notification-time">${n.time}</span></div></div>`).join("")}
+    ${state.notifications.map(n => `<div class="notification-item ${n.read ? "" : "unread"}"><span class="dot" style="background: var(--${n.type === "warning" ? "yellow" : n.type === "success" ? "green" : "accent"})"></span><div>${esc(n.text)}<span class="notification-time">${esc(n.time)}</span></div></div>`).join("")}
   </div>`;
 }
 
@@ -3282,6 +3282,17 @@ function normalizeMember(row = {}) {
   };
 }
 
+function normalizeNotification(row = {}) {
+  const createdAt = row.createdAt || row.created_at;
+  return {
+    id: row.id,
+    type: row.type || "info",
+    text: row.text || row.message || row.title || "Notification",
+    time: row.time || (createdAt ? new Date(createdAt).toLocaleString() : "just now"),
+    read: Boolean(row.read ?? row.read_at),
+  };
+}
+
 async function loadEnterpriseData() {
   if (!state.accessToken) return;
   try {
@@ -3308,7 +3319,7 @@ async function loadEnterpriseData() {
       activeWorkspaceId,
       users: apiPayload(users, "users").map(normalizeMember),
       alerts: apiPayload(alerts, "alerts"),
-      notifications: apiPayload(notifications, "notifications"),
+      notifications: apiPayload(notifications, "notifications").map(normalizeNotification),
       settings: apiPayload(settings, "settings"),
       apiKeys: apiPayload(apiKeys, "apiKeys"),
       activity: apiPayload(activity, "activity"),
@@ -3673,8 +3684,15 @@ async function inviteUser(e) {
     const data = apiPayload(await apiAuthedPost("/api/users", values));
     state.inviteBusy = false;
     state.inviteMessageType = "success";
-    const delivery = data.inviteDelivery === "sent" ? " Email sent." : data.inviteDelivery === "failed" ? " Email failed, but the in-app invite is saved." : " The in-app invite is saved; configure SendGrid to email invitees.";
-    state.inviteMessage = `${data.email || values.email} was invited as ${data.roleName || values.roleName || "viewer"}.${delivery}`;
+    const accessNote = data.status === "active"
+      ? "They already have active access; tell them to use the workspace switcher."
+      : "They must sign in with that exact email, then open Admin > Workspace invites.";
+    const delivery = data.inviteDelivery === "sent"
+      ? "Email sent."
+      : data.inviteDelivery === "failed"
+        ? "Email failed, but the in-app invite and notification were saved."
+        : "No email was sent because SendGrid is not configured on Render; the in-app invite and notification were saved.";
+    state.inviteMessage = `${data.email || values.email} was invited as ${data.roleName || values.roleName || "viewer"}. ${delivery} ${accessNote}`;
     await loadEnterpriseData();
     render();
     showToast(state.inviteMessage, "success");

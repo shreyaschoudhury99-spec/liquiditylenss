@@ -3293,18 +3293,20 @@ app.post("/api/users", authUser, asyncRoute(async (req, res) => {
       [email, firstName, lastName]
     )).rows[0];
   }
-  await pool.query(
+  const membership = await pool.query(
     `INSERT INTO organization_members (organization_id, user_id, role_name, status)
      VALUES ($1, $2, $3, 'invited')
      ON CONFLICT (organization_id, user_id) DO UPDATE
      SET role_name = EXCLUDED.role_name,
          status = CASE
-           WHEN organization_members.status = 'active' THEN 'active'
+         WHEN organization_members.status = 'active' THEN 'active'
            ELSE 'invited'
          END,
-         updated_at = now()`,
+         updated_at = now()
+     RETURNING status`,
     [org.id, user.id, roleName]
   );
+  const membershipStatus = membership.rows[0]?.status || "invited";
   let inviteDelivery = "not_configured";
   if (process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM_EMAIL) {
     try {
@@ -3327,8 +3329,20 @@ app.post("/api/users", authUser, asyncRoute(async (req, res) => {
       console.error("SendGrid invite delivery failed. Invite remains visible in-app.", { message: err.message, code: err.code, response: err.response?.body });
     }
   }
+  await pool.query(
+    `INSERT INTO notifications (user_id, organization_id, type, title, message)
+     VALUES ($1, $2, 'info', $3, $4)`,
+    [
+      user.id,
+      org.id,
+      `Workspace invite: ${org.name}`,
+      membershipStatus === "active"
+        ? `You already have access to ${org.name} as ${roleName}. Use the workspace switcher to open it.`
+        : `You were invited to join ${org.name} as ${roleName}. Open Admin > Workspace invites to accept or decline.`,
+    ]
+  );
   await recordActivity(req, "user.invited", "user", user.id, { email, roleName });
-  apiOk(res, { id: user.id, email, roleName, status: "invited", inviteDelivery });
+  apiOk(res, { id: user.id, email, roleName, status: membershipStatus, inviteDelivery });
 }));
 
 app.put("/api/users/:id", authUser, asyncRoute(async (req, res) => {
@@ -4250,13 +4264,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=24" />
+    <link rel="stylesheet" href="/styles.css?v=25" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=24"></script>
+    <script src="/app.js?v=25"></script>
   </body>
 </html>`;
 }
