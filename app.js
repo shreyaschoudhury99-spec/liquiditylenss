@@ -226,6 +226,7 @@ let state = {
   loading: true,
   syncing: false,
   sidebarOpen: false,
+  marketingMenuOpen: false,
   search: "",
   searchOpen: false,
   highlightedSku: Number(sessionStorage.getItem("ll_highlight_sku")) || null,
@@ -815,6 +816,7 @@ function navigate(path) {
   state.searchOpen = false;
   state.notificationsOpen = false;
   state.sidebarOpen = false;
+  state.marketingMenuOpen = false;
   if (publicRoutes.has(path)) {
     state.loading = false;
     render();
@@ -925,13 +927,16 @@ function marketingLayout(content) {
     <div class="ambient-product-backdrop" aria-hidden="true"><span></span><span></span><span></span></div>
     <header class="marketing-header">
       <a class="marketing-brand" href="/" data-route="/">${logo()}</a>
-      <nav class="marketing-nav" aria-label="Website navigation">
-        ${marketingNav.map(([path, label]) => `<a href="${path}" data-route="${path}" class="${state.path === path ? "active" : ""}">${label}</a>`).join("")}
-      </nav>
-      <div class="marketing-actions">
-        <button class="btn-icon" data-theme type="button" aria-label="Switch to ${currentTheme() === "light" ? "dark" : "light"} theme">${icon(currentTheme() === "light" ? "moon" : "sun")}</button>
-        <a class="btn-ghost" href="${signedIn ? "/dashboard" : "/login"}" ${signedIn ? 'data-route="/dashboard"' : ""}>${signedIn ? "Open app" : "Sign in"}</a>
-        <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
+      <button class="btn-ghost marketing-menu-button" data-marketing-menu type="button" aria-expanded="${state.marketingMenuOpen ? "true" : "false"}">${icon("menu")}Menu</button>
+      <div class="marketing-menu ${state.marketingMenuOpen ? "open" : ""}">
+        <nav class="marketing-nav" aria-label="Website navigation">
+          ${marketingNav.map(([path, label]) => `<a href="${path}" data-route="${path}" class="${state.path === path ? "active" : ""}">${label}</a>`).join("")}
+        </nav>
+        <div class="marketing-actions">
+          <button class="btn-icon" data-theme type="button" aria-label="Switch to ${currentTheme() === "light" ? "dark" : "light"} theme">${icon(currentTheme() === "light" ? "moon" : "sun")}</button>
+          <a class="btn-ghost" href="${signedIn ? "/dashboard" : "/login"}" ${signedIn ? 'data-route="/dashboard"' : ""}>${signedIn ? "Open app" : "Sign in"}</a>
+          <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
+        </div>
       </div>
     </header>
     <main class="marketing-main">${content}</main>
@@ -2582,6 +2587,9 @@ function adminPage() {
   const members = Number(counts.members || users.length || 0);
   const openAlerts = alerts.filter(a => a.status !== "resolved").length;
   const activeKeys = apiKeys.filter(k => !k.revoked).length;
+  const canManageUsers = (overview.permissions || []).includes("users:manage");
+  const currentUserId = state.authUser?.id || state.authUser?.sub || "";
+  const roleOptions = ["viewer", "member", "analyst", "admin"];
   const providerRows = providers.length ? providers.map(provider => `
     <tr>
       <td><strong>${esc(provider.provider)}</strong><br><span class="muted mono">${esc(provider.externalAccount || "No account linked")}</span></td>
@@ -2590,14 +2598,27 @@ function adminPage() {
       <td>${esc(provider.detail || "No detail")}</td>
     </tr>
   `).join("") : `<tr><td colspan="4" class="muted">No integrations have reported status yet.</td></tr>`;
-  const userRows = users.length ? users.map(user => `
+  const userRows = users.length ? users.map(user => {
+    const isSelf = user.id === currentUserId;
+    const isOwner = user.role === "owner";
+    const roleCell = canManageUsers && !isSelf && !isOwner
+      ? `<select class="select compact-select" data-member-role="${attr(user.id)}" aria-label="Change ${attr(user.email)} role">
+          ${roleOptions.map(role => `<option value="${role}" ${user.role === role ? "selected" : ""}>${role[0].toUpperCase()}${role.slice(1)}</option>`).join("")}
+        </select>`
+      : `<span class="badge badge--info">${esc(user.role || "viewer")}</span>`;
+    const actionCell = canManageUsers && !isSelf && !isOwner
+      ? `<button class="btn-ghost btn-compact danger-btn-inline" data-remove-member="${attr(user.id)}" data-member-email="${attr(user.email)}" type="button">Remove</button>`
+      : `<span class="muted">${isSelf ? "You" : "Protected"}</span>`;
+    return `
     <tr>
       <td><strong>${esc(`${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email)}</strong><br><span class="muted mono">${esc(user.email)}</span></td>
-      <td><span class="badge badge--info">${esc(user.role || "viewer")}</span></td>
+      <td>${roleCell}</td>
       <td>${user.emailVerified ? "Verified" : "Unverified"}</td>
       <td>${esc(user.lastLogin ? new Date(user.lastLogin).toLocaleString() : "No login recorded")}</td>
+      <td>${actionCell}</td>
     </tr>
-  `).join("") : `<tr><td colspan="4" class="muted">No team members found.</td></tr>`;
+  `;
+  }).join("") : `<tr><td colspan="5" class="muted">No team members found.</td></tr>`;
   const alertRows = alerts.length ? alerts.map(alert => `
     <tr>
       <td><strong>${esc(alert.title)}</strong><br><span class="muted">${esc(alert.message || "")}</span></td>
@@ -2633,7 +2654,10 @@ function adminPage() {
         <strong>${esc(workspace.name)}</strong>
         <span class="muted">${esc(workspace.roleName || workspace.role_name || "member")} · ${esc(workspace.plan || "trial")}</span>
       </div>
-      <button class="btn-ghost" data-workspace-select="${attr(workspace.id)}" type="button" ${workspace.id === state.enterprise.activeWorkspaceId ? "disabled" : ""}>${workspace.id === state.enterprise.activeWorkspaceId ? "Current" : "Switch"}</button>
+      <div class="workspace-actions">
+        <button class="btn-ghost" data-workspace-select="${attr(workspace.id)}" type="button" ${workspace.id === state.enterprise.activeWorkspaceId ? "disabled" : ""}>${workspace.id === state.enterprise.activeWorkspaceId ? "Current" : "Switch"}</button>
+        <button class="btn-ghost danger-btn-inline" data-workspace-remove="${attr(workspace.id)}" data-workspace-name="${attr(workspace.name)}" data-workspace-role="${attr(workspace.roleName || workspace.role_name || "member")}" type="button">${(workspace.roleName || workspace.role_name) === "owner" ? "Remove" : "Leave"}</button>
+      </div>
     </div>
   `).join("") : `<p class="muted">Your personal workspace will appear here after sign-in.</p>`;
   const inviteRows = pendingInvites.length ? pendingInvites.map(invite => `
@@ -2713,7 +2737,7 @@ function adminPage() {
         <p class="eyebrow">Team and roles</p>
         <h2 class="text-lg">Access control</h2>
         <p class="muted admin-card-note">Who can view or manage LiquidityLink data for this workspace.</p>
-        <div class="table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Email</th><th>Last login</th></tr></thead><tbody>${userRows}</tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Email</th><th>Last login</th><th>Actions</th></tr></thead><tbody>${userRows}</tbody></table></div>
       </article>
       <article class="card">
         <p class="eyebrow">Integrations</p>
@@ -2924,9 +2948,16 @@ function bind() {
   });
   document.querySelector("[data-import-csv]")?.addEventListener("click", importCsv);
   document.querySelector("[data-invite-user]")?.addEventListener("submit", inviteUser);
+  document.querySelector("[data-marketing-menu]")?.addEventListener("click", () => {
+    state.marketingMenuOpen = !state.marketingMenuOpen;
+    render();
+  });
   document.querySelector("[data-workspace-switch]")?.addEventListener("change", e => switchWorkspace(e.target.value));
   document.querySelectorAll("[data-workspace-select]").forEach(el => el.addEventListener("click", () => switchWorkspace(el.dataset.workspaceSelect)));
+  document.querySelectorAll("[data-workspace-remove]").forEach(el => el.addEventListener("click", () => removeWorkspaceMembership(el.dataset.workspaceRemove, el.dataset.workspaceName, el.dataset.workspaceRole)));
   document.querySelectorAll("[data-invite-action]").forEach(el => el.addEventListener("click", () => respondToWorkspaceInvite(el.dataset.inviteOrg, el.dataset.inviteAction)));
+  document.querySelectorAll("[data-member-role]").forEach(el => el.addEventListener("change", () => updateMemberRole(el.dataset.memberRole, el.value)));
+  document.querySelectorAll("[data-remove-member]").forEach(el => el.addEventListener("click", () => removeMember(el.dataset.removeMember, el.dataset.memberEmail)));
   document.querySelectorAll("[data-check]").forEach(el => el.addEventListener("click", () => runChecklist(el.dataset.check)));
   document.querySelector("[data-inventory-search]")?.addEventListener("input", e => { state.inventoryFilter = e.target.value; state.inventoryPage = 1; render(); });
   document.querySelector("[data-inventory-sort]")?.addEventListener("change", e => { state.inventorySort = e.target.value; state.inventoryPage = 1; render(); });
@@ -3214,6 +3245,41 @@ async function apiAuthedPost(path, body) {
     headers: authedHeaders({ "Content-Type": "application/json" }),
     credentials: "same-origin",
     body: JSON.stringify(body || {}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const err = new Error(data.error || "Request failed. Please try again.");
+    err.code = data.code;
+    err.status = data.status;
+    throw err;
+  }
+  return data;
+}
+
+async function apiAuthedPut(path, body) {
+  if (!state.accessToken) throw new Error("Sign in required.");
+  const response = await fetch(path, {
+    method: "PUT",
+    headers: authedHeaders({ "Content-Type": "application/json" }),
+    credentials: "same-origin",
+    body: JSON.stringify(body || {}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const err = new Error(data.error || "Request failed. Please try again.");
+    err.code = data.code;
+    err.status = data.status;
+    throw err;
+  }
+  return data;
+}
+
+async function apiAuthedDelete(path) {
+  if (!state.accessToken) throw new Error("Sign in required.");
+  const response = await fetch(path, {
+    method: "DELETE",
+    headers: authedHeaders(),
+    credentials: "same-origin",
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -3729,6 +3795,65 @@ async function respondToWorkspaceInvite(organizationId, action) {
     }
     await Promise.all([loadEnterpriseData(), loadConnectionData()]);
     showToast(action === "accept" ? "Workspace invite accepted." : "Workspace invite declined.", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  } finally {
+    state.adminBusy = false;
+    render();
+  }
+}
+
+async function removeWorkspaceMembership(organizationId, workspaceName, roleName) {
+  if (!organizationId) return;
+  const isOwner = roleName === "owner";
+  const verb = isOwner ? "remove" : "leave";
+  const ok = window.confirm(`Are you sure you want to ${verb} ${workspaceName || "this workspace"}?`);
+  if (!ok) return;
+  state.adminBusy = true;
+  render();
+  try {
+    const data = apiPayload(await apiAuthedDelete(`/api/workspaces/${organizationId}/membership`));
+    if (state.enterprise.activeWorkspaceId === organizationId) {
+      state.enterprise.activeWorkspaceId = "";
+      localStorage.removeItem("ll_active_workspace_id");
+    }
+    await Promise.all([loadEnterpriseData(), loadConnectionData()]);
+    showToast(data.deletedWorkspace ? "Workspace removed." : "Workspace left.", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  } finally {
+    state.adminBusy = false;
+    render();
+  }
+}
+
+async function updateMemberRole(userId, roleName) {
+  if (!userId || !roleName) return;
+  state.adminBusy = true;
+  render();
+  try {
+    await apiAuthedPut(`/api/users/${userId}`, { roleName });
+    await loadEnterpriseData();
+    showToast("Member permission updated.", "success");
+  } catch (err) {
+    await loadEnterpriseData();
+    showToast(err.message, "error");
+  } finally {
+    state.adminBusy = false;
+    render();
+  }
+}
+
+async function removeMember(userId, email) {
+  if (!userId) return;
+  const ok = window.confirm(`Remove ${email || "this user"} from this workspace?`);
+  if (!ok) return;
+  state.adminBusy = true;
+  render();
+  try {
+    await apiAuthedDelete(`/api/users/${userId}`);
+    await loadEnterpriseData();
+    showToast("Member removed from workspace.", "success");
   } catch (err) {
     showToast(err.message, "error");
   } finally {

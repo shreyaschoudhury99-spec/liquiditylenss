@@ -827,8 +827,12 @@ async function ensureDefaultOrganization(userId) {
 
   const baseName = `${user.first_name || "LiquidityLink"} Workspace`;
   const baseSlug = slugify(baseName);
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const slug = attempt ? `${baseSlug}-${attempt + 1}` : baseSlug;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const slug = attempt === 0
+      ? baseSlug
+      : attempt < 5
+        ? `${baseSlug}-${attempt + 1}`
+        : `${baseSlug}-${crypto.randomUUID().slice(0, 8)}`;
     try {
       const orgResult = await pool.query(
         `INSERT INTO organizations (name, slug, owner_user_id)
@@ -851,7 +855,7 @@ async function ensureDefaultOrganization(userId) {
       );
       return { ...org, role_name: "owner", status: "active" };
     } catch (err) {
-      if (err.code !== "23505" || attempt === 4) throw err;
+      if (err.code !== "23505" || attempt === 9) throw err;
     }
   }
   throw new Error("Could not create organization");
@@ -3228,6 +3232,41 @@ app.get("/api/workspaces", authUser, asyncRoute(async (req, res) => {
   });
 }));
 
+app.delete("/api/workspaces/:organizationId/membership", authUser, asyncRoute(async (req, res) => {
+  const organizationId = req.params.organizationId;
+  const result = await pool.query(
+    `SELECT o.id, o.name, o.owner_user_id, om.role_name, om.status
+     FROM organization_members om
+     JOIN organizations o ON o.id = om.organization_id
+     WHERE om.organization_id = $1 AND om.user_id = $2`,
+    [organizationId, req.user.sub]
+  );
+  const membership = result.rows[0];
+  if (!membership) return error(res, 404, "Workspace membership not found.", "WORKSPACE_MEMBERSHIP_NOT_FOUND");
+
+  if (membership.owner_user_id === req.user.sub && membership.role_name === "owner") {
+    const activeMembers = await pool.query(
+      `SELECT count(*)::int AS count
+       FROM organization_members
+       WHERE organization_id = $1 AND status = 'active' AND user_id <> $2`,
+      [organizationId, req.user.sub]
+    );
+    if (activeMembers.rows[0].count > 0) {
+      return error(res, 400, "Remove active teammates before deleting an owned workspace.", "OWNED_WORKSPACE_HAS_MEMBERS");
+    }
+    await pool.query("DELETE FROM organizations WHERE id = $1 AND owner_user_id = $2", [organizationId, req.user.sub]);
+    await recordActivity(req, "workspace.deleted", "organization", organizationId, { name: membership.name });
+    return apiOk(res, { removed: true, deletedWorkspace: true });
+  }
+
+  await pool.query(
+    "DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2",
+    [organizationId, req.user.sub]
+  );
+  await recordActivity(req, "workspace.left", "organization", organizationId, { name: membership.name });
+  apiOk(res, { removed: true, deletedWorkspace: false });
+}));
+
 app.get("/api/invitations", authUser, asyncRoute(async (req, res) => {
   const workspaces = await getUserOrganizations(req.user.sub);
   apiOk(res, { invitations: workspaces.filter(workspace => workspace.status === "invited") });
@@ -4264,13 +4303,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=25" />
+    <link rel="stylesheet" href="/styles.css?v=26" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=25"></script>
+    <script src="/app.js?v=26"></script>
   </body>
 </html>`;
 }
