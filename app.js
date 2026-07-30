@@ -87,42 +87,85 @@ const seasonalData = [
 
 const pricingTiers = [
   {
-    name: "Small Retailers",
-    size: "1-5 stores",
-    price: "$199-499",
+    name: "Starter",
+    size: "Independent retailers (1-5 locations)",
+    price: "$79",
     cadence: "/month",
-    summary: "Core visibility for teams replacing spreadsheet-based inventory planning.",
-    features: ["Demand forecasting", "Inventory alerts", "Dashboard access"],
-    cta: "Choose Small",
+    annual: "$948/year",
+    summary: "Best for independent retailers that need connected data, forecasting, and risk visibility without extra workflow complexity.",
+    features: ["Shopify Integration", "ERP & Inventory System Integration", "CSV Import & Export", "ARIMA & XGBoost Forecasting", "Monte Carlo Risk Analysis", "Inventory Risk Score", "Revenue at Risk Dashboard", "Demand Forecasting", "Inventory Alerts", "Basic Reports", "Email Support"],
+    cta: "Start Starter",
   },
   {
-    name: "Regional Retailers",
-    size: "5-50 stores",
-    price: "$1,000-5,000",
+    name: "Growth",
+    size: "Growing regional retailers (5-25 locations)",
+    price: "$199",
     cadence: "/month",
-    summary: "Advanced forecasting and risk analysis for multi-location operators.",
-    features: ["ARIMA + XGBoost forecasting", "Monte Carlo risk analysis", "Inventory risk scoring"],
-    cta: "Choose Regional",
+    annual: "$2,388/year",
+    summary: "Best for growing regional retailers that need marketplace coordination, team collaboration, and multi-location inventory planning.",
+    features: ["Everything in Starter", "Marketplace Access", "Inventory Transfer Recommendations", "Multi-Location Inventory Dashboard", "Team Collaboration", "Automated Weekly Reports", "Marketplace Matching Engine", "Advanced Inventory Analytics", "Priority Support"],
+    cta: "Choose Growth",
     featured: true,
   },
   {
-    name: "Large National Retailers",
-    size: "National networks",
-    price: "$10,000-50,000+",
+    name: "Professional",
+    size: "Multi-region retailers (25-100 locations)",
+    price: "$499",
     cadence: "/month",
-    summary: "Full operating layer for inventory optimization and network coordination.",
-    features: ["Full platform access", "Optimization engine", "API integration", "Marketplace access"],
-    cta: "Talk to Sales",
+    annual: "$5,988/year",
+    summary: "Best for multi-region retailers that need executive analytics, custom reporting, advanced optimization, and scenario planning.",
+    features: ["Everything in Growth", "Executive Analytics Dashboard", "Custom Report Builder", "Role-Based Access Control", "Scheduled Analytics Reports", "Marketplace Performance Analytics", "Advanced Optimization Engine", "Forecast Comparison & Scenario Planning", "Dedicated Customer Success Manager"],
+    cta: "Choose Professional",
   },
   {
-    name: "Enterprise Contracts",
-    size: "Custom scale",
-    price: "$250K-2M",
-    cadence: "/year",
-    summary: "Dedicated analytics partnerships for complex retail and private data needs.",
-    features: ["Custom model training", "Private integrations", "Dedicated analytics support"],
+    name: "Enterprise",
+    size: "National retail chains (100+ locations)",
+    price: "Custom",
+    cadence: "",
+    annual: "Up to approx. $10,000/year",
+    summary: "Best for national retail chains that need white-glove onboarding, custom integrations, SLAs, and training for operations teams.",
+    features: ["Everything in Professional", "White-Glove Onboarding", "Dedicated Account Manager", "Custom Integrations", "Private API Endpoints", "SLA & Priority Support", "Early Feature Access", "Custom Analytics & Dashboards", "Training for Operations Teams"],
     cta: "Contact Enterprise",
   },
+];
+
+const pricingComparisonRows = [
+  ["Shopify Integration", true, true, true, true],
+  ["ERP / IMS Integration", true, true, true, true],
+  ["CSV Import & Export", true, true, true, true],
+  ["ARIMA Forecasting", true, true, true, true],
+  ["XGBoost Forecasting", true, true, true, true],
+  ["Monte Carlo Simulation", true, true, true, true],
+  ["Inventory Risk Score", true, true, true, true],
+  ["Revenue at Risk Dashboard", true, true, true, true],
+  ["Demand Forecasting", true, true, true, true],
+  ["Inventory Alerts", true, true, true, true],
+  ["Basic Reports", true, true, true, true],
+  ["Email Support", true, true, true, true],
+  ["Marketplace Access", false, true, true, true],
+  ["Transfer Recommendations", false, true, true, true],
+  ["Multi-Location Inventory Dashboard", false, true, true, true],
+  ["Team Collaboration", false, true, true, true],
+  ["Automated Weekly Reports", false, true, true, true],
+  ["Marketplace Matching Engine", false, true, true, true],
+  ["Advanced Analytics", false, true, true, true],
+  ["Priority Support", false, true, true, true],
+  ["Executive Dashboards", false, false, true, true],
+  ["Custom Report Builder", false, false, true, true],
+  ["Role-Based Access Control", false, false, true, true],
+  ["Scheduled Analytics Reports", false, false, true, true],
+  ["Marketplace Performance Analytics", false, false, true, true],
+  ["Advanced Optimization Engine", false, false, true, true],
+  ["Scenario Planning", false, false, true, true],
+  ["Dedicated Customer Success Manager", false, false, true, true],
+  ["Custom Dashboards", false, false, true, true],
+  ["White-Glove Onboarding", false, false, false, true],
+  ["Dedicated Account Manager", false, false, false, true],
+  ["Custom Integrations", false, false, false, true],
+  ["Private API Endpoints", false, false, false, true],
+  ["SLA & Priority Support", false, false, false, true],
+  ["Early Feature Access", false, false, false, true],
+  ["Training for Operations Teams", false, false, false, true],
 ];
 
 const marketingNav = [
@@ -1241,18 +1284,50 @@ function growthImpactVisual() {
 
 function pricingModelVisual() {
   return `<div class="pricing-visual">
-    <div class="chart-label"><strong>Pilot economics</strong><span>illustrative monthly range</span></div>
-    <div class="pricing-curve">
-      ${[["CSV", 18], ["Shopify", 32], ["Multi-store", 58], ["Optimization", 84]].map(([label, height]) => `<span style="--height:${height}%"><b></b><em>${esc(label)}</em></span>`).join("")}
+    <div class="chart-label"><strong>Pricing model</strong><span>monthly subscription tiers</span></div>
+    <div class="pricing-tier-strip">
+      ${pricingTiers.map(tier => `<span class="${tier.featured ? "featured" : ""}"><strong>${esc(tier.name)}</strong><em>${esc(tier.price)}${tier.cadence ? esc(tier.cadence) : ""}</em></span>`).join("")}
     </div>
-    <div class="pricing-mini-kpis">
-      <span><strong>30-60d</strong><em>pilot</em></span>
-      <span><strong>SKU + store</strong><em>scope</em></span>
-      <span><strong>Sales-led</strong><em>range</em></span>
-    </div>
-    ${[["Small", "$199-$499", "CSV / Shopify pilot"], ["Regional", "$1K-$5K", "Multi-store risk modeling"], ["Enterprise", "$10K+", "Custom analytics + support"]].map(([tier, price, note]) => `<div class="persona-row"><span><strong>${tier}</strong><em>${note}</em></span><b>${price}</b></div>`).join("")}
-    <p class="chart-caption">Pricing is shown as a sales-led range because deployment scope changes with store count, data sources, and analytics depth.</p>
+    ${pricingTiers.map(tier => `<div class="persona-row"><span><strong>${esc(tier.name)}</strong><em>${esc(tier.size)}</em></span><b>${esc(tier.annual)}</b></div>`).join("")}
+    <p class="chart-caption">Starter, Growth, and Professional are fixed monthly subscriptions. Enterprise is custom for national chains and larger deployments.</p>
   </div>`;
+}
+
+function pricingCards() {
+  return `<section class="pricing-grid marketing-pricing-grid">
+    ${pricingTiers.map(tier => `<article class="pricing-card ${tier.featured ? "pricing-card--featured" : ""}">
+      ${tier.featured ? `<span class="badge badge--info pricing-featured-badge">Most Popular</span>` : ""}
+      <div>
+        <p class="eyebrow">Best for ${esc(tier.size)}</p>
+        <h2 class="text-lg">${esc(tier.name)}</h2>
+        <p class="pricing-summary">${esc(tier.summary)}</p>
+      </div>
+      <div class="pricing-price"><strong>${esc(tier.price)}</strong>${tier.cadence ? `<span>${esc(tier.cadence)}</span>` : ""}</div>
+      <p class="pricing-annual">${esc(tier.annual)}</p>
+      <ul class="pricing-feature-list">${tier.features.map(feature => `<li>${esc(feature)}</li>`).join("")}</ul>
+      <a class="${tier.featured ? "btn-primary" : "btn-ghost"}" href="/book-demo" data-route="/book-demo">${esc(tier.cta)}</a>
+    </article>`).join("")}
+  </section>`;
+}
+
+function pricingComparisonTable() {
+  const plans = ["Starter", "Growth", "Professional", "Enterprise"];
+  return `<section class="pricing-comparison-section">
+    <div class="section-head">
+      <p class="eyebrow">Feature comparison</p>
+      <h2>Compare every plan.</h2>
+      <p>The table below mirrors the revised pricing model and shows where marketplace, collaboration, executive analytics, and enterprise services unlock.</p>
+    </div>
+    <div class="pricing-comparison-wrap">
+      <table class="pricing-comparison-table">
+        <thead><tr><th>Feature</th>${plans.map(plan => `<th>${esc(plan)}</th>`).join("")}</tr></thead>
+        <tbody>${pricingComparisonRows.map(row => `<tr>
+          <td>${esc(row[0])}</td>
+          ${row.slice(1).map(value => `<td><span class="${value ? "comparison-check" : "comparison-dash"}">${value ? "✓" : "—"}</span></td>`).join("")}
+        </tr>`).join("")}</tbody>
+      </table>
+    </div>
+  </section>`;
 }
 
 function executiveMockup() {
@@ -2499,34 +2574,16 @@ function pricingPage() {
       <div>
         <p class="eyebrow">Subscription model</p>
         <h2>Plans built for inventory teams from one store to enterprise networks.</h2>
-        <p>Start with forecasting and alerts, then scale into risk modeling, optimization, API access, marketplace coordination, and dedicated analytics support.</p>
+        <p>Start at $79/month for core forecasting and alerts, then scale into marketplace coordination, collaboration, executive analytics, and enterprise onboarding as your retail network grows.</p>
       </div>
       <div class="pricing-hero-stat">
-        <span class="mono">Backend status</span>
-        <strong>Checkout wiring next</strong>
-        <p>These plan buttons are ready for Stripe, invoices, or sales-led checkout when we add payments.</p>
+        <span class="mono">Starting price</span>
+        <strong>$79/month</strong>
+        <p>Starter includes Shopify, ERP/IMS, CSV, ARIMA, XGBoost, Monte Carlo, risk scoring, dashboards, alerts, reports, and email support.</p>
       </div>
     </section>
-    <section class="pricing-grid">
-      ${pricingTiers.map(tier => `<article class="pricing-card ${tier.featured ? "pricing-card--featured" : ""}">
-        ${tier.featured ? `<span class="badge badge--info pricing-featured-badge">Most relevant</span>` : ""}
-        <div>
-          <p class="eyebrow">${esc(tier.size)}</p>
-          <h2 class="text-lg">${esc(tier.name)}</h2>
-          <p class="pricing-summary">${esc(tier.summary)}</p>
-        </div>
-        <div class="pricing-price"><strong>${esc(tier.price)}</strong><span>${esc(tier.cadence)}</span></div>
-        <ul class="pricing-feature-list">${tier.features.map(feature => `<li>${esc(feature)}</li>`).join("")}</ul>
-        <button class="${tier.featured ? "btn-primary" : "btn-ghost"}" data-pricing-plan="${attr(tier.name)}" type="button">${esc(tier.cta)}</button>
-      </article>`).join("")}
-    </section>
-    <section class="pricing-band">
-      <div>
-        <p class="eyebrow">Positioning</p>
-        <h2 class="text-lg">Premium analytics that grows with the customer.</h2>
-      </div>
-      <p>This pricing model lets LiquidityLink support small retailers while still leaving room for national accounts, custom model training, and enterprise services.</p>
-    </section>
+    ${pricingCards()}
+    ${pricingComparisonTable()}
   `);
 }
 
@@ -2536,35 +2593,16 @@ function marketingPricingPage() {
       <div>
         <p class="eyebrow">Pricing</p>
         <h1>Pricing that scales with store complexity, not seat count.</h1>
-        <p>Choose the operating tier that matches your retail footprint today, then expand into optimization, integrations, marketplace coordination, and dedicated analytics support as your inventory network grows.</p>
+        <p>Choose the operating tier that matches your retail footprint today, then expand into marketplace coordination, team collaboration, executive analytics, and enterprise onboarding as your inventory network grows.</p>
         <div class="hero-actions">
           <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
           <a class="btn-ghost" href="/contact" data-route="/contact">Talk to sales</a>
         </div>
       </div>
-      ${productFrame("Pricing model", pricingModelVisual(), "This replaces the previous broken pricing graphic with a rendered, responsive in-app visual.")}
+      ${productFrame("Pricing model", pricingModelVisual())}
     </section>
-    ${tractionBand()}
-    ${pageInteractive("Pilot scope changes the commercial model.", "Switch the action queue while evaluating plans to connect pricing to the operating work each tier supports.", "overstock")}
-    <section class="pricing-grid marketing-pricing-grid">
-      ${pricingTiers.map(tier => `<article class="pricing-card ${tier.featured ? "pricing-card--featured" : ""}">
-        ${tier.featured ? `<span class="badge badge--info pricing-featured-badge">Most relevant</span>` : ""}
-        <div>
-          <p class="eyebrow">${esc(tier.size)}</p>
-          <h2 class="text-lg">${esc(tier.name)}</h2>
-          <p class="pricing-summary">${esc(tier.summary)}</p>
-        </div>
-        <div class="pricing-price"><strong>${esc(tier.price)}</strong><span>${esc(tier.cadence)}</span></div>
-        <ul class="pricing-feature-list">${tier.features.map(feature => `<li>${esc(feature)}</li>`).join("")}</ul>
-        <button class="${tier.featured ? "btn-primary" : "btn-ghost"}" data-pricing-plan="${attr(tier.name)}" type="button">${esc(tier.cta)}</button>
-      </article>`).join("")}
-    </section>
-    ${marketingSection("Commercial model", "Start with a focused pilot. Expand when the economics are proven.", "Most teams begin with a 30 to 60 day pilot against a contained SKU set, store region, or category. Success is measured against stockout reduction, forecast accuracy lift, inventory carrying cost, and cash conversion impact.", marketingCards([
-      { title: "Pilot design", copy: "Use real Shopify, Clover, Square, or CSV data to validate recommendations before broad rollout.", metric: "30-60 days" },
-      { title: "Procurement fit", copy: "Support sales-led contracts, annual invoices, or future checkout integration depending on customer size.", metric: "Flexible" },
-      { title: "Enterprise expansion", copy: "Move from category-level forecasting to full network optimization, custom models, and private integrations.", metric: "Scale ready" },
-    ]))}
-    ${enterpriseFaq()}
+    ${pricingCards()}
+    ${pricingComparisonTable()}
   `;
 }
 
