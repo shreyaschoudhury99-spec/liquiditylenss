@@ -911,6 +911,13 @@ function spinner(label) {
   return `<span class="spinner" aria-hidden="true"></span><span>${label}</span>`;
 }
 
+function rebrandBanner() {
+  return `<aside class="rebrand-banner" aria-label="LiquidityLink rebrand notice">
+    <span class="badge badge--info">Rebrand</span>
+    <p>LiquidityLens is now <strong>LiquidityLink</strong>. Same inventory intelligence, clearer name for connected retail decisions.</p>
+  </aside>`;
+}
+
 function layout(content) {
   const unread = state.notifications.some(n => !n.read);
   const name = workspaceName();
@@ -948,7 +955,7 @@ function layout(content) {
         <div class="avatar" aria-label="${esc(name)}">${esc(initials)}</div>
       </div>
     </header>
-    <main class="main ${state.syncing ? "syncing" : ""}">${content}</main>
+    <main class="main ${state.syncing ? "syncing" : ""}">${rebrandBanner()}${content}</main>
   `;
 }
 
@@ -984,7 +991,7 @@ function marketingLayout(content) {
         </div>
       </div>
     </header>
-    <main class="marketing-main">${content}</main>
+    <main class="marketing-main">${rebrandBanner()}${content}</main>
     <footer class="marketing-footer">
       <div>
         ${logo()}
