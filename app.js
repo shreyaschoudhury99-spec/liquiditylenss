@@ -279,6 +279,8 @@ let state = {
   refreshing: false,
   selectedProvider: "shopify",
   marketingForecastModel: localStorage.getItem("ll_marketing_forecast_model") || "ensemble",
+  selectedPricingTier: localStorage.getItem("ll_selected_pricing_tier") || "Growth",
+  pricingComparisonExpanded: false,
   checklist: { pos: true, categories: true, sales: false, inventory: false, analysis: false },
   providerBusy: false,
   checklistBusy: "",
@@ -1283,13 +1285,22 @@ function growthImpactVisual() {
 }
 
 function pricingModelVisual() {
+  const selected = pricingTiers.find(tier => tier.name === state.selectedPricingTier) || pricingTiers.find(tier => tier.featured) || pricingTiers[0];
   return `<div class="pricing-visual">
     <div class="chart-label"><strong>Pricing model</strong><span>monthly subscription tiers</span></div>
     <div class="pricing-tier-strip">
-      ${pricingTiers.map(tier => `<span class="${tier.featured ? "featured" : ""}"><strong>${esc(tier.name)}</strong><em>${esc(tier.price)}${tier.cadence ? esc(tier.cadence) : ""}</em></span>`).join("")}
+      ${pricingTiers.map(tier => `<button class="${tier.name === selected.name ? "active" : tier.featured ? "featured" : ""}" data-pricing-preview="${attr(tier.name)}" type="button" aria-pressed="${tier.name === selected.name ? "true" : "false"}"><strong>${esc(tier.name)}</strong><em>${esc(tier.price)}${tier.cadence ? esc(tier.cadence) : ""}</em></button>`).join("")}
     </div>
-    ${pricingTiers.map(tier => `<div class="persona-row"><span><strong>${esc(tier.name)}</strong><em>${esc(tier.size)}</em></span><b>${esc(tier.annual)}</b></div>`).join("")}
-    <p class="chart-caption">Starter, Growth, and Professional are fixed monthly subscriptions. Enterprise is custom for national chains and larger deployments.</p>
+    <div class="pricing-preview-detail">
+      <div>
+        <p class="eyebrow">Selected tier</p>
+        <h3>${esc(selected.name)}</h3>
+        <p>${esc(selected.summary)}</p>
+      </div>
+      <div class="pricing-preview-price"><strong>${esc(selected.price)}${selected.cadence ? esc(selected.cadence) : ""}</strong><span>${esc(selected.annual)}</span></div>
+      <ul>${selected.features.slice(0, 6).map(feature => `<li>${esc(feature)}</li>`).join("")}</ul>
+    </div>
+    <p class="chart-caption">Click a tier to preview who it is for, what it costs, and the first features included.</p>
   </div>`;
 }
 
@@ -1312,21 +1323,25 @@ function pricingCards() {
 
 function pricingComparisonTable() {
   const plans = ["Starter", "Growth", "Professional", "Enterprise"];
+  const visibleRows = state.pricingComparisonExpanded ? pricingComparisonRows : pricingComparisonRows.slice(0, 12);
+  const hiddenCount = pricingComparisonRows.length - visibleRows.length;
   return `<section class="pricing-comparison-section">
     <div class="section-head">
       <p class="eyebrow">Feature comparison</p>
       <h2>Compare every plan.</h2>
-      <p>The table below mirrors the revised pricing model and shows where marketplace, collaboration, executive analytics, and enterprise services unlock.</p>
+      <p>The table starts collapsed so the page stays easier to scan. Expand it when you want the full feature-by-feature breakdown.</p>
+      <button class="btn-ghost" data-pricing-comparison-toggle type="button" aria-expanded="${state.pricingComparisonExpanded ? "true" : "false"}">${state.pricingComparisonExpanded ? "Collapse comparison" : `Expand full comparison (${hiddenCount} more)`}</button>
     </div>
     <div class="pricing-comparison-wrap">
       <table class="pricing-comparison-table">
         <thead><tr><th>Feature</th>${plans.map(plan => `<th>${esc(plan)}</th>`).join("")}</tr></thead>
-        <tbody>${pricingComparisonRows.map(row => `<tr>
+        <tbody>${visibleRows.map(row => `<tr>
           <td>${esc(row[0])}</td>
           ${row.slice(1).map(value => `<td><span class="${value ? "comparison-check" : "comparison-dash"}">${value ? "✓" : "—"}</span></td>`).join("")}
         </tr>`).join("")}</tbody>
       </table>
     </div>
+    ${state.pricingComparisonExpanded ? "" : `<p class="chart-caption">Showing ${visibleRows.length} core features. Expand to see Professional and Enterprise-only services.</p>`}
   </section>`;
 }
 
@@ -3035,6 +3050,15 @@ function bind() {
   document.querySelectorAll("[data-topic]").forEach(el => el.addEventListener("click", () => { state.selectedTopic = el.dataset.topic; render(); }));
   document.querySelector("[data-post]")?.addEventListener("submit", postCommunity);
   document.querySelectorAll("[data-pricing-plan]").forEach(el => el.addEventListener("click", () => showToast(`${el.dataset.pricingPlan} checkout is ready for payment backend wiring.`, "success")));
+  document.querySelectorAll("[data-pricing-preview]").forEach(el => el.addEventListener("click", () => {
+    state.selectedPricingTier = el.dataset.pricingPreview || "Growth";
+    localStorage.setItem("ll_selected_pricing_tier", state.selectedPricingTier);
+    render();
+  }));
+  document.querySelector("[data-pricing-comparison-toggle]")?.addEventListener("click", () => {
+    state.pricingComparisonExpanded = !state.pricingComparisonExpanded;
+    render();
+  });
   document.querySelectorAll("[data-forecast-model]").forEach(el => el.addEventListener("click", () => {
     state.marketingForecastModel = el.dataset.forecastModel || "ensemble";
     localStorage.setItem("ll_marketing_forecast_model", state.marketingForecastModel);
