@@ -3806,15 +3806,21 @@ function parseSalesCsv(text) {
   }
   const records = [];
   const errors = [];
+  let lastOrderDate = "";
+  let lastOrderLocation = "";
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     const sku = String((indexes.sku >= 0 ? row[indexes.sku] : "") || (indexes.productName >= 0 ? row[indexes.productName] : "") || "").trim();
-    const rawDate = String(row[indexes.date] || "").trim();
+    const currentDateCell = String(row[indexes.date] || "").trim();
+    const rawDate = currentDateCell || lastOrderDate;
     const datePrefix = rawDate.match(/\d{4}-\d{2}-\d{2}/)?.[0] || "";
     const parsedDate = new Date(rawDate);
     const date = datePrefix || (Number.isNaN(parsedDate.getTime()) ? "" : parsedDate.toISOString().slice(0, 10));
     const quantity = Number(String(row[indexes.quantity] || "").replace(/,/g, ""));
-    const location = indexes.location >= 0 ? String(row[indexes.location] || "").trim() : "Shopify export";
+    const currentLocationCell = indexes.location >= 0 ? String(row[indexes.location] || "").trim() : "";
+    const location = currentLocationCell || lastOrderLocation || "Shopify export";
+    if (currentDateCell && date) lastOrderDate = currentDateCell;
+    if (currentLocationCell) lastOrderLocation = currentLocationCell;
     const rowErrors = [];
     if (!sku) rowErrors.push("SKU is required.");
     if (!date) rowErrors.push("Date must be a valid date.");
