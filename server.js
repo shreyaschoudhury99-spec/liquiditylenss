@@ -1899,6 +1899,14 @@ async function fetchOverpassJson(query) {
 }
 
 async function geocodeMarketplaceLocation(location) {
+  const coordinateMatch = String(location || "").trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (coordinateMatch) {
+    const lat = Number(coordinateMatch[1]);
+    const lon = Number(coordinateMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+      return { lat, lon, label: "Your current location" };
+    }
+  }
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("format", "jsonv2");
   url.searchParams.set("limit", "1");
@@ -2014,6 +2022,40 @@ function syntheticMarketplaceBusinesses({ location, origin, radiusMiles, categor
     osmUrl: "",
     osmTags: { shop: item.cat || "retail", brand: "", operator: "", openingHours: "" },
   }));
+}
+
+function businessMatchesQuery(business, query) {
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return true;
+  return `${business.retailer || ""} ${business.address || ""} ${business.brand || ""}`.toLowerCase().includes(needle);
+}
+
+function manualMarketplaceLead({ business, location, origin, category }) {
+  const name = String(business || "").trim();
+  if (!name) return null;
+  const city = String(location || "").split(",")[0].trim();
+  return {
+    id: `manual-directory-${slugify(name)}`,
+    retailer: name,
+    brand: "",
+    dist: 0,
+    type: "directory",
+    cat: category && category !== "all" ? category : "retail",
+    product: "Manual business lead",
+    qty: null,
+    price: null,
+    urgency: "low",
+    source: "Manual lead",
+    address: city ? `${city}, TX` : "Location from search",
+    phone: "",
+    email: "",
+    website: "",
+    imageUrl: "",
+    lat: Number.isFinite(origin?.lat) ? origin.lat : null,
+    lon: Number.isFinite(origin?.lon) ? origin.lon : null,
+    osmUrl: "",
+    osmTags: { shop: "retail", brand: "", operator: "", openingHours: "" },
+  };
 }
 
 async function searchNearbyNominatimBusinesses({ location, origin, radiusMiles, category, business = "" }) {
@@ -2770,7 +2812,7 @@ app.post("/api/auth/signup", authLimiter, asyncRoute(async (req, res) => {
         await completeLogin(res, result.rows[0]);
         return;
       }
-      return error(res, 409, "An account with this email already exists.", "EMAIL_EXISTS");
+      return error(res, 409, "An account with this email already exists. Sign in instead, or reset your password if you do not remember it.", "EMAIL_EXISTS");
     }
     throw err;
   }
@@ -3793,7 +3835,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
     let note = "These are public nearby business listings. Private inventory and transfer data is available only after a business connects to LiquidityLink.";
 
     const businessNeedle = businessQuery.toLowerCase();
-    const hasBusinessMatch = businessNeedle && businesses.some(business => `${business.retailer || ""} ${business.address || ""} ${business.brand || ""}`.toLowerCase().includes(businessNeedle));
+    const hasBusinessMatch = businessNeedle && businesses.some(business => businessMatchesQuery(business, businessNeedle));
     if (!businesses.length || (businessNeedle && !hasBusinessMatch)) {
       const fallbackBusinesses = await searchNearbyNominatimBusinesses({
         location,
@@ -3812,6 +3854,14 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
         note = businessNeedle
           ? `Showing public directory search results for ${businessQuery}. Private inventory is available only after a business connects to LiquidityLink.`
           : "Showing public directory search results because the nearby map index returned no matching shops. Private inventory is available only after a business connects to LiquidityLink.";
+      }
+    }
+    if (businessNeedle && !businesses.some(business => businessMatchesQuery(business, businessNeedle))) {
+      const manualLead = manualMarketplaceLead({ business: businessQuery, location, origin, category: selectedCategory });
+      if (manualLead) {
+        businesses = [manualLead, ...businesses].slice(0, 24);
+        source = "Manual lead + public directory";
+        note = `${businessQuery} was not returned by the public map directory, so LiquidityLink added it as a manual lead and kept broader nearby directory results underneath. Private inventory is available only after a business connects to LiquidityLink.`;
       }
     }
 
@@ -4405,13 +4455,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=36" />
+    <link rel="stylesheet" href="/styles.css?v=37" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=36"></script>
+    <script src="/app.js?v=37"></script>
   </body>
 </html>`;
 }

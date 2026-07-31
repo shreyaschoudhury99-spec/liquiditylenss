@@ -2090,9 +2090,10 @@ function marketplacePage() {
   });
   const strictFiltered = baseFiltered.filter(l => {
     const haystack = `${l.retailer || ""} ${l.product || ""} ${l.address || ""} ${l.brand || ""}`.toLowerCase();
+    const stateMatches = !stateName || haystack.includes(stateName) || (stateName === "texas" && /\btx\b/.test(haystack));
     return (!query || haystack.includes(query))
       && (!city || haystack.includes(city))
-      && (!stateName || haystack.includes(stateName));
+      && stateMatches;
   });
   const textFilterMiss = !strictFiltered.length && baseFiltered.length && Boolean(query || city || stateName);
   const filtered = textFilterMiss ? baseFiltered : strictFiltered;
@@ -2113,6 +2114,7 @@ function marketplacePage() {
         <label class="field"><span>State</span><input class="input" name="state" value="${attr(state.marketplaceStateFilter)}" placeholder="Optional state" autocomplete="off"></label>
         <label class="field"><span>Category</span><select class="select" name="category"><option value="all">All retail</option><option value="food">Food and grocery</option><option value="apparel">Apparel and outdoor</option><option value="electronics">Electronics</option><option value="home">Home and hardware</option><option value="health">Health and beauty</option></select></label>
         <label class="field"><span>Radius</span><select class="select" name="radius"><option value="10">10 miles</option><option value="25">25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select></label>
+        <button class="btn-ghost marketplace-location-btn" data-use-location type="button">${icon("map-pin")} Use my location</button>
         <button class="btn-primary" type="submit" ${state.marketplaceSearchBusy ? "disabled" : ""}>${state.marketplaceSearchBusy ? spinner("Searching...") : "Search nearby"}</button>
       </form>
       <p class="muted marketplace-note">${state.marketplaceDirectoryNote ? esc(state.marketplaceDirectoryNote) : "Search uses public OpenStreetMap business listings, so loading nearby stores can take a little time. These businesses do not expose private inventory unless they join or connect a store."}</p>
@@ -3080,6 +3082,7 @@ function bind() {
       render();
     }, 180);
   }));
+  document.querySelector("[data-use-location]")?.addEventListener("click", useMarketplaceLocation);
   document.querySelector("[data-marketplace-search]")?.addEventListener("submit", searchMarketplaceBusinesses);
   const marketplaceSearchForm = document.querySelector("[data-marketplace-search]");
   if (marketplaceSearchForm) {
@@ -3637,6 +3640,11 @@ async function handleAuthSubmit(e) {
     showToast(mode === "signup" ? "Account created." : "Signed in.", "success");
   } catch (err) {
     state.authBusy = false;
+    if (mode === "signup" && err.code === "EMAIL_EXISTS") {
+      goToAuth("signin", "That email already has a LiquidityLink account. Sign in instead, or use Forgot password if you need a reset link.");
+      showToast("Account already exists. Use sign in.", "info");
+      return;
+    }
     state.authFieldError = authFieldErrorFor(mode, err);
     state.authMessage = state.authFieldError ? "" : err.message;
     render();
@@ -4147,6 +4155,30 @@ function runChecklist(key) {
     render();
     showToast(key === "analysis" ? "Analysis report generated" : `${key === "sales" ? "Sales" : "Inventory"} imported`, "success");
   }, 1500);
+}
+
+function useMarketplaceLocation() {
+  if (!navigator.geolocation) {
+    showToast("Your browser does not support location access. Enter a city, ZIP, or address instead.", "error");
+    return;
+  }
+  showToast("Your browser will ask permission to use your location.", "info");
+  navigator.geolocation.getCurrentPosition(position => {
+    const { latitude, longitude } = position.coords || {};
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      showToast("Could not read your location. Enter a city, ZIP, or address instead.", "error");
+      return;
+    }
+    state.marketplaceLocation = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+    localStorage.setItem("ll_marketplace_location", state.marketplaceLocation);
+    render();
+    showToast("Location added. Press Search nearby to refresh results.", "success");
+  }, err => {
+    const message = err.code === err.PERMISSION_DENIED
+      ? "Location permission was denied. You can still enter a city, ZIP, or address."
+      : "Could not get your location. Enter a city, ZIP, or address instead.";
+    showToast(message, "error");
+  }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
 }
 
 async function searchMarketplaceBusinesses(e) {
