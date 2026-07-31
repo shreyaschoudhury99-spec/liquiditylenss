@@ -279,6 +279,7 @@ let state = {
   refreshing: false,
   selectedProvider: "shopify",
   marketingForecastModel: localStorage.getItem("ll_marketing_forecast_model") || "ensemble",
+  securityControlMode: "access",
   selectedPricingTier: localStorage.getItem("ll_selected_pricing_tier") || "Growth",
   pricingComparisonExpanded: false,
   checklist: { pos: true, categories: true, sales: false, inventory: false, analysis: false },
@@ -1143,15 +1144,63 @@ function categoryHealthVisual() {
 }
 
 function securityControlsVisual() {
-  return `<div class="security-controls-visual">
-    <div class="chart-label"><strong>Enterprise controls</strong><span>secrets stay server-side</span></div>
-    ${[
-      ["OAuth token vault", "encrypted"],
-      ["Role access", "active"],
-      ["Audit log", "capturing"],
-      ["Model notes", "visible"],
-    ].map(([label, status]) => `<div class="control-row"><span>${icon("shield")}${esc(label)}</span><b>${esc(status)}</b></div>`).join("")}
-    <div class="control-line"><span></span><span></span><span></span></div>
+  const modes = {
+    access: {
+      title: "Access control",
+      note: "Role-gated workspace routes",
+      score: 96,
+      rows: [
+        ["Admin", "Invite users, manage roles, view demo leads", "allowed"],
+        ["Analyst", "Run forecasts, inspect imports, export reports", "allowed"],
+        ["Viewer", "Read dashboards and saved reports only", "limited"],
+      ],
+      activity: ["Session verified", "Workspace role checked", "Route access approved"],
+    },
+    credentials: {
+      title: "Credential handling",
+      note: "Provider tokens never render in browser code",
+      score: 98,
+      rows: [
+        ["Shopify OAuth token", "Stored server-side with scoped access", "sealed"],
+        ["CSV imports", "Parsed into planning fields only", "minimal"],
+        ["Email delivery key", "Read from Render environment variables", "private"],
+      ],
+      activity: ["Secret loaded from env", "Browser received status only", "Sync job recorded"],
+    },
+    audit: {
+      title: "Audit readiness",
+      note: "Every workspace action leaves a reviewable trail",
+      score: 91,
+      rows: [
+        ["Store sync", "Provider, timestamp, and row count captured", "logged"],
+        ["Team invite", "Sender, recipient, role, and decision saved", "logged"],
+        ["Report export", "Download event tied to workspace user", "logged"],
+      ],
+      activity: ["Sync completed", "Invite accepted", "Report generated"],
+    },
+  };
+  const active = modes[state.securityControlMode] ? state.securityControlMode : "access";
+  const panel = modes[active];
+  return `<div class="security-controls-visual security-command-visual">
+    <div class="security-command-head">
+      <div>
+        <div class="chart-label"><strong>${esc(panel.title)}</strong><span>${esc(panel.note)}</span></div>
+      </div>
+      <div class="security-score-mini"><strong>${panel.score}</strong><span>/100</span></div>
+    </div>
+    <div class="security-control-tabs">
+      ${Object.entries(modes).map(([key, item]) => `<button type="button" data-security-control="${esc(key)}" class="${key === active ? "active" : ""}">${esc(item.title)}</button>`).join("")}
+    </div>
+    <div class="security-control-body">
+      <div class="security-ring" style="--score:${panel.score}%"><strong>${panel.score}</strong><span>control score</span></div>
+      <div class="security-rule-stack">
+        ${panel.rows.map(([role, detail, status]) => `<div class="security-rule-row"><span>${esc(role)}</span><p>${esc(detail)}</p><b>${esc(status)}</b></div>`).join("")}
+      </div>
+      <div class="security-audit-feed">
+        <span>Live audit sample</span>
+        ${panel.activity.map(item => `<p>${icon("shield")}${esc(item)}</p>`).join("")}
+      </div>
+    </div>
   </div>`;
 }
 
@@ -1499,17 +1548,33 @@ function documentationPage() {
 }
 
 function securityPage() {
-  return `${pageHero("Security", "Security built for enterprise evaluation.", "LiquidityLink is structured so procurement, IT, and operations can understand how data is handled before a pilot expands.", productFrame("Admin controls", securityControlsVisual()), "security")}
-  ${pageInteractive("Review connected data without exposing secrets.", "The interactive view uses planning outputs while provider tokens stay server-side.", "understock")}
-  <section class="security-table">
-    ${[
-    { title: "Access control", copy: "Authenticated sessions, role-based workspaces, and protected application routes.", status: "Active" },
-    { title: "Credential handling", copy: "Provider secrets and tokens stay server-side instead of being exposed in browser code.", status: "Active" },
-    { title: "Audit readiness", copy: "Connection status, sync errors, and admin activity are organized for operational review.", status: "Active" },
-    { title: "Data minimization", copy: "The product focuses on SKU, order, location, and inventory signals needed for planning.", status: "Active" },
-    { title: "Enterprise roadmap", copy: "SSO, SOC 2 readiness, custom retention, and private deployment paths can be prioritized for larger accounts.", status: "Planned" },
-    { title: "Transparent models", copy: "Forecast pages explain inputs, confidence, assumptions, and recommended actions.", status: "Active" },
-    ].map(card => `<article><span>${icon("shield")}</span><div><h3>${esc(card.title)}</h3><p>${esc(card.copy)}</p></div><b>${esc(card.status)}</b></article>`).join("")}
+  const controls = [
+    { title: "Access control", copy: "Authenticated sessions, role-based workspaces, protected app routes, and admin-only team management.", status: "Active" },
+    { title: "Credential handling", copy: "Provider secrets, API keys, OAuth tokens, and email credentials stay server-side in environment variables.", status: "Active" },
+    { title: "Audit readiness", copy: "Connection status, sync errors, imports, invitations, and admin activity are organized for operational review.", status: "Active" },
+    { title: "Data minimization", copy: "LiquidityLink uses SKU, order, location, and inventory signals needed for planning instead of broad customer profiles.", status: "Active" },
+    { title: "Enterprise roadmap", copy: "SSO, SOC 2 readiness, custom retention, private deployments, and procurement workflows can be prioritized for larger accounts.", status: "Planned" },
+    { title: "Transparent models", copy: "Forecast pages show inputs, assumptions, confidence ranges, comparison models, and recommended actions.", status: "Active" },
+  ];
+  return `${pageHero("Security", "Security built for enterprise evaluation.", "LiquidityLink is structured so procurement, IT, and operations can understand how data is handled before a pilot expands.", productFrame("Security control center", securityControlsVisual()), "security")}
+  <section class="security-assurance">
+    <div class="assurance-summary">
+      <p class="eyebrow">Security posture</p>
+      <h2>Controls are shown as operating evidence, not decorative badges.</h2>
+      <p>Use this page to explain how LiquidityLink protects connected retail data during a pilot: who can access it, where credentials live, and what activity is reviewable.</p>
+      <div class="assurance-metrics">
+        <span><strong>0</strong><em>secrets exposed in browser</em></span>
+        <span><strong>3</strong><em>workspace roles</em></span>
+        <span><strong>6</strong><em>review areas</em></span>
+      </div>
+    </div>
+    <div class="assurance-list">
+      ${controls.map(card => `<article>
+        <span>${icon("shield")}</span>
+        <div><h3>${esc(card.title)}</h3><p>${esc(card.copy)}</p></div>
+        <b class="${card.status === "Planned" ? "planned" : ""}">${esc(card.status)}</b>
+      </article>`).join("")}
+    </div>
   </section>`;
 }
 
@@ -1539,16 +1604,17 @@ function contactPage() {
     <div>
       <p class="eyebrow">Direct contact</p>
       <h2>Reach us where you already are.</h2>
-      <p>Email us for pilots, retailer partnerships, and product feedback. Follow the social channels for launch updates and June-July traction progress.</p>
+      <p>Email us for pilots, retailer partnerships, product feedback, security questions, or integration planning. We will route the conversation to the right person.</p>
     </div>
     ${socialLinkStrip()}
   </section>
-  ${tractionBand()}
-  <section class="mixed-card-band">${[
-    { title: "Sales", copy: "Discuss pricing, rollout scope, and category priorities." },
-    { title: "Security", copy: "Review data handling, access controls, and enterprise requirements." },
-    { title: "Partnerships", copy: "Explore integrations, marketplace participation, and private data connections." },
-  ].map((card, index) => insightCard(card, index % 2 ? "gauge" : "bars")).join("")}</section>`;
+  <section class="contact-routing">
+    ${[
+      ["Sales", "Discuss pricing, rollout scope, category priorities, and pilot timing.", "Book demo"],
+      ["Security", "Review data handling, access controls, credentials, and enterprise requirements.", "Email us"],
+      ["Partnerships", "Explore integrations, marketplace participation, and private data connections.", "Email us"],
+    ].map(([title, copy, action]) => `<article><span>${icon("mail")}</span><h3>${esc(title)}</h3><p>${esc(copy)}</p><a href="${action === "Book demo" ? "/book-demo" : "mailto:liquiditylink@gmail.com"}" ${action === "Book demo" ? 'data-route="/book-demo"' : ""}>${esc(action)}</a></article>`).join("")}
+  </section>`;
 }
 
 function bookDemoPage() {
@@ -3053,6 +3119,10 @@ function bind() {
     state.marketingMenuOpen = !state.marketingMenuOpen;
     render();
   });
+  document.querySelectorAll("[data-security-control]").forEach(el => el.addEventListener("click", () => {
+    state.securityControlMode = el.dataset.securityControl;
+    render();
+  }));
   document.querySelector("[data-workspace-switch]")?.addEventListener("change", e => switchWorkspace(e.target.value));
   document.querySelectorAll("[data-workspace-select]").forEach(el => el.addEventListener("click", () => switchWorkspace(el.dataset.workspaceSelect)));
   document.querySelectorAll("[data-workspace-remove]").forEach(el => el.addEventListener("click", () => removeWorkspaceMembership(el.dataset.workspaceRemove, el.dataset.workspaceName, el.dataset.workspaceRole)));
