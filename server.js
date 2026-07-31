@@ -3887,6 +3887,24 @@ app.get("/api/integrations/shopify/callback", oauthLimiter, asyncRoute(async (re
   redirectToApp(stored.redirectTo);
 }));
 
+app.post("/api/integrations/shopify/token", authUser, oauthLimiter, asyncRoute(async (req, res) => {
+  const shop = normalizeShopDomain(req.body.shop);
+  const accessToken = String(req.body.accessToken || "").trim();
+  if (!shop) return error(res, 400, "Enter a valid Shopify store domain, like your-store.myshopify.com.", "INVALID_SHOPIFY_SHOP");
+  if (!/^shpat_[A-Za-z0-9_=-]{20,}$/.test(accessToken)) {
+    return error(res, 400, "Paste the Admin API access token from a Shopify custom app. It usually starts with shpat_.", "INVALID_SHOPIFY_TOKEN");
+  }
+
+  await shopifyApi(shop, accessToken, "shop", { fields: "id,name,myshopify_domain" });
+  const status = await saveIntegrationToken(req.user.sub, "shopify", {
+    accessToken,
+    scopes: "custom_app_token",
+    externalAccount: shop,
+    detail: `Connected to ${shop} with a read-only Shopify custom app token. Press Sync now to import Shopify data.`,
+  });
+  res.json({ ok: true, status });
+}));
+
 app.post("/api/integrations/clover/start", authUser, oauthLimiter, asyncRoute(async (req, res) => {
   if (!process.env.CLOVER_CLIENT_ID || !process.env.CLOVER_CLIENT_SECRET) {
     return error(res, 503, "Clover OAuth is not configured. Add CLOVER_CLIENT_ID and CLOVER_CLIENT_SECRET.", "CLOVER_NOT_CONFIGURED");
@@ -4303,13 +4321,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=29" />
+    <link rel="stylesheet" href="/styles.css?v=30" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=29"></script>
+    <script src="/app.js?v=30"></script>
   </body>
 </html>`;
 }

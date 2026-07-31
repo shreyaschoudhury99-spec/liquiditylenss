@@ -1925,6 +1925,15 @@ function integrationPanel() {
         <p class="eyebrow">Required Shopify scopes</p>
         <p>In the Shopify developer dashboard for the LiquidityLink integration, enable <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>, and <code>read_locations</code>. The callback URL must be <code>/api/integrations/shopify/callback</code> on this site.</p>
       </div>
+      <div class="card connection-help">
+        <p class="eyebrow">Pilot fallback</p>
+        <p>If Shopify app distribution is still pending, ask the store owner to create a Shopify custom app with the same read-only Admin API scopes, then paste the Admin API access token here. LiquidityLink stores it server-side and uses the same Sync now flow.</p>
+        <div class="field">
+          <label for="shopifyAccessToken">Admin API access token</label>
+          <input id="shopifyAccessToken" class="input" name="accessToken" type="password" placeholder="shpat_..." autocomplete="off" />
+        </div>
+        <button class="btn-ghost" data-shopify-token type="button" ${state.connectionsBusy === "shopify-token" ? "disabled" : ""}>${state.connectionsBusy === "shopify-token" ? spinner("Connecting...") : "Connect with token"}</button>
+      </div>
       <div class="toolbar">
         <button class="btn-primary" type="submit" ${state.connectionsBusy === "shopify" ? "disabled" : ""}>${state.connectionsBusy === "shopify" ? spinner("Opening Shopify...") : "Connect Shopify"}</button>
         <button class="btn-ghost" data-sync-source="shopify" type="button" ${state.connectionsBusy === "shopify" ? "disabled" : ""}>Sync now</button>
@@ -2997,6 +3006,7 @@ function bind() {
   document.querySelectorAll("[data-provider]").forEach(el => el.addEventListener("click", () => { state.selectedProvider = el.dataset.provider; render(); }));
   document.querySelector("[data-connect-form]")?.addEventListener("submit", connectProvider);
   document.querySelector("[data-shopify-connect]")?.addEventListener("submit", startShopifyConnect);
+  document.querySelector("[data-shopify-token]")?.addEventListener("click", connectShopifyToken);
   document.querySelector("[data-clover-connect]")?.addEventListener("submit", startCloverConnect);
   document.querySelectorAll("[data-sync-source]").forEach(el => el.addEventListener("click", () => syncSource(el.dataset.syncSource)));
   document.querySelector("[data-csv]")?.addEventListener("change", handleCsvFile);
@@ -3969,6 +3979,38 @@ async function startShopifyConnect(e) {
     state.connectionsBusy = "";
     render();
     showToast(err.message, "error");
+  }
+}
+
+async function connectShopifyToken(e) {
+  e.preventDefault();
+  const form = e.currentTarget.closest("form");
+  const shop = String(new FormData(form).get("shop") || "").trim();
+  const accessToken = String(new FormData(form).get("accessToken") || "").trim();
+  form.querySelectorAll(".input-error-msg").forEach(n => n.remove());
+  form.querySelectorAll(".input--error").forEach(n => n.classList.remove("input--error"));
+  if (!shop) {
+    errorAfter(form.shop, "Enter the Shopify store domain first");
+    return;
+  }
+  if (!accessToken) {
+    errorAfter(form.accessToken, "Paste the Admin API access token");
+    return;
+  }
+  state.shopifyShop = shop;
+  state.connectionsBusy = "shopify-token";
+  render();
+  try {
+    const data = await apiAuthedPost("/api/integrations/shopify/token", { shop, accessToken });
+    if (data.status) state.connectionStatus.shopify = data.status;
+    await loadConnectionData();
+    showToast("Shopify token connected. Press Sync now to import data.", "success");
+  } catch (err) {
+    if (err.status) state.connectionStatus.shopify = err.status;
+    showToast(err.message, "error");
+  } finally {
+    state.connectionsBusy = "";
+    render();
   }
 }
 
