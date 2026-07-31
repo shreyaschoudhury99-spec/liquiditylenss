@@ -1969,6 +1969,53 @@ function buildNominatimAddress(place = {}) {
   return parts.join(", ") || place.display_name || "";
 }
 
+function syntheticMarketplaceBusinesses({ location, origin, radiusMiles, category }) {
+  const city = String(location || "your area").split(",")[0].trim() || "your area";
+  const categoryNames = {
+    food: ["Market", "Grocery", "Bakery"],
+    apparel: ["Boutique", "Apparel", "Footwear"],
+    electronics: ["Electronics", "Device Shop", "Repair"],
+    home: ["Home Goods", "Hardware", "Decor"],
+    health: ["Pharmacy", "Beauty", "Wellness"],
+    retail: ["Retail", "Shop", "Boutique"],
+    all: ["Boutique", "Market", "Home Goods"],
+  };
+  const labels = categoryNames[category] || categoryNames.all;
+  const base = [
+    { name: "Golden Girl Boutique", cat: "apparel", product: "Apparel retailer" },
+    { name: `${city} Outfitters`, cat: "apparel", product: "Outdoor and apparel retailer" },
+    { name: `${city} Market`, cat: "food", product: "Local grocery and specialty retail" },
+    { name: `${city} Home & Gift`, cat: "home", product: "Home goods retailer" },
+  ].filter(item => category === "all" || category === "retail" || item.cat === category);
+  const rows = (base.length ? base : labels.map((label, index) => ({
+    name: `${city} ${label}`,
+    cat: marketplaceCategory(label),
+    product: `${label} retailer`,
+  }))).slice(0, 8);
+  return rows.map((item, index) => ({
+    id: `demo-directory-${slugify(item.name)}-${index}`,
+    retailer: item.name,
+    brand: "",
+    dist: Math.min(radiusMiles, 2 + index * 3),
+    type: "directory",
+    cat: item.cat || "apparel",
+    product: item.product,
+    qty: null,
+    price: null,
+    urgency: "low",
+    source: "Demo directory fallback",
+    address: `${city}, TX`,
+    phone: "",
+    email: item.email || "",
+    website: "",
+    imageUrl: "",
+    lat: Number.isFinite(origin?.lat) ? origin.lat + (index + 1) * 0.006 : null,
+    lon: Number.isFinite(origin?.lon) ? origin.lon - (index + 1) * 0.006 : null,
+    osmUrl: "",
+    osmTags: { shop: item.cat || "retail", brand: "", operator: "", openingHours: "" },
+  }));
+}
+
 async function searchNearbyNominatimBusinesses({ location, origin, radiusMiles, category }) {
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("format", "jsonv2");
@@ -3267,6 +3314,26 @@ app.delete("/api/workspaces/:organizationId/membership", authUser, asyncRoute(as
   apiOk(res, { removed: true, deletedWorkspace: false });
 }));
 
+app.patch("/api/workspaces/:organizationId", authUser, asyncRoute(async (req, res) => {
+  const organizationId = req.params.organizationId;
+  const name = String(req.body.name || "").trim().replace(/\s+/g, " ").slice(0, 90);
+  if (name.length < 2) return error(res, 400, "Workspace name must be at least 2 characters.", "INVALID_WORKSPACE_NAME");
+  const org = await organizationForRequest({ ...req, get: key => key.toLowerCase() === "x-organization-id" ? organizationId : req.get(key) });
+  if (org.id !== organizationId) return error(res, 403, "You do not have access to this workspace.", "FORBIDDEN");
+  if (!["owner", "admin"].includes(org.role_name)) return error(res, 403, "Only admins can rename this workspace.", "FORBIDDEN");
+
+  const result = await pool.query(
+    `UPDATE organizations
+     SET name = $1, updated_at = now()
+     WHERE id = $2
+     RETURNING id, name, slug, plan, billing_status, owner_user_id`,
+    [name, organizationId]
+  );
+  if (!result.rows[0]) return error(res, 404, "Workspace not found.", "WORKSPACE_NOT_FOUND");
+  await recordActivity(req, "workspace.renamed", "organization", organizationId, { name });
+  apiOk(res, { workspace: result.rows[0] });
+}));
+
 app.get("/api/invitations", authUser, asyncRoute(async (req, res) => {
   const workspaces = await getUserOrganizations(req.user.sub);
   apiOk(res, { invitations: workspaces.filter(workspace => workspace.status === "invited") });
@@ -3778,7 +3845,17 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
         note: "The live map index was temporarily unavailable, so LiquidityLink used public directory search results. Private inventory is available only after a business connects to LiquidityLink.",
       });
     }
-    return error(res, 502, "Could not load nearby businesses from the public directory. Try a smaller radius, pick a category, or enter the city plus state.", "MARKETPLACE_LOOKUP_FAILED");
+    const demoBusinesses = syntheticMarketplaceBusinesses({ location, origin, radiusMiles, category: selectedCategory });
+    return res.json({
+      origin,
+      radiusMiles,
+      effectiveRadiusMiles: radiusMiles,
+      category: selectedCategory,
+      count: demoBusinesses.length,
+      businesses: demoBusinesses,
+      source: "Demo directory fallback",
+      note: "The live public directory is slow or unavailable, so LiquidityLink is showing demo nearby businesses for planning. Private inventory is available only after a business connects to LiquidityLink.",
+    });
   }
 }));
 
@@ -4321,13 +4398,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=30" />
+    <link rel="stylesheet" href="/styles.css?v=31" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=30"></script>
+    <script src="/app.js?v=31"></script>
   </body>
 </html>`;
 }

@@ -2106,7 +2106,7 @@ function marketplacePage() {
         <label class="field"><span>Radius</span><select class="select" name="radius"><option value="10">10 miles</option><option value="25">25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select></label>
         <button class="btn-primary" type="submit" ${state.marketplaceSearchBusy ? "disabled" : ""}>${state.marketplaceSearchBusy ? spinner("Searching...") : "Search nearby"}</button>
       </form>
-      <p class="muted marketplace-note">${state.marketplaceDirectoryNote ? esc(state.marketplaceDirectoryNote) : "Search uses public OpenStreetMap business listings. These businesses do not expose private inventory unless they join or connect a store."}</p>
+      <p class="muted marketplace-note">${state.marketplaceDirectoryNote ? esc(state.marketplaceDirectoryNote) : "Search uses public OpenStreetMap business listings, so loading nearby stores can take a little time. These businesses do not expose private inventory unless they join or connect a store."}</p>
       ${state.marketplaceError ? `<p class="severity-high">${esc(state.marketplaceError)}</p>` : ""}
     </section>
     <article class="card map-panel">${mapSvg(rankedFiltered)}</article>
@@ -2658,6 +2658,11 @@ function adminPage() {
   const activeKeys = apiKeys.filter(k => !k.revoked).length;
   const canManageUsers = (overview.permissions || []).includes("users:manage");
   const currentUserId = state.authUser?.id || state.authUser?.sub || "";
+  const ownerInboxEmail = "shreyaschoudhury23@gmail.com";
+  const canViewDemoRequests = String(state.authUser?.email || "").trim().toLowerCase() === ownerInboxEmail;
+  const activeWorkspace = workspaces.find(workspace => workspace.id === state.enterprise.activeWorkspaceId) || {};
+  const activeWorkspaceRole = activeWorkspace.roleName || activeWorkspace.role_name || organization.role_name || "";
+  const canRenameWorkspace = ["owner", "admin"].includes(activeWorkspaceRole);
   const roleOptions = ["viewer", "member", "analyst", "admin"];
   const providerRows = providers.length ? providers.map(provider => `
     <tr>
@@ -2741,6 +2746,23 @@ function adminPage() {
       </div>
     </div>
   `).join("") : `<p class="muted">No pending workspace invites. Email invites also appear here after the invitee signs in with the same email.</p>`;
+  const workspaceSettingsCard = canRenameWorkspace ? `
+      <article class="card">
+        <p class="eyebrow">Workspace identity</p>
+        <h2 class="text-lg">Rename workspace</h2>
+        <p class="muted admin-card-note">This changes the workspace name in the sidebar, switcher, reports, and teammate views.</p>
+        <form class="form-stack" data-workspace-rename>
+          <input class="input" name="name" value="${attr(activeWorkspace.name || organization.name || workspaceName())}" maxlength="90" required />
+          <button class="btn-primary" type="submit" ${state.adminBusy ? "disabled" : ""}>${state.adminBusy ? spinner("Saving...") : "Save workspace name"}</button>
+        </form>
+      </article>` : "";
+  const demoRequestsCard = canViewDemoRequests ? `
+      <article class="card">
+        <p class="eyebrow">Marketing leads</p>
+        <h2 class="text-lg">Demo requests</h2>
+        <p class="muted admin-card-note">Book Demo form submissions are private to ${ownerInboxEmail} and are emailed there when SendGrid is configured.</p>
+        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Stores</th><th>Goal</th><th>Status</th></tr></thead><tbody>${demoRows}</tbody></table></div>
+      </article>` : "";
 
   return pageShell("Admin", "Production controls for users, permissions, alerts, integrations, API access, and audit history.", `
     ${state.enterpriseError ? `<article class="card"><p class="form-error">${esc(state.enterpriseError)}</p></article>` : ""}
@@ -2793,6 +2815,7 @@ function adminPage() {
         <p class="muted admin-card-note">Switch between your own dashboard and workspaces you have accepted from other teams.</p>
         <div class="workspace-list">${workspaceRows}</div>
       </article>
+      ${workspaceSettingsCard}
       <article class="card">
         <p class="eyebrow">Pending access</p>
         <h2 class="text-lg">Workspace invites</h2>
@@ -2832,12 +2855,7 @@ function adminPage() {
     </section>
 
     <section class="admin-section-grid">
-      <article class="card">
-        <p class="eyebrow">Marketing leads</p>
-        <h2 class="text-lg">Demo requests</h2>
-        <p class="muted admin-card-note">Book Demo form submissions are private to shreyaschoudhury23@gmail.com and are emailed there when SendGrid is configured.</p>
-        <div class="table-wrap"><table><thead><tr><th>Company</th><th>Stores</th><th>Goal</th><th>Status</th></tr></thead><tbody>${demoRows}</tbody></table></div>
-      </article>
+      ${demoRequestsCard}
       <article class="card">
         <p class="eyebrow">Settings</p>
         <h2 class="text-lg">Forecast and risk configuration</h2>
@@ -3018,6 +3036,7 @@ function bind() {
   });
   document.querySelector("[data-import-csv]")?.addEventListener("click", importCsv);
   document.querySelector("[data-invite-user]")?.addEventListener("submit", inviteUser);
+  document.querySelector("[data-workspace-rename]")?.addEventListener("submit", renameWorkspace);
   document.querySelector("[data-marketing-menu]")?.addEventListener("click", () => {
     state.marketingMenuOpen = !state.marketingMenuOpen;
     render();
@@ -3339,6 +3358,24 @@ async function apiAuthedPut(path, body) {
   if (!state.accessToken) throw new Error("Sign in required.");
   const response = await fetch(path, {
     method: "PUT",
+    headers: authedHeaders({ "Content-Type": "application/json" }),
+    credentials: "same-origin",
+    body: JSON.stringify(body || {}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const err = new Error(data.error || "Request failed. Please try again.");
+    err.code = data.code;
+    err.status = data.status;
+    throw err;
+  }
+  return data;
+}
+
+async function apiAuthedPatch(path, body) {
+  if (!state.accessToken) throw new Error("Sign in required.");
+  const response = await fetch(path, {
+    method: "PATCH",
     headers: authedHeaders({ "Content-Type": "application/json" }),
     credentials: "same-origin",
     body: JSON.stringify(body || {}),
@@ -3854,12 +3891,54 @@ async function switchWorkspace(workspaceId) {
   if (!workspaceId || workspaceId === state.enterprise.activeWorkspaceId) return;
   state.enterprise.activeWorkspaceId = workspaceId;
   localStorage.setItem("ll_active_workspace_id", workspaceId);
+  clearWorkspaceScopedUi();
   state.adminBusy = true;
   render();
-  await Promise.all([loadEnterpriseData(), loadConnectionData()]);
-  state.adminBusy = false;
+  try {
+    await Promise.all([loadEnterpriseData(), loadConnectionData()]);
+    showToast(`Switched to ${workspaceName()}`, "success");
+  } catch (err) {
+    showToast(err.message || "Workspace data could not be refreshed.", "error");
+  } finally {
+    state.adminBusy = false;
+    render();
+  }
+}
+
+function clearWorkspaceScopedUi() {
+  state.marketplaceListings = [];
+  state.marketplaceOrigin = null;
+  state.marketplaceDirectoryNote = "";
+  state.marketplaceError = "";
+  state.selectedRetailer = null;
+  state.messageSent = "";
+  state.notificationsOpen = false;
+  state.searchOpen = false;
+  state.inventoryPage = 1;
+}
+
+async function renameWorkspace(e) {
+  e.preventDefault();
+  const form = e.currentTarget;
+  const name = String(new FormData(form).get("name") || "").trim();
+  if (name.length < 2) {
+    errorAfter(form.elements.name, "Enter at least 2 characters");
+    return;
+  }
+  const organizationId = state.enterprise.activeWorkspaceId;
+  if (!organizationId) return showToast("No active workspace selected.", "error");
+  state.adminBusy = true;
   render();
-  showToast(`Switched to ${workspaceName()}`, "success");
+  try {
+    await apiAuthedPatch(`/api/workspaces/${organizationId}`, { name });
+    await loadEnterpriseData();
+    showToast("Workspace name updated.", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  } finally {
+    state.adminBusy = false;
+    render();
+  }
 }
 
 async function respondToWorkspaceInvite(organizationId, action) {
@@ -3871,6 +3950,7 @@ async function respondToWorkspaceInvite(organizationId, action) {
     if (action === "accept") {
       state.enterprise.activeWorkspaceId = organizationId;
       localStorage.setItem("ll_active_workspace_id", organizationId);
+      clearWorkspaceScopedUi();
     }
     await Promise.all([loadEnterpriseData(), loadConnectionData()]);
     showToast(action === "accept" ? "Workspace invite accepted." : "Workspace invite declined.", "success");
