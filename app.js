@@ -1888,10 +1888,10 @@ function integrationPanel() {
           <p>Upload a plain <strong>.csv</strong> file exported from Shopify, a POS, or a spreadsheet. The first row must contain column headers.</p>
         </div>
         <div class="csv-schema-grid">
-          <span><strong>sku</strong><em>Product or variant SKU</em></span>
-          <span><strong>date</strong><em>Sale date, best as YYYY-MM-DD</em></span>
-          <span><strong>quantity sold</strong><em>Units sold on that date</em></span>
-          <span><strong>location</strong><em>Store, warehouse, or region</em></span>
+          <span><strong>sku</strong><em>Also accepts Shopify Lineitem SKU / Variant SKU</em></span>
+          <span><strong>date</strong><em>Also accepts Created at, Paid at, or Order Date</em></span>
+          <span><strong>quantity sold</strong><em>Also accepts Lineitem quantity or Net quantity</em></span>
+          <span><strong>location</strong><em>Optional for Shopify exports; defaults to Shopify export</em></span>
         </div>
         <button class="btn-ghost" data-sample-csv type="button">${icon("download")}Download sample CSV</button>
       </div>
@@ -3771,12 +3771,14 @@ function parseSalesCsv(text) {
   const headers = rows[0].map(normalizeHeader);
   const findHeader = names => headers.findIndex(header => names.includes(header));
   const indexes = {
-    sku: findHeader(["sku", "product sku", "item sku"]),
-    date: findHeader(["date", "sale date", "sold date", "order date"]),
-    quantity: findHeader(["quantity sold", "quantity", "qty", "units sold"]),
-    location: findHeader(["location", "store", "warehouse", "site"]),
+    sku: findHeader(["sku", "product sku", "item sku", "lineitem sku", "line item sku", "variant sku", "product variant sku"]),
+    date: findHeader(["date", "sale date", "sold date", "order date", "created at", "paid at", "processed at", "fulfilled at"]),
+    quantity: findHeader(["quantity sold", "quantity", "qty", "units sold", "lineitem quantity", "line item quantity", "net quantity", "ordered quantity"]),
+    location: findHeader(["location", "store", "warehouse", "site", "fulfillment location", "location name", "source name", "pos location", "outlet", "order location"]),
   };
-  const missing = Object.entries(indexes).filter(([, index]) => index < 0).map(([key]) => key === "quantity" ? "quantity sold" : key);
+  const missing = Object.entries(indexes)
+    .filter(([key, index]) => key !== "location" && index < 0)
+    .map(([key]) => key === "quantity" ? "quantity sold" : key);
   if (missing.length) {
     return {
       rows,
@@ -3793,14 +3795,13 @@ function parseSalesCsv(text) {
     const parsedDate = new Date(rawDate);
     const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : Number.isNaN(parsedDate.getTime()) ? "" : parsedDate.toISOString().slice(0, 10);
     const quantity = Number(String(row[indexes.quantity] || "").replace(/,/g, ""));
-    const location = String(row[indexes.location] || "").trim();
+    const location = indexes.location >= 0 ? String(row[indexes.location] || "").trim() : "Shopify export";
     const rowErrors = [];
     if (!sku) rowErrors.push("SKU is required.");
     if (!date) rowErrors.push("Date must be a valid date.");
     if (!Number.isFinite(quantity) || quantity < 0) rowErrors.push("Quantity sold must be a non-negative number.");
-    if (!location) rowErrors.push("Location is required.");
     if (rowErrors.length) errors.push({ row: i + 1, errors: rowErrors });
-    else records.push({ sku, date, quantity, location });
+    else records.push({ sku, date, quantity, location: location || "Shopify export" });
   }
   return { rows, records, errors };
 }
