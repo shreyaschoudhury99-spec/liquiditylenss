@@ -17,7 +17,6 @@ const routes = {
   "/about": "About",
   "/contact": "Contact",
   "/book-demo": "Book Demo",
-  "/404": "Page not found",
   "/dashboard": "Dashboard",
   "/connect": "Connect Store",
   "/forecasts": "Forecasts",
@@ -30,7 +29,7 @@ const routes = {
   "/profile": "Profile",
 };
 const authRoutes = new Set(["/login", "/reset-password"]);
-const publicRoutes = new Set(["/", "/platform", "/features", "/solutions", "/industries", "/pricing", "/resources", "/blog", "/docs", "/security", "/integrations", "/about", "/contact", "/book-demo", "/404"]);
+const publicRoutes = new Set(["/", "/platform", "/features", "/solutions", "/industries", "/pricing", "/resources", "/blog", "/docs", "/security", "/integrations", "/about", "/contact", "/book-demo"]);
 
 const navItems = [
   ["/dashboard", "Dashboard", "layout-dashboard"],
@@ -259,7 +258,7 @@ const starters = {
 };
 
 let state = {
-  path: location.pathname in routes ? location.pathname : "/404",
+  path: location.pathname in routes ? location.pathname : "/",
   authReady: false,
   authMode: location.pathname === "/reset-password" ? "reset" : "signin",
   authUser: null,
@@ -856,7 +855,7 @@ function toggleTheme() {
 }
 
 function navigate(path) {
-  if (!(path in routes)) path = "/404";
+  if (!(path in routes)) path = "/";
   if (state.path === path && location.pathname === path) return;
   pushPath(path);
   state.path = path;
@@ -1411,99 +1410,31 @@ function executiveMockup() {
   </div>`;
 }
 
-function landingFeatureSection() {
-  const cards = [
-    ["plug", "Connect the store", "Start with Shopify or CSV, then add ERP and inventory systems as the pilot expands.", "Shopify, CSV, ERP"],
-    ["chart-line", "Forecast what is next", "Compare ARIMA, XGBoost, Monte Carlo risk, and the blended forecast in one clean view.", "8-week demand"],
-    ["boxes", "Act by SKU and location", "Turn forecast gaps into buy, sell, hold, and transfer recommendations your team can explain.", "SKU-level actions"],
-    ["store", "Coordinate the network", "Find transfer opportunities and nearby marketplace partners without exposing private inventory.", "Marketplace ready"],
-  ];
-  return marketingSection("Platform capabilities", "A cleaner operating layer above the tools retailers already use.", "The landing page now introduces the product through distinct workflows instead of repeating the same chart everywhere.", `<div class="landing-feature-grid">
-    ${cards.map(([iconName, title, copy, metric]) => `<article class="landing-feature-card">
-      <span class="feature-icon">${icon(iconName)}</span>
-      <div>
-        <h3>${esc(title)}</h3>
-        <p>${esc(copy)}</p>
-      </div>
-      <strong>${esc(metric)}</strong>
-    </article>`).join("")}
-  </div>`, "landing-feature-section");
-}
-
-function landingHowItWorks() {
-  const steps = [
-    ["01", "Import", "Upload a Shopify export or approve a store connection. LiquidityLink normalizes products, variants, orders, locations, and inventory rows."],
-    ["02", "Model", "Forecast demand, estimate confidence, calculate stockout and overstock exposure, and compare alternative model assumptions."],
-    ["03", "Decide", "Review the action queue, inspect the reason behind each recommendation, and export a report for the team."],
-  ];
-  return `<section class="how-it-works" id="how-it-works">
-    <div class="marketing-section-head">
-      <p class="eyebrow">How it works</p>
-      <h2>From Shopify export to operating decision in three steps.</h2>
-      <p>Built for demos and pilots: the workflow is direct enough for a boutique owner and detailed enough for an enterprise reviewer.</p>
-    </div>
-    <div class="step-timeline">
-      ${steps.map(([number, title, copy]) => `<article>
-        <b>${esc(number)}</b>
-        <h3>${esc(title)}</h3>
-        <p>${esc(copy)}</p>
-      </article>`).join("")}
-    </div>
-  </section>`;
-}
-
-function landingStatsSection() {
-  const stats = [
-    ["250+", "Instagram followers", "Current public launch benchmark."],
-    ["7", "pilot-ready retailers", "Local retailers connected or ready for pilot conversations."],
-    ["8 weeks", "forecast horizon", "Demand outlook used across the planning views."],
-    ["3", "model families", "ARIMA, XGBoost, and Monte Carlo risk analysis."],
-  ];
-  return `<section class="landing-stats" aria-label="Live statistics">
-    <div>
-      <p class="eyebrow">Live statistics</p>
-      <h2>July traction signals for pilots and investors.</h2>
-    </div>
-    <div class="landing-stat-grid">
-      ${stats.map(([value, label, detail]) => `<button class="landing-stat" data-traction-detail="${attr(detail)}" type="button">
-        <strong>${esc(value)}</strong>
-        <span>${esc(label)}</span>
-        <em>${esc(detail)}</em>
-      </button>`).join("")}
-    </div>
-  </section>`;
-}
-
-function landingProofSection() {
-  return `<section class="social-proof-section">
-    <div class="proof-copy">
-      <p class="eyebrow">Built for evaluation</p>
-      <h2>Designed so a retailer can understand the value before committing their stack.</h2>
-      <p>LiquidityLink keeps the public story focused on business outcomes, then lets the signed-in platform show the live imported data, assumptions, and recommendations.</p>
-    </div>
-    <div class="proof-panel">
-      <div class="logo-cloud" aria-label="Supported data sources">
-        ${["Shopify", "CSV", "ERP", "POS", "Inventory", "Reports"].map(label => `<span>${esc(label)}</span>`).join("")}
-      </div>
-      <blockquote>"The demo path is simple: connect or import, refresh analysis, then inspect the recommended action for each SKU."</blockquote>
-      <p>Use this with boutique pilots, regional operators, and procurement teams that need confidence before a full integration.</p>
-    </div>
-  </section>`;
-}
-
-function landingPricingSection() {
-  return marketingSection("Pricing", "Pick the rollout size that matches the store network.", "Starter, Growth, Professional, and Enterprise are structured around location count, collaboration needs, and analytics depth.", pricingCards(), "landing-pricing-section");
-}
-
 function homePage() {
-  return `<section class="marketing-hero landing-hero">
+  const outcomes = marketingCards([
+    { title: "Prevent stockouts before they hit revenue", copy: "Forecast SKU-level demand and expose shortages early enough for planners to reorder, transfer, or substitute.", metric: "Fewer lost sales" },
+    { title: "Reduce inventory costs without guessing", copy: "Identify excess stock, quantify carrying cost, and prioritize markdown or marketplace actions.", metric: "Cleaner working capital" },
+    { title: "Give executives one operating truth", copy: "Turn store, product, and supplier data into explainable decisions for CFOs, operators, and supply chain leaders.", metric: "Board-ready visibility" },
+  ]);
+  const questions = `<div class="question-stack">${buyerQuestions.map(item => `<article class="question-card">
+    <p class="eyebrow">${esc(item.question)}</p>
+    <h3>${esc(item.headline)}</h3>
+    <p>${esc(item.copy)}</p>
+    <span>${esc(item.visual)}</span>
+  </article>`).join("")}</div>`;
+  const trust = marketingCards([
+    { kicker: "Security", title: "Enterprise controls from day one", copy: "Role-based access, server-side credentials, auditable sync status, and clear data ownership boundaries." },
+    { kicker: "Pilot", title: "Start narrow, prove impact", copy: "Run a 30-day pilot on one category or region, measure forecast quality, then expand with confidence." },
+    { kicker: "Competition", title: "More action than BI", copy: "LiquidityLink does not stop at reporting. It ranks inventory risk and recommends what to do next." },
+  ]);
+  return `<section class="marketing-hero">
     <div class="marketing-hero-copy">
       <p class="eyebrow">Inventory intelligence for enterprise retail</p>
       <h1>Prevent stockouts, overstocks, and cash-flow surprises before they happen.</h1>
       <p>LiquidityLink gives retail leaders a predictive operating layer for demand, inventory risk, replenishment, supplier exposure, and marketplace coordination.</p>
       <div class="hero-actions">
         <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
-        <a class="btn-ghost" href="#how-it-works">See how it works</a>
+        <a class="btn-ghost" href="/platform" data-route="/platform">See platform</a>
       </div>
       <div class="proof-strip">
         <span>Built for supply chain teams</span>
@@ -1512,24 +1443,21 @@ function homePage() {
       </div>
     </div>
     <div class="hero-command-surface" aria-label="Live action queue preview">
-      <div class="surface-label"><span>Operating workspace</span><b>Interactive preview</b></div>
-      <div class="hero-workspace-preview">
-        <div class="hero-kpis">
-          <span><strong>24</strong><em>risk score</em></span>
-          <span><strong>517</strong><em>imported units</em></span>
-          <span><strong>28</strong><em>buy actions</em></span>
-        </div>
-        ${queuePanel()}
-        <div class="hero-forecast">${cleanForecastVisual()}</div>
-      </div>
+      <div class="surface-label"><span>Live action queue</span><b>Planner preview</b></div>
+      <div class="hero-interactive">${queuePanel()}<div class="hero-forecast">${forecastMockup()}</div></div>
     </div>
   </section>
-  ${landingFeatureSection()}
-  ${landingHowItWorks()}
-  ${landingStatsSection()}
+  ${tractionBand({
+    eyebrow: "Live statistics",
+    title: "July momentum, refreshed from live channels where possible.",
+    copy: "The homepage now shows the July launch proof investors and pilots ask for first: audience growth, retailer interest, recruiting support, and LinkedIn reach.",
+    live: true,
+  })}
+  ${pageInteractive("A planner can move between shortage risk and excess recovery.", "The full-width queue demonstrates the same operating motion inside the app: switch the mode, review the ranked SKUs, then act with context.", "understock")}
   ${signalPlayground()}
-  ${landingProofSection()}
-  ${landingPricingSection()}
+  ${marketingSection("Why it matters", "Inventory risk is now a board-level operating metric.", "Retail teams need earlier signals, not more dashboards. LiquidityLink connects demand, inventory, and cash exposure so every recommendation is tied to measurable business impact.", outcomes)}
+  ${marketingSection("Buyer questions", "Every section answers what an enterprise buyer needs to know.", "The site now follows the decision path a retail executive actually takes before trusting a platform with operational data.", questions)}
+  ${marketingSection("Trust", "Designed for pilots, procurement, and executive review.", "The message is built around measurable outcomes, transparent calculations, and expansion paths that work for large organizations.", trust)}
   ${enterpriseFaq()}
   <section class="marketing-cta">
     <p class="eyebrow">Get started</p>
@@ -1611,52 +1539,12 @@ function blogPage() {
 }
 
 function documentationPage() {
-  const docs = [
-    ["CSV import format", "Use Shopify order exports or a clean CSV. LiquidityLink reads order names, lineitem SKUs, lineitem names, quantities, dates, fulfillment status, prices, and inventory quantities when present."],
-    ["Shopify setup", "Enter the store domain, approve the app in Shopify, then return to LiquidityLink and run Sync now. The demo fallback is CSV import while app distribution is pending."],
-    ["Model outputs", "Risk score blends service gaps, 30-day demand, on-hand quantity, confidence, overstock exposure, and recommended next action."],
-    ["Team access", "Admins can invite teammates, edit workspace roles, and remove users. Invited users see accepted workspaces in their switcher."],
-  ];
-  return `<section class="doc-hero">
-    <div>
-      <p class="eyebrow">Documentation</p>
-      <h1>Implementation notes for a clean pilot.</h1>
-      <p>Practical setup guidance for connecting retail data, validating imports, and explaining the model during customer demos.</p>
-    </div>
-    <div class="doc-callout">
-      <strong>Fastest demo path</strong>
-      <span>Shopify admin -> Orders -> Export -> CSV for Excel, Numbers, or other spreadsheet programs -> Upload CSV in LiquidityLink.</span>
-    </div>
-  </section>
-  <section class="doc-layout">
-    <aside class="doc-toc">
-      ${docs.map(([title], i) => `<a href="#doc-${i + 1}">${esc(title)}</a>`).join("")}
-    </aside>
-    <article class="doc-article">
-      ${docs.map(([title, copy], i) => `<section id="doc-${i + 1}">
-        <p class="eyebrow">Guide ${i + 1}</p>
-        <h2>${esc(title)}</h2>
-        <p>${esc(copy)}</p>
-      </section>`).join("")}
-    </article>
-  </section>`;
-}
-
-function notFoundPage() {
-  return `<section class="not-found-page">
-    <div>
-      <p class="eyebrow">404</p>
-      <h1>This page is not in the LiquidityLink site map.</h1>
-      <p>The product is here, but that route is not. Head back to the public site or open the signed-in app.</p>
-      <div class="hero-actions">
-        <a class="btn-primary" href="/" data-route="/">Go home</a>
-        <a class="btn-ghost" href="/login">Open app</a>
-      </div>
-    </div>
-    <div class="not-found-visual" aria-hidden="true">
-      ${cleanForecastVisual()}
-    </div>
-  </section>`;
+  return marketingPage("Documentation for implementation teams.", "Technical guidance for connecting data sources, validating imports, and understanding model outputs.", [
+    { title: "CSV import format", copy: "Required fields: SKU, date, quantity sold, and location." },
+    { title: "Shopify setup", copy: "OAuth connection, required scopes, sync status, and protected customer data requirements." },
+    { title: "Clover setup", copy: "Sandbox and production app configuration, callback path, and merchant installation flow." },
+    { title: "Model outputs", copy: "Definitions for risk score, 8-week demand, revenue at risk, and recommendation logic." },
+  ], "Documentation");
 }
 
 function securityPage() {
@@ -3158,7 +3046,7 @@ function render() {
     bind();
     return;
   }
-  const publicViews = { "/": homePage, "/platform": platformPage, "/features": featuresPage, "/solutions": solutionsPage, "/industries": industriesPage, "/pricing": marketingPricingPage, "/resources": resourcesPage, "/blog": blogPage, "/docs": documentationPage, "/security": securityPage, "/integrations": integrationsPage, "/about": aboutPage, "/contact": contactPage, "/book-demo": bookDemoPage, "/404": notFoundPage };
+  const publicViews = { "/": homePage, "/platform": platformPage, "/features": featuresPage, "/solutions": solutionsPage, "/industries": industriesPage, "/pricing": marketingPricingPage, "/resources": resourcesPage, "/blog": blogPage, "/docs": documentationPage, "/security": securityPage, "/integrations": integrationsPage, "/about": aboutPage, "/contact": contactPage, "/book-demo": bookDemoPage };
   if (publicRoutes.has(state.path)) {
     app.innerHTML = marketingLayout((publicViews[state.path] || homePage)());
     bind();
@@ -4776,7 +4664,7 @@ async function bootAuth() {
     state.authUser = null;
   }
   state.authReady = true;
-  if (!auth() && !authRoutes.has(location.pathname) && !publicRoutes.has(location.pathname) && location.pathname in routes) {
+  if (!auth() && !authRoutes.has(location.pathname) && !publicRoutes.has(location.pathname)) {
     sessionStorage.setItem("ll_redirect_after_login", location.pathname in routes ? location.pathname : "/dashboard");
     replacePath("/login");
   }
@@ -4785,7 +4673,7 @@ async function bootAuth() {
     sessionStorage.removeItem("ll_redirect_after_login");
     replacePath(next);
   }
-  state.path = location.pathname in routes ? location.pathname : "/404";
+  state.path = location.pathname in routes ? location.pathname : "/dashboard";
   render();
   setTimeout(() => { state.loading = false; render(); }, 900);
 }

@@ -4454,14 +4454,14 @@ function renderShell(req) {
     <link rel="icon" href="/assets/liquiditylink-logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=39" />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css?v=38" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=39"></script>
+    <script src="/app.js?v=38"></script>
   </body>
 </html>`;
 }
@@ -4481,14 +4481,7 @@ app.use(express.static(__dirname, {
   dotfiles: "ignore",
   extensions: false,
 }));
-const shellRoutes = new Set([
-  "/", "/platform", "/features", "/solutions", "/industries", "/pricing", "/resources", "/blog", "/docs", "/security", "/integrations", "/about", "/contact", "/book-demo", "/404",
-  "/login", "/reset-password", "/dashboard", "/connect", "/forecasts", "/inventory", "/analytics", "/marketplace", "/community", "/admin", "/reports", "/profile",
-]);
-app.get("*", (req, res) => {
-  const status = shellRoutes.has(req.path) ? 200 : 404;
-  res.status(status).send(renderShell(req));
-});
+app.get("*", (req, res) => res.send(renderShell(req)));
 
 app.use((err, _req, res, _next) => {
   console.error(err);
