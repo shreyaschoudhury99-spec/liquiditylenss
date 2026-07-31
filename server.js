@@ -2016,14 +2016,14 @@ function syntheticMarketplaceBusinesses({ location, origin, radiusMiles, categor
   }));
 }
 
-async function searchNearbyNominatimBusinesses({ location, origin, radiusMiles, category }) {
+async function searchNearbyNominatimBusinesses({ location, origin, radiusMiles, category, business = "" }) {
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("format", "jsonv2");
   url.searchParams.set("addressdetails", "1");
   url.searchParams.set("extratags", "1");
   url.searchParams.set("namedetails", "1");
   url.searchParams.set("limit", "24");
-  url.searchParams.set("q", `${marketplaceSearchTerms(category)} near ${location}`);
+  url.searchParams.set("q", business ? `${business} near ${location}` : `${marketplaceSearchTerms(category)} near ${location}`);
   const data = await fetchExternalJson(url, {
     headers: {
       "User-Agent": marketplaceUserAgent,
@@ -3740,6 +3740,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
   if (!location) return error(res, 400, "Enter a city, ZIP code, or address to find nearby businesses.", "LOCATION_REQUIRED");
 
   const radiusMiles = clampNumber(req.query.radius, 25, 1, 100);
+  const businessQuery = String(req.query.business || "").trim();
   const category = String(req.query.category || "all").toLowerCase();
   const allowedCategories = new Set(["all", "food", "apparel", "electronics", "home", "health", "retail"]);
   const selectedCategory = allowedCategories.has(category) ? category : "all";
@@ -3791,12 +3792,15 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
     let source = "OpenStreetMap";
     let note = "These are public nearby business listings. Private inventory and transfer data is available only after a business connects to LiquidityLink.";
 
-    if (!businesses.length) {
+    const businessNeedle = businessQuery.toLowerCase();
+    const hasBusinessMatch = businessNeedle && businesses.some(business => `${business.retailer || ""} ${business.address || ""} ${business.brand || ""}`.toLowerCase().includes(businessNeedle));
+    if (!businesses.length || (businessNeedle && !hasBusinessMatch)) {
       const fallbackBusinesses = await searchNearbyNominatimBusinesses({
         location,
         origin,
         radiusMiles,
         category: selectedCategory,
+        business: businessQuery,
       }).catch(err => {
         console.warn("Marketplace Nominatim fallback failed:", err.message);
         return [];
@@ -3805,7 +3809,9 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
         businesses = fallbackBusinesses.slice(0, 24);
         effectiveRadiusMiles = radiusMiles;
         source = "OpenStreetMap Search";
-        note = "Showing public directory search results because the nearby map index returned no matching shops. Private inventory is available only after a business connects to LiquidityLink.";
+        note = businessNeedle
+          ? `Showing public directory search results for ${businessQuery}. Private inventory is available only after a business connects to LiquidityLink.`
+          : "Showing public directory search results because the nearby map index returned no matching shops. Private inventory is available only after a business connects to LiquidityLink.";
       }
     }
 
@@ -3829,6 +3835,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
       origin,
       radiusMiles,
       category: selectedCategory,
+      business: businessQuery,
     }).catch(fallbackErr => {
       console.warn("Marketplace Nominatim fallback failed:", fallbackErr.message);
       return [];
@@ -4398,13 +4405,13 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=33" />
+    <link rel="stylesheet" href="/styles.css?v=34" />
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=33"></script>
+    <script src="/app.js?v=34"></script>
   </body>
 </html>`;
 }

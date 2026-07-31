@@ -2067,10 +2067,14 @@ function marketplaceListings() {
 function marketplaceMessage() {
   const retailer = state.selectedRetailer;
   if (!retailer) return "";
-  if (retailer.source === "OpenStreetMap") {
+  if (isDirectoryListing(retailer)) {
     return `Public listing note for ${retailer.retailer}: this business is nearby, but private inventory and transfer requests require them to join LiquidityLink or connect their store. Use the website/phone if available for manual outreach.`;
   }
   return `Hi ${retailer.retailer}, we're interested in discussing a transfer of ${retailer.product}. Can you confirm availability and pricing for ${retailer.qty} units?`;
+}
+
+function isDirectoryListing(listing = {}) {
+  return listing.type === "directory" || String(listing.source || "").toLowerCase().includes("openstreetmap") || String(listing.source || "").toLowerCase().includes("directory");
 }
 
 function marketplacePage() {
@@ -2078,15 +2082,19 @@ function marketplacePage() {
   const query = state.marketplaceBusinessQuery.trim().toLowerCase();
   const city = state.marketplaceCityFilter.trim().toLowerCase();
   const stateName = state.marketplaceStateFilter.trim().toLowerCase();
-  const filtered = activeListings.filter(l => {
-    const haystack = `${l.retailer || ""} ${l.product || ""} ${l.address || ""} ${l.brand || ""}`.toLowerCase();
+  const baseFiltered = activeListings.filter(l => {
     return (state.typeFilter === "all" || l.type === state.typeFilter)
       && (state.catFilter === "all" || l.cat === state.catFilter)
-      && Number(l.dist || 0) <= state.distFilter
-      && (!query || haystack.includes(query))
+      && Number(l.dist || 0) <= state.distFilter;
+  });
+  const strictFiltered = baseFiltered.filter(l => {
+    const haystack = `${l.retailer || ""} ${l.product || ""} ${l.address || ""} ${l.brand || ""}`.toLowerCase();
+    return (!query || haystack.includes(query))
       && (!city || haystack.includes(city))
       && (!stateName || haystack.includes(stateName));
   });
+  const textFilterMiss = !strictFiltered.length && baseFiltered.length && Boolean(query || city || stateName);
+  const filtered = textFilterMiss ? baseFiltered : strictFiltered;
   const rankedFiltered = [...filtered].sort((a, b) => listingRecommendationScore(b) - listingRecommendationScore(a) || Number(a.dist || 999) - Number(b.dist || 999) || String(a.retailer).localeCompare(String(b.retailer)));
   const outreachRows = rankedFiltered.length ? rankedFiltered : activeListings;
   const hasRealResults = state.marketplaceListings.length > 0;
@@ -2107,6 +2115,7 @@ function marketplacePage() {
         <button class="btn-primary" type="submit" ${state.marketplaceSearchBusy ? "disabled" : ""}>${state.marketplaceSearchBusy ? spinner("Searching...") : "Search nearby"}</button>
       </form>
       <p class="muted marketplace-note">${state.marketplaceDirectoryNote ? esc(state.marketplaceDirectoryNote) : "Search uses public OpenStreetMap business listings, so loading nearby stores can take a little time. These businesses do not expose private inventory unless they join or connect a store."}</p>
+      ${textFilterMiss ? `<p class="severity-medium">No exact match for your business/city text filters, so showing the broader nearby results returned by the public directory.</p>` : ""}
       ${state.marketplaceError ? `<p class="severity-high">${esc(state.marketplaceError)}</p>` : ""}
     </section>
     <article class="card map-panel">${mapSvg(rankedFiltered)}</article>
@@ -2179,7 +2188,7 @@ function listingSignalBadges(l, rankedListings, index) {
 }
 
 function listingCard(l, rankedListings = [l], index = 0) {
-  const isDirectory = l.source === "OpenStreetMap";
+  const isDirectory = isDirectoryListing(l);
   const signals = listingSignalBadges(l, rankedListings, index);
   const signalMarkup = signals.length
     ? `<div class="recommendation-badges">${signals.map(b => `<span class="badge badge--${attr(b.tone)}">${esc(b.label)}</span>`).join("")}</div>`
@@ -4150,6 +4159,7 @@ async function searchMarketplaceBusinesses(e) {
       category: state.catFilter,
       radius: String(state.distFilter),
     });
+    if (state.marketplaceBusinessQuery) params.set("business", state.marketplaceBusinessQuery);
     const data = await apiAuthedGet(`/api/marketplace/nearby?${params.toString()}`);
     state.marketplaceListings = Array.isArray(data.businesses) ? data.businesses : [];
     state.marketplaceOrigin = data.origin || null;
@@ -4175,7 +4185,7 @@ function sendMessage(e) {
   setTimeout(() => {
     const retailer = state.selectedRetailer.retailer;
     state.marketplaceBusy = false;
-    const isDirectory = state.selectedRetailer.source === "OpenStreetMap";
+    const isDirectory = isDirectoryListing(state.selectedRetailer);
     state.messageSent = isDirectory
       ? `Saved outreach note for ${retailer}. Use their listed website or phone for manual contact until they join LiquidityLink.`
       : `Request sent to ${retailer}. They typically respond within 24 hours.`;
