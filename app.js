@@ -3772,13 +3772,15 @@ function parseSalesCsv(text) {
   const findHeader = names => headers.findIndex(header => names.includes(header));
   const indexes = {
     sku: findHeader(["sku", "product sku", "item sku", "lineitem sku", "line item sku", "variant sku", "product variant sku"]),
+    productName: findHeader(["lineitem name", "line item name", "product name", "product", "item name", "title"]),
     date: findHeader(["date", "sale date", "sold date", "order date", "created at", "paid at", "processed at", "fulfilled at"]),
     quantity: findHeader(["quantity sold", "quantity", "qty", "units sold", "lineitem quantity", "line item quantity", "net quantity", "ordered quantity"]),
     location: findHeader(["location", "store", "warehouse", "site", "fulfillment location", "location name", "source name", "pos location", "outlet", "order location"]),
   };
   const missing = Object.entries(indexes)
-    .filter(([key, index]) => key !== "location" && index < 0)
+    .filter(([key, index]) => key !== "location" && key !== "productName" && index < 0)
     .map(([key]) => key === "quantity" ? "quantity sold" : key);
+  if (indexes.sku < 0 && indexes.productName < 0) missing.push("sku or product name");
   if (missing.length) {
     return {
       rows,
@@ -3790,10 +3792,11 @@ function parseSalesCsv(text) {
   const errors = [];
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    const sku = String(row[indexes.sku] || "").trim();
+    const sku = String((indexes.sku >= 0 ? row[indexes.sku] : "") || (indexes.productName >= 0 ? row[indexes.productName] : "") || "").trim();
     const rawDate = String(row[indexes.date] || "").trim();
+    const datePrefix = rawDate.match(/\d{4}-\d{2}-\d{2}/)?.[0] || "";
     const parsedDate = new Date(rawDate);
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : Number.isNaN(parsedDate.getTime()) ? "" : parsedDate.toISOString().slice(0, 10);
+    const date = datePrefix || (Number.isNaN(parsedDate.getTime()) ? "" : parsedDate.toISOString().slice(0, 10));
     const quantity = Number(String(row[indexes.quantity] || "").replace(/,/g, ""));
     const location = indexes.location >= 0 ? String(row[indexes.location] || "").trim() : "Shopify export";
     const rowErrors = [];
