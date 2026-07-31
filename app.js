@@ -2083,9 +2083,10 @@ function marketplacePage() {
   const city = state.marketplaceCityFilter.trim().toLowerCase();
   const stateName = state.marketplaceStateFilter.trim().toLowerCase();
   const baseFiltered = activeListings.filter(l => {
+    const distance = Number(l.dist);
     return (state.typeFilter === "all" || l.type === state.typeFilter)
       && (state.catFilter === "all" || l.cat === state.catFilter)
-      && Number(l.dist || 0) <= state.distFilter;
+      && (!Number.isFinite(distance) || distance <= state.distFilter);
   });
   const strictFiltered = baseFiltered.filter(l => {
     const haystack = `${l.retailer || ""} ${l.product || ""} ${l.address || ""} ${l.brand || ""}`.toLowerCase();
@@ -3779,6 +3780,9 @@ function parseSalesCsv(text) {
   if (!rows.length) return { rows: [], records: [], errors: [] };
   const headers = rows[0].map(normalizeHeader);
   const findHeader = names => headers.findIndex(header => names.includes(header));
+  const hasAnyHeader = names => names.some(name => headers.includes(name));
+  const looksLikeShopifyProductExport = hasAnyHeader(["handle", "option1 name", "variant inventory qty", "variant price", "variant sku"])
+    && !hasAnyHeader(["lineitem quantity", "line item quantity", "paid at", "created at", "processed at", "name"]);
   const indexes = {
     sku: findHeader(["sku", "product sku", "item sku", "lineitem sku", "line item sku", "variant sku", "product variant sku"]),
     productName: findHeader(["lineitem name", "line item name", "product name", "product", "item name", "title"]),
@@ -3791,10 +3795,13 @@ function parseSalesCsv(text) {
     .map(([key]) => key === "quantity" ? "quantity sold" : key);
   if (indexes.sku < 0 && indexes.productName < 0) missing.push("sku or product name");
   if (missing.length) {
+    const guidance = looksLikeShopifyProductExport
+      ? " This looks like a Shopify Products/Inventory CSV. For forecasts, upload Shopify Admin > Orders > Export CSV because LiquidityLink needs order dates and line item quantities."
+      : " Upload a Shopify Orders CSV or a sales CSV with SKU/product name, date, and quantity sold columns.";
     return {
       rows,
       records: [],
-      errors: [{ row: 1, errors: [`Missing required column${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}.`] }],
+      errors: [{ row: 1, errors: [`Missing required column${missing.length === 1 ? "" : "s"}: ${missing.join(", ")}.${guidance}`] }],
     };
   }
   const records = [];
