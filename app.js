@@ -23,6 +23,7 @@ const routes = {
   "/inventory": "Inventory",
   "/analytics": "Advanced Analytics",
   "/marketplace": "Marketplace",
+  "/social": "Social Signals",
   "/community": "Community",
   "/admin": "Admin",
   "/reports": "Reports",
@@ -38,6 +39,7 @@ const navItems = [
   ["/inventory", "Inventory", "boxes"],
   ["/analytics", "Advanced Analytics", "calculator"],
   ["/marketplace", "Marketplace", "store"],
+  ["/social", "Social Signals", "messages"],
   ["/community", "Community", "messages"],
   ["/admin", "Admin", "shield"],
   ["/reports", "Reports", "file-text"],
@@ -311,7 +313,13 @@ let state = {
     shopify: { status: "not_connected", detail: "Shopify OAuth is not configured yet." },
     clover: { status: "not_connected", detail: "Clover OAuth is not configured yet." },
     square: { status: "not_connected", detail: "Square OAuth is not configured yet." },
+    instagram: { status: "not_connected", detail: "Instagram OAuth credentials are not configured yet." },
+    tiktok: { status: "not_connected", detail: "TikTok OAuth credentials are not configured yet." },
+    facebook: { status: "not_connected", detail: "Facebook page OAuth credentials are not configured yet." },
   },
+  socialPromotions: [],
+  socialPromotionBusy: false,
+  socialProviderBusy: "",
   shopifyShop: "",
   cloverMerchantId: "",
   connectionsBusy: "",
@@ -1939,7 +1947,7 @@ function connectionCard(provider) {
 }
 
 function providerName(key) {
-  return ({ shopify: "Shopify", square: "Square", lightspeed: "Lightspeed", clover: "Clover", netsuite: "NetSuite", sap: "SAP", csv: "CSV Upload" })[key];
+  return ({ shopify: "Shopify", square: "Square", lightspeed: "Lightspeed", clover: "Clover", netsuite: "NetSuite", sap: "SAP", csv: "CSV Upload", instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook Page" })[key] || titleCase(key || "Provider");
 }
 
 function integrationPanel() {
@@ -2046,6 +2054,106 @@ function integrationPanel() {
 
 function previewTable(rows) {
   return `<div class="table-wrap"><table class="data-table"><tbody>${rows.slice(0, 6).map(r => `<tr>${r.slice(0, 5).map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+
+function socialSignalsPage() {
+  const providers = ["instagram", "tiktok", "facebook"];
+  const promotions = state.socialPromotions || [];
+  const totalLift = promotions.reduce((sum, promo) => sum + Number(promo.estimatedLiftPct || 0), 0);
+  const avgLift = promotions.length ? Math.round(totalLift / promotions.length) : 0;
+  const buyIntent = promotions.reduce((sum, promo) => sum + Number(promo.buyIntentCount || 0), 0);
+  return pageShell("Social Signals", "Connect social channels and measure how promotions change SKU-level demand.", `
+    <section class="social-signal-hero">
+      <article class="card card--accent">
+        <p class="eyebrow">Promotion-aware forecasting</p>
+        <h2 class="text-lg">Turn posts, comments, and engagement into demand signals.</h2>
+        <p>LiquidityLink will use authorized social data to compare promotion response against Shopify or CSV sales. Until API keys are added, use the manual promotion form to start collecting the same model inputs.</p>
+      </article>
+      <article class="card social-signal-kpis">
+        <span><strong>${fmt(promotions.length)}</strong><em>tracked promotions</em></span>
+        <span><strong>${fmt(avgLift)}%</strong><em>average demand lift</em></span>
+        <span><strong>${fmt(buyIntent)}</strong><em>buy-intent comments</em></span>
+      </article>
+    </section>
+    <section class="connection-status-grid social-provider-grid">${providers.map(socialConnectionCard).join("")}</section>
+    <section class="grid-2">
+      <article class="card">
+        <p class="eyebrow">Manual promotion signal</p>
+        <h2 class="text-lg">Add a post before API access is live</h2>
+        <form class="form-stack" data-social-promotion-form>
+          <div class="grid-2 compact-form-grid">
+            <div class="field"><label for="socialProvider">Channel</label><select id="socialProvider" class="input" name="provider">${providers.map(p => `<option value="${p}">${providerName(p)}</option>`).join("")}</select></div>
+            <div class="field"><label for="socialSku">Product / SKU promoted</label><input id="socialSku" class="input" name="sku" placeholder="Golden Hour Dress or SKU-001" required /></div>
+          </div>
+          <div class="field"><label for="socialUrl">Post URL</label><input id="socialUrl" class="input" name="postUrl" placeholder="https://www.instagram.com/p/..." /></div>
+          <div class="field"><label for="socialCaption">Caption or campaign note</label><textarea id="socialCaption" class="input" name="caption" rows="3" placeholder="Caption text, promotion theme, product drop details..."></textarea></div>
+          <div class="grid-3 compact-form-grid">
+            <div class="field"><label for="socialPostDate">Post date</label><input id="socialPostDate" class="input" name="postDate" type="date" required /></div>
+            <div class="field"><label for="socialLikes">Likes</label><input id="socialLikes" class="input" name="likes" type="number" min="0" value="0" /></div>
+            <div class="field"><label for="socialComments">Comments</label><input id="socialComments" class="input" name="comments" type="number" min="0" value="0" /></div>
+          </div>
+          <div class="grid-3 compact-form-grid">
+            <div class="field"><label for="socialShares">Shares</label><input id="socialShares" class="input" name="shares" type="number" min="0" value="0" /></div>
+            <div class="field"><label for="socialSaves">Saves</label><input id="socialSaves" class="input" name="saves" type="number" min="0" value="0" /></div>
+            <div class="field"><label for="socialBuyIntent">Buy-intent comments</label><input id="socialBuyIntent" class="input" name="buyIntentCount" type="number" min="0" value="0" /></div>
+          </div>
+          <div class="field"><label for="socialExpectedLift">Expected demand lift %</label><input id="socialExpectedLift" class="input" name="expectedLiftPct" type="number" min="0" placeholder="Example: 35" /></div>
+          <button class="btn-primary" type="submit" ${state.socialPromotionBusy ? "disabled" : ""}>${state.socialPromotionBusy ? spinner("Saving...") : "Save promotion signal"}</button>
+        </form>
+      </article>
+      <article class="card">
+        <p class="eyebrow">Tomorrow's API setup</p>
+        <h2 class="text-lg">Environment variables to add on Render</h2>
+        <div class="env-list">
+          <span><strong>INSTAGRAM_CLIENT_ID</strong><em>Meta app ID</em></span>
+          <span><strong>INSTAGRAM_CLIENT_SECRET</strong><em>Meta app secret</em></span>
+          <span><strong>TIKTOK_CLIENT_KEY</strong><em>TikTok app client key</em></span>
+          <span><strong>TIKTOK_CLIENT_SECRET</strong><em>TikTok app secret</em></span>
+          <span><strong>FACEBOOK_CLIENT_ID</strong><em>Optional page connection</em></span>
+          <span><strong>FACEBOOK_CLIENT_SECRET</strong><em>Optional page connection</em></span>
+        </div>
+        <p class="muted">Callback URLs use this pattern: <span class="mono">${location.origin}/api/integrations/social/:provider/callback</span></p>
+      </article>
+    </section>
+    <article class="card">
+      <div class="toolbar-spread">
+        <div><p class="eyebrow">Promotion impact log</p><h2 class="text-lg">Saved social demand signals</h2></div>
+        <button class="btn-ghost" data-refresh-social type="button">Refresh</button>
+      </div>
+      ${socialPromotionTable(promotions)}
+    </article>
+  `);
+}
+
+function socialConnectionCard(provider) {
+  const status = state.connectionStatus[provider] || {};
+  const tone = ({ connected: "success", error: "high", needs_reauth: "warning", not_connected: "info" })[status.status] || "info";
+  const statusLabel = String(status.status || "not_connected").replace("_", " ");
+  const busy = state.socialProviderBusy === provider;
+  return `<article class="card connection-card social-provider-card">
+    <div class="toolbar-spread"><div><p class="eyebrow">${providerName(provider)}</p><h2 class="text-md">${esc(statusLabel)}</h2></div><span class="badge badge--${tone}">${esc(statusLabel)}</span></div>
+    <p>${esc(status.detail || "")}</p>
+    <p class="muted mono">${status.externalAccount ? esc(status.externalAccount) : "No social account linked yet"}</p>
+    <div class="toolbar">
+      <button class="btn-primary" data-social-connect="${provider}" type="button" ${busy ? "disabled" : ""}>${busy ? spinner("Checking...") : `Connect ${providerName(provider)}`}</button>
+      <button class="btn-ghost" data-sync-source="${provider}" type="button" ${state.connectionsBusy === provider ? "disabled" : ""}>${state.connectionsBusy === provider ? spinner("Syncing...") : "Sync posts"}</button>
+    </div>
+  </article>`;
+}
+
+function socialPromotionTable(promotions) {
+  if (!promotions.length) return `<div class="empty-state">No promotion signals saved yet. Add one manually or connect a social account after API credentials are configured.</div>`;
+  return `<div class="table-wrap"><table>
+    <thead><tr><th>Channel</th><th>Product / SKU</th><th>Post date</th><th>Engagement</th><th>Demand lift</th><th>Signal</th></tr></thead>
+    <tbody>${promotions.map(promo => `<tr>
+      <td><strong>${esc(providerName(promo.provider))}</strong><br><span class="muted mono">${promo.postUrl ? `<a href="${attr(promo.postUrl)}" target="_blank" rel="noreferrer">open post</a>` : "manual signal"}</span></td>
+      <td>${esc(promo.sku || "Unmatched product")}<br><span class="muted">${esc(promo.caption || "")}</span></td>
+      <td>${esc(promo.postDate || "")}</td>
+      <td>${fmt(promo.likes || 0)} likes / ${fmt(promo.comments || 0)} comments</td>
+      <td><span class="badge badge--info">${fmt(promo.estimatedLiftPct || 0)}%</span></td>
+      <td>${fmt(promo.buyIntentCount || 0)} buy-intent comments</td>
+    </tr>`).join("")}</tbody>
+  </table></div>`;
 }
 
 function checkRows() {
@@ -3057,7 +3165,7 @@ function render() {
     bind();
     return;
   }
-  const views = { "/dashboard": dashboard, "/connect": connectPage, "/forecasts": forecastsPage, "/inventory": inventoryPage, "/analytics": advancedAnalyticsPage, "/marketplace": marketplacePage, "/community": communityPage, "/admin": adminPage, "/reports": reportsPage, "/profile": profilePage };
+  const views = { "/dashboard": dashboard, "/connect": connectPage, "/forecasts": forecastsPage, "/inventory": inventoryPage, "/analytics": advancedAnalyticsPage, "/marketplace": marketplacePage, "/social": socialSignalsPage, "/community": communityPage, "/admin": adminPage, "/reports": reportsPage, "/profile": profilePage };
   app.innerHTML = layout((views[state.path] || dashboard)());
   bind();
 }
@@ -3105,6 +3213,13 @@ function bind() {
   document.querySelector("[data-shopify-token]")?.addEventListener("click", connectShopifyToken);
   document.querySelector("[data-clover-connect]")?.addEventListener("submit", startCloverConnect);
   document.querySelectorAll("[data-sync-source]").forEach(el => el.addEventListener("click", () => syncSource(el.dataset.syncSource)));
+  document.querySelectorAll("[data-social-connect]").forEach(el => el.addEventListener("click", () => startSocialConnection(el.dataset.socialConnect)));
+  document.querySelector("[data-social-promotion-form]")?.addEventListener("submit", saveSocialPromotion);
+  document.querySelector("[data-refresh-social]")?.addEventListener("click", async () => {
+    await loadConnectionData();
+    render();
+    showToast("Social signals refreshed.", "success");
+  });
   document.querySelector("[data-csv]")?.addEventListener("change", handleCsvFile);
   document.querySelector("[data-sample-csv]")?.addEventListener("click", downloadSampleCsv);
   document.querySelector("[data-drop]")?.addEventListener("dragover", e => e.preventDefault());
@@ -3600,10 +3715,11 @@ async function loadEnterpriseData() {
 async function loadConnectionData() {
   if (!state.accessToken) return;
   try {
-    const [statusData, salesData, advancedData] = await Promise.all([
+    const [statusData, salesData, advancedData, socialData] = await Promise.all([
       apiAuthedGet("/api/integrations/status"),
       apiAuthedGet("/api/integrations/sales"),
       apiAuthedGet("/api/planning/overview").catch(() => apiAuthedGet("/api/analytics/advanced")),
+      apiAuthedGet("/api/social/promotions").catch(() => ({ data: { promotions: [] } })),
     ]);
     const providers = apiPayload(statusData, "providers");
     const salesPayload = apiPayload(salesData);
@@ -3612,6 +3728,7 @@ async function loadConnectionData() {
     state.salesRecords = salesPayload.records || [];
     state.inventoryItems = salesPayload.inventory || [];
     state.advancedAnalytics = advancedPayload.analytics || advancedPayload;
+    state.socialPromotions = apiPayload(socialData, "promotions") || [];
     const hasPlanningData = Boolean(state.advancedAnalytics?.summary?.salesRows || state.advancedAnalytics?.summary?.inventoryRows);
     if (state.salesRecords.length || hasPlanningData) {
       state.checklist.sales = true;
@@ -4139,6 +4256,47 @@ async function syncSource(provider) {
     showToast(err.message, "error");
   } finally {
     state.connectionsBusy = "";
+    render();
+  }
+}
+
+async function startSocialConnection(provider) {
+  if (!provider) return;
+  state.socialProviderBusy = provider;
+  render();
+  try {
+    const data = await apiAuthedPost(`/api/integrations/social/${provider}/start`, { redirectTo: "/social" });
+    if (data.status) state.connectionStatus[provider] = data.status;
+    if (data.url) {
+      location.href = data.url;
+      return;
+    }
+    showToast(data.message || `${providerName(provider)} is scaffolded. Add API keys tomorrow to finish OAuth.`, "info");
+  } catch (err) {
+    if (err.status) state.connectionStatus[provider] = err.status;
+    showToast(err.message, err.code === "SOCIAL_PROVIDER_NOT_CONFIGURED" ? "info" : "error");
+  } finally {
+    state.socialProviderBusy = "";
+    render();
+  }
+}
+
+async function saveSocialPromotion(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form).entries());
+  state.socialPromotionBusy = true;
+  render();
+  try {
+    const data = await apiAuthedPost("/api/social/promotions", values);
+    const promotion = apiPayload(data).promotion || data.promotion;
+    state.socialPromotions = [promotion, ...(state.socialPromotions || [])].filter(Boolean);
+    form.reset();
+    showToast("Promotion signal saved.", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  } finally {
+    state.socialPromotionBusy = false;
     render();
   }
 }

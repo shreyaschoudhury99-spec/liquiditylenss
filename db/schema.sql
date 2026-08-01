@@ -109,7 +109,7 @@ ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC CHECK (un
 CREATE TABLE IF NOT EXISTS integration_connections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  provider TEXT NOT NULL CHECK (provider IN ('csv', 'shopify', 'square', 'clover', 'lightspeed', 'toast', 'woocommerce', 'custom_pos')),
+  provider TEXT NOT NULL CHECK (provider IN ('csv', 'shopify', 'square', 'clover', 'lightspeed', 'toast', 'woocommerce', 'custom_pos', 'instagram', 'tiktok', 'facebook')),
   status TEXT NOT NULL CHECK (status IN ('connected', 'error', 'needs_reauth', 'not_connected')),
   detail TEXT NOT NULL,
   external_account TEXT,
@@ -126,7 +126,33 @@ CREATE TABLE IF NOT EXISTS integration_connections (
 ALTER TABLE integration_connections DROP CONSTRAINT IF EXISTS integration_connections_provider_check;
 ALTER TABLE integration_connections
   ADD CONSTRAINT integration_connections_provider_check
-  CHECK (provider IN ('csv', 'shopify', 'square', 'clover', 'lightspeed', 'toast', 'woocommerce', 'custom_pos'));
+  CHECK (provider IN ('csv', 'shopify', 'square', 'clover', 'lightspeed', 'toast', 'woocommerce', 'custom_pos', 'instagram', 'tiktok', 'facebook'));
+
+CREATE TABLE IF NOT EXISTS social_promotions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL CHECK (provider IN ('instagram', 'tiktok', 'facebook')),
+  external_post_id TEXT,
+  post_url TEXT,
+  sku TEXT,
+  caption TEXT,
+  post_date DATE NOT NULL,
+  likes INTEGER NOT NULL DEFAULT 0 CHECK (likes >= 0),
+  comments INTEGER NOT NULL DEFAULT 0 CHECK (comments >= 0),
+  shares INTEGER NOT NULL DEFAULT 0 CHECK (shares >= 0),
+  saves INTEGER NOT NULL DEFAULT 0 CHECK (saves >= 0),
+  buy_intent_count INTEGER NOT NULL DEFAULT 0 CHECK (buy_intent_count >= 0),
+  expected_lift_pct NUMERIC NOT NULL DEFAULT 0,
+  estimated_lift_pct NUMERIC NOT NULL DEFAULT 0,
+  sentiment_score NUMERIC,
+  source TEXT NOT NULL DEFAULT 'manual',
+  raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS social_promotions_user_date_idx
+  ON social_promotions (user_id, post_date DESC);
 
 CREATE TABLE IF NOT EXISTS planning_suppliers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

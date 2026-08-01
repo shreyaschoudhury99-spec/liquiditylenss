@@ -125,7 +125,7 @@ async function ensureSchema() {
   await pool.query(`CREATE TABLE IF NOT EXISTS integration_connections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    provider TEXT NOT NULL CHECK (provider IN ('csv', 'shopify', 'square', 'clover')),
+    provider TEXT NOT NULL CHECK (provider IN ('csv', 'shopify', 'square', 'clover', 'lightspeed', 'toast', 'woocommerce', 'custom_pos', 'instagram', 'tiktok', 'facebook')),
     status TEXT NOT NULL CHECK (status IN ('connected', 'error', 'needs_reauth', 'not_connected')),
     detail TEXT NOT NULL,
     external_account TEXT,
@@ -143,7 +143,30 @@ async function ensureSchema() {
   await pool.query("ALTER TABLE integration_connections ADD COLUMN IF NOT EXISTS scopes TEXT");
   await pool.query("ALTER TABLE integration_connections ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMPTZ");
   await pool.query("ALTER TABLE integration_connections DROP CONSTRAINT IF EXISTS integration_connections_provider_check");
-  await pool.query("ALTER TABLE integration_connections ADD CONSTRAINT integration_connections_provider_check CHECK (provider IN ('csv', 'shopify', 'square', 'clover', 'lightspeed', 'toast', 'woocommerce', 'custom_pos'))");
+  await pool.query("ALTER TABLE integration_connections ADD CONSTRAINT integration_connections_provider_check CHECK (provider IN ('csv', 'shopify', 'square', 'clover', 'lightspeed', 'toast', 'woocommerce', 'custom_pos', 'instagram', 'tiktok', 'facebook'))");
+  await pool.query(`CREATE TABLE IF NOT EXISTS social_promotions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL CHECK (provider IN ('instagram', 'tiktok', 'facebook')),
+    external_post_id TEXT,
+    post_url TEXT,
+    sku TEXT,
+    caption TEXT,
+    post_date DATE NOT NULL,
+    likes INTEGER NOT NULL DEFAULT 0 CHECK (likes >= 0),
+    comments INTEGER NOT NULL DEFAULT 0 CHECK (comments >= 0),
+    shares INTEGER NOT NULL DEFAULT 0 CHECK (shares >= 0),
+    saves INTEGER NOT NULL DEFAULT 0 CHECK (saves >= 0),
+    buy_intent_count INTEGER NOT NULL DEFAULT 0 CHECK (buy_intent_count >= 0),
+    expected_lift_pct NUMERIC NOT NULL DEFAULT 0,
+    estimated_lift_pct NUMERIC NOT NULL DEFAULT 0,
+    sentiment_score NUMERIC,
+    source TEXT NOT NULL DEFAULT 'manual',
+    raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS social_promotions_user_date_idx ON social_promotions (user_id, post_date DESC)");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_method TEXT");
@@ -2205,7 +2228,103 @@ const integrationProviders = {
     defaultStatus: "not_connected",
     defaultDetail: "Create a REST or webhook credential to stream sales, inventory, and catalog data.",
   },
+  instagram: {
+    label: "Instagram",
+    defaultStatus: "not_connected",
+    defaultDetail: "Instagram OAuth is scaffolded. Add INSTAGRAM_CLIENT_ID and INSTAGRAM_CLIENT_SECRET in Render to connect accounts.",
+  },
+  tiktok: {
+    label: "TikTok",
+    defaultStatus: "not_connected",
+    defaultDetail: "TikTok OAuth is scaffolded. Add TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET in Render to connect accounts.",
+  },
+  facebook: {
+    label: "Facebook Page",
+    defaultStatus: "not_connected",
+    defaultDetail: "Facebook Page OAuth is scaffolded. Add FACEBOOK_CLIENT_ID and FACEBOOK_CLIENT_SECRET in Render to connect accounts.",
+  },
 };
+
+const socialProviders = new Set(["instagram", "tiktok", "facebook"]);
+const socialProviderConfig = {
+  instagram: {
+    label: "Instagram",
+    clientIdEnv: "INSTAGRAM_CLIENT_ID",
+    clientSecretEnv: "INSTAGRAM_CLIENT_SECRET",
+    authUrl: process.env.INSTAGRAM_AUTH_URL || "https://www.facebook.com/v20.0/dialog/oauth",
+    tokenUrl: process.env.INSTAGRAM_TOKEN_URL || "https://graph.facebook.com/v20.0/oauth/access_token",
+    scopes: process.env.INSTAGRAM_SCOPES || "instagram_basic,instagram_manage_insights,instagram_manage_comments,pages_show_list",
+  },
+  facebook: {
+    label: "Facebook Page",
+    clientIdEnv: "FACEBOOK_CLIENT_ID",
+    clientSecretEnv: "FACEBOOK_CLIENT_SECRET",
+    authUrl: process.env.FACEBOOK_AUTH_URL || "https://www.facebook.com/v20.0/dialog/oauth",
+    tokenUrl: process.env.FACEBOOK_TOKEN_URL || "https://graph.facebook.com/v20.0/oauth/access_token",
+    scopes: process.env.FACEBOOK_SCOPES || "pages_show_list,pages_read_engagement,pages_read_user_content",
+  },
+  tiktok: {
+    label: "TikTok",
+    clientIdEnv: "TIKTOK_CLIENT_KEY",
+    clientSecretEnv: "TIKTOK_CLIENT_SECRET",
+    authUrl: process.env.TIKTOK_AUTH_URL || "https://www.tiktok.com/v2/auth/authorize/",
+    tokenUrl: process.env.TIKTOK_TOKEN_URL || "https://open.tiktokapis.com/v2/oauth/token/",
+    scopes: process.env.TIKTOK_SCOPES || "user.info.basic,video.list",
+  },
+};
+
+function socialConfig(provider) {
+  const config = socialProviderConfig[provider];
+  if (!config) return null;
+  return {
+    ...config,
+    clientId: process.env[config.clientIdEnv],
+    clientSecret: process.env[config.clientSecretEnv],
+  };
+}
+
+function normalizeSocialProvider(value) {
+  const provider = String(value || "").trim().toLowerCase();
+  return socialProviders.has(provider) ? provider : "";
+}
+
+function socialMissingEnv(provider) {
+  const config = socialProviderConfig[provider];
+  return config ? `${config.clientIdEnv} and ${config.clientSecretEnv}` : "provider API credentials";
+}
+
+function nonNegativeInteger(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.round(number) : 0;
+}
+
+function estimateSocialLift({ likes, comments, shares, saves, buyIntentCount, expectedLiftPct }) {
+  const expected = Number(expectedLiftPct);
+  if (Number.isFinite(expected) && expected > 0) return Math.min(250, Math.round(expected));
+  return Math.min(250, Math.round(likes * 0.03 + comments * 0.75 + shares * 1.25 + saves * 0.9 + buyIntentCount * 4));
+}
+
+function normalizeSocialPromotion(row = {}) {
+  return {
+    id: row.id,
+    provider: row.provider,
+    externalPostId: row.external_post_id || row.externalPostId || "",
+    postUrl: row.post_url || row.postUrl || "",
+    sku: row.sku || "",
+    caption: row.caption || "",
+    postDate: row.post_date ? new Date(row.post_date).toISOString().slice(0, 10) : "",
+    likes: Number(row.likes || 0),
+    comments: Number(row.comments || 0),
+    shares: Number(row.shares || 0),
+    saves: Number(row.saves || 0),
+    buyIntentCount: Number(row.buy_intent_count || row.buyIntentCount || 0),
+    expectedLiftPct: Number(row.expected_lift_pct || row.expectedLiftPct || 0),
+    estimatedLiftPct: Number(row.estimated_lift_pct || row.estimatedLiftPct || 0),
+    sentimentScore: row.sentiment_score ?? row.sentimentScore ?? null,
+    source: row.source || "manual",
+    createdAt: row.created_at || row.createdAt || null,
+  };
+}
 
 function normalizedSaleRecord(raw) {
   const sku = String(raw?.sku || "").trim();
@@ -3959,6 +4078,139 @@ app.post("/api/integrations/csv", authUser, asyncRoute(async (req, res) => {
   res.json({ ok: true, imported: records.length, total, status });
 }));
 
+app.get("/api/social/promotions", authUser, asyncRoute(async (req, res) => {
+  const result = await pool.query(
+    `SELECT id, provider, external_post_id, post_url, sku, caption, post_date, likes, comments, shares, saves,
+            buy_intent_count, expected_lift_pct, estimated_lift_pct, sentiment_score, source, created_at
+     FROM social_promotions
+     WHERE user_id = $1
+     ORDER BY post_date DESC, created_at DESC
+     LIMIT 100`,
+    [req.user.sub]
+  );
+  res.json({ promotions: result.rows.map(normalizeSocialPromotion) });
+}));
+
+app.post("/api/social/promotions", authUser, asyncRoute(async (req, res) => {
+  const provider = normalizeSocialProvider(req.body.provider);
+  if (!provider) return error(res, 400, "Choose Instagram, TikTok, or Facebook.", "INVALID_SOCIAL_PROVIDER");
+  const sku = String(req.body.sku || "").trim();
+  if (!sku) return error(res, 400, "Enter the product or SKU promoted.", "SOCIAL_SKU_REQUIRED");
+  const postDate = String(req.body.postDate || req.body.post_date || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(postDate) || Number.isNaN(Date.parse(`${postDate}T00:00:00Z`))) {
+    return error(res, 400, "Enter a valid post date.", "INVALID_SOCIAL_POST_DATE");
+  }
+  const likes = nonNegativeInteger(req.body.likes);
+  const comments = nonNegativeInteger(req.body.comments);
+  const shares = nonNegativeInteger(req.body.shares);
+  const saves = nonNegativeInteger(req.body.saves);
+  const buyIntentCount = nonNegativeInteger(req.body.buyIntentCount || req.body.buy_intent_count);
+  const expectedLiftPct = Math.max(0, Number(req.body.expectedLiftPct || req.body.expected_lift_pct || 0) || 0);
+  const estimatedLiftPct = estimateSocialLift({ likes, comments, shares, saves, buyIntentCount, expectedLiftPct });
+  const result = await pool.query(
+    `INSERT INTO social_promotions
+       (user_id, provider, post_url, sku, caption, post_date, likes, comments, shares, saves,
+        buy_intent_count, expected_lift_pct, estimated_lift_pct, source, raw_payload)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'manual', $14::jsonb)
+     RETURNING id, provider, external_post_id, post_url, sku, caption, post_date, likes, comments, shares, saves,
+               buy_intent_count, expected_lift_pct, estimated_lift_pct, sentiment_score, source, created_at`,
+    [
+      req.user.sub,
+      provider,
+      String(req.body.postUrl || req.body.post_url || "").trim(),
+      sku,
+      String(req.body.caption || "").trim(),
+      postDate,
+      likes,
+      comments,
+      shares,
+      saves,
+      buyIntentCount,
+      expectedLiftPct,
+      estimatedLiftPct,
+      JSON.stringify(req.body || {}),
+    ]
+  );
+  res.status(201).json({ promotion: normalizeSocialPromotion(result.rows[0]) });
+}));
+
+app.post("/api/integrations/social/:provider/start", authUser, oauthLimiter, asyncRoute(async (req, res) => {
+  const provider = normalizeSocialProvider(req.params.provider);
+  if (!provider) return error(res, 404, "Unknown social provider.", "UNKNOWN_SOCIAL_PROVIDER");
+  const config = socialConfig(provider);
+  if (!config?.clientId || !config?.clientSecret) {
+    const detail = `${config?.label || titleCase(provider)} OAuth is scaffolded. Add ${socialMissingEnv(provider)} in Render before connecting accounts.`;
+    const status = await upsertIntegration(req.user.sub, provider, { status: "not_connected", detail });
+    return res.status(503).json({ error: detail, code: "SOCIAL_PROVIDER_NOT_CONFIGURED", status });
+  }
+
+  const state = crypto.randomBytes(24).toString("base64url");
+  const redirectTo = safeRedirectPath(req.body.redirectTo || "/social");
+  const redirectUri = `${appBaseUrl}/api/integrations/social/${provider}/callback`;
+  res.cookie(integrationCookieName, JSON.stringify({ provider, state, userId: req.user.sub, redirectTo }), cookieOptions(oauthCookieMs));
+
+  const url = new URL(config.authUrl);
+  url.searchParams.set(provider === "tiktok" ? "client_key" : "client_id", config.clientId);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", config.scopes);
+  url.searchParams.set("state", state);
+  res.json({ url: url.toString() });
+}));
+
+app.get("/api/integrations/social/:provider/callback", oauthLimiter, asyncRoute(async (req, res) => {
+  const redirectToApp = path => res.redirect(`${appBaseUrl}${safeRedirectPath(path)}`);
+  const provider = normalizeSocialProvider(req.params.provider);
+  const config = socialConfig(provider);
+  const cookie = req.signedCookies[integrationCookieName];
+  if (!provider || !config || req.query.error || !cookie) return redirectToApp("/social");
+
+  let stored;
+  try {
+    stored = JSON.parse(cookie);
+  } catch {
+    return redirectToApp("/social");
+  }
+  res.clearCookie(integrationCookieName, { path: "/", signed: true });
+  if (stored.provider !== provider || stored.state !== req.query.state) return redirectToApp("/social");
+  const code = String(req.query.code || "");
+  if (!code) return redirectToApp("/social");
+
+  const redirectUri = `${appBaseUrl}/api/integrations/social/${provider}/callback`;
+  const tokenSet = provider === "tiktok"
+    ? await fetchJson(config.tokenUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+        body: new URLSearchParams({
+          client_key: config.clientId,
+          client_secret: config.clientSecret,
+          code,
+          grant_type: "authorization_code",
+          redirect_uri: redirectUri,
+        }),
+      })
+    : await fetchJson(`${config.tokenUrl}?${new URLSearchParams({
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        code,
+        redirect_uri: redirectUri,
+      })}`);
+
+  const tokenBody = tokenSet.data || tokenSet;
+  const accessToken = tokenBody.access_token;
+  if (!accessToken) return redirectToApp("/social");
+  const expiresAt = tokenBody.expires_in ? new Date(Date.now() + Number(tokenBody.expires_in) * 1000) : null;
+  await saveIntegrationToken(stored.userId, provider, {
+    accessToken,
+    refreshToken: tokenBody.refresh_token || null,
+    scopes: tokenBody.scope || config.scopes,
+    expiresAt,
+    externalAccount: `${config.label} connected account`,
+    detail: `${config.label} connected. Post import is ready for provider-specific media mapping.`,
+  });
+  redirectToApp(stored.redirectTo || "/social");
+}));
+
 app.post("/api/integrations/shopify/start", authUser, oauthLimiter, asyncRoute(async (req, res) => {
   if (!process.env.SHOPIFY_CLIENT_ID || !process.env.SHOPIFY_CLIENT_SECRET) {
     return error(res, 503, "Shopify OAuth is not configured. Add SHOPIFY_CLIENT_ID and SHOPIFY_CLIENT_SECRET.", "SHOPIFY_NOT_CONFIGURED");
@@ -4226,6 +4478,35 @@ app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, re
       const httpStatus = err.code === "CLOVER_RATE_LIMITED" ? 429 : err.code === "CLOVER_PERMISSION_DENIED" ? 403 : 502;
       return res.status(httpStatus).json({ error: err.message, code: err.code || "CLOVER_SYNC_FAILED", status });
     }
+  }
+
+  if (socialProviders.has(provider)) {
+    const result = await pool.query(
+      "SELECT external_account, access_token_enc FROM integration_connections WHERE user_id = $1 AND provider = $2",
+      [req.user.sub, provider]
+    );
+    const connection = result.rows[0];
+    if (!connection?.access_token_enc) {
+      const detail = `${integrationProviders[provider].label} is ready for OAuth setup. Add ${socialMissingEnv(provider)} in Render, then connect the account from Social Signals.`;
+      const status = await upsertIntegration(req.user.sub, provider, { status: "not_connected", detail });
+      return res.status(409).json({ error: detail, code: "SOCIAL_PROVIDER_NOT_CONNECTED", status });
+    }
+    const status = await upsertIntegration(req.user.sub, provider, {
+      status: "connected",
+      detail: `${integrationProviders[provider].label} token is stored. Automatic post import will be enabled after media/comment endpoint mapping is finished.`,
+      externalAccount: connection.external_account,
+      synced: true,
+    });
+    const promotions = (await pool.query(
+      `SELECT id, provider, external_post_id, post_url, sku, caption, post_date, likes, comments, shares, saves,
+              buy_intent_count, expected_lift_pct, estimated_lift_pct, sentiment_score, source, created_at
+       FROM social_promotions
+       WHERE user_id = $1 AND provider = $2
+       ORDER BY post_date DESC, created_at DESC
+       LIMIT 100`,
+      [req.user.sub, provider]
+    )).rows.map(normalizeSocialPromotion);
+    return res.json({ ok: true, status, promotions });
   }
 
   const envPrefix = provider.toUpperCase();
