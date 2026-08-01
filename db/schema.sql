@@ -154,6 +154,10 @@ CREATE TABLE IF NOT EXISTS social_promotions (
 CREATE INDEX IF NOT EXISTS social_promotions_user_date_idx
   ON social_promotions (user_id, post_date DESC);
 
+CREATE UNIQUE INDEX IF NOT EXISTS social_promotions_user_provider_post_idx
+  ON social_promotions (user_id, provider, external_post_id)
+  WHERE external_post_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS planning_suppliers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

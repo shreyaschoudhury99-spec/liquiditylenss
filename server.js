@@ -167,6 +167,7 @@ async function ensureSchema() {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
   await pool.query("CREATE INDEX IF NOT EXISTS social_promotions_user_date_idx ON social_promotions (user_id, post_date DESC)");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS social_promotions_user_provider_post_idx ON social_promotions (user_id, provider, external_post_id) WHERE external_post_id IS NOT NULL");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT false");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_method TEXT");
@@ -2324,6 +2325,220 @@ function normalizeSocialPromotion(row = {}) {
     source: row.source || "manual",
     createdAt: row.created_at || row.createdAt || null,
   };
+}
+
+function socialBuyIntentCount(comments = []) {
+  const patterns = [
+    /\bhow much\b/i,
+    /\bprice\b/i,
+    /\bsold\b/i,
+    /\bbuy\b/i,
+    /\border\b/i,
+    /\bavailable\b/i,
+    /\bin stock\b/i,
+    /\bdo you have\b/i,
+    /\bneed\b/i,
+    /\bwant\b/i,
+    /\blink\b/i,
+    /\bship\b/i,
+    /\bhold\b/i,
+  ];
+  return comments.reduce((count, text) => count + (patterns.some(pattern => pattern.test(String(text || ""))) ? 1 : 0), 0);
+}
+
+function skuFromSocialText(text = "") {
+  const value = String(text || "");
+  const tagged = value.match(/(?:SKU|style|item)\s*[:#-]?\s*([A-Z0-9][A-Z0-9_-]{2,})/i);
+  if (tagged) return tagged[1].toUpperCase();
+  const hashtag = value.match(/#([A-Z0-9][A-Z0-9_-]{2,})/i);
+  return hashtag ? hashtag[1].toUpperCase() : "unmatched-social-post";
+}
+
+function socialPostDate(value) {
+  if (!value) return new Date().toISOString().slice(0, 10);
+  const date = typeof value === "number" ? new Date(value * 1000) : new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10);
+}
+
+async function upsertSocialPromotion(userId, promotion) {
+  const provider = normalizeSocialProvider(promotion.provider);
+  if (!provider) return null;
+  const likes = nonNegativeInteger(promotion.likes);
+  const comments = nonNegativeInteger(promotion.comments);
+  const shares = nonNegativeInteger(promotion.shares);
+  const saves = nonNegativeInteger(promotion.saves);
+  const buyIntentCount = nonNegativeInteger(promotion.buyIntentCount);
+  const expectedLiftPct = Math.max(0, Number(promotion.expectedLiftPct || 0) || 0);
+  const estimatedLiftPct = estimateSocialLift({ likes, comments, shares, saves, buyIntentCount, expectedLiftPct });
+  const result = await pool.query(
+    `INSERT INTO social_promotions
+       (user_id, provider, external_post_id, post_url, sku, caption, post_date, likes, comments, shares, saves,
+        buy_intent_count, expected_lift_pct, estimated_lift_pct, source, raw_payload)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'api', $15::jsonb)
+     ON CONFLICT (user_id, provider, external_post_id) WHERE external_post_id IS NOT NULL DO UPDATE
+     SET post_url = EXCLUDED.post_url,
+         sku = EXCLUDED.sku,
+         caption = EXCLUDED.caption,
+         post_date = EXCLUDED.post_date,
+         likes = EXCLUDED.likes,
+         comments = EXCLUDED.comments,
+         shares = EXCLUDED.shares,
+         saves = EXCLUDED.saves,
+         buy_intent_count = EXCLUDED.buy_intent_count,
+         expected_lift_pct = EXCLUDED.expected_lift_pct,
+         estimated_lift_pct = EXCLUDED.estimated_lift_pct,
+         raw_payload = EXCLUDED.raw_payload,
+         updated_at = now()
+     RETURNING id, provider, external_post_id, post_url, sku, caption, post_date, likes, comments, shares, saves,
+               buy_intent_count, expected_lift_pct, estimated_lift_pct, sentiment_score, source, created_at`,
+    [
+      userId,
+      provider,
+      String(promotion.externalPostId || "").trim() || null,
+      String(promotion.postUrl || "").trim(),
+      String(promotion.sku || "unmatched-social-post").trim(),
+      String(promotion.caption || "").trim(),
+      promotion.postDate,
+      likes,
+      comments,
+      shares,
+      saves,
+      buyIntentCount,
+      expectedLiftPct,
+      estimatedLiftPct,
+      JSON.stringify(promotion.rawPayload || promotion || {}),
+    ]
+  );
+  return normalizeSocialPromotion(result.rows[0]);
+}
+
+async function fetchMetaCommentTexts(mediaId, accessToken) {
+  try {
+    const data = await fetchJson(`https://graph.facebook.com/v20.0/${encodeURIComponent(mediaId)}/comments?${new URLSearchParams({
+      fields: "text,message",
+      limit: "50",
+      access_token: accessToken,
+    })}`);
+    return (data.data || []).map(comment => comment.text || comment.message || "").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function syncInstagramPromotions(userId, accessToken) {
+  const accounts = await fetchJson(`https://graph.facebook.com/v20.0/me/accounts?${new URLSearchParams({
+    fields: "name,instagram_business_account{id,username}",
+    access_token: accessToken,
+  })}`);
+  const instagramAccounts = (accounts.data || []).map(page => page.instagram_business_account).filter(account => account?.id);
+  if (!instagramAccounts.length) {
+    const fallback = await fetchJson(`https://graph.instagram.com/me/media?${new URLSearchParams({
+      fields: "id,caption,media_url,permalink,timestamp",
+      access_token: accessToken,
+    })}`);
+    const rows = [];
+    for (const media of fallback.data || []) {
+      rows.push(await upsertSocialPromotion(userId, {
+        provider: "instagram",
+        externalPostId: media.id,
+        postUrl: media.permalink || media.media_url || "",
+        sku: skuFromSocialText(media.caption),
+        caption: media.caption || "",
+        postDate: socialPostDate(media.timestamp),
+        rawPayload: media,
+      }));
+    }
+    return { imported: rows.filter(Boolean).length, account: "Instagram Basic Display" };
+  }
+  const rows = [];
+  for (const account of instagramAccounts) {
+    const mediaResponse = await fetchJson(`https://graph.facebook.com/v20.0/${encodeURIComponent(account.id)}/media?${new URLSearchParams({
+      fields: "id,caption,permalink,timestamp,like_count,comments_count",
+      limit: "25",
+      access_token: accessToken,
+    })}`);
+    for (const media of mediaResponse.data || []) {
+      const commentTexts = await fetchMetaCommentTexts(media.id, accessToken);
+      rows.push(await upsertSocialPromotion(userId, {
+        provider: "instagram",
+        externalPostId: media.id,
+        postUrl: media.permalink || "",
+        sku: skuFromSocialText(media.caption),
+        caption: media.caption || "",
+        postDate: socialPostDate(media.timestamp),
+        likes: media.like_count,
+        comments: media.comments_count,
+        buyIntentCount: socialBuyIntentCount(commentTexts),
+        rawPayload: { ...media, account },
+      }));
+    }
+  }
+  return { imported: rows.filter(Boolean).length, account: instagramAccounts.map(account => account.username || account.id).join(", ") };
+}
+
+async function syncFacebookPromotions(userId, accessToken) {
+  const pages = await fetchJson(`https://graph.facebook.com/v20.0/me/accounts?${new URLSearchParams({
+    fields: "id,name,access_token",
+    access_token: accessToken,
+  })}`);
+  const rows = [];
+  for (const page of pages.data || []) {
+    const pageToken = page.access_token || accessToken;
+    const posts = await fetchJson(`https://graph.facebook.com/v20.0/${encodeURIComponent(page.id)}/posts?${new URLSearchParams({
+      fields: "id,message,permalink_url,created_time,shares,likes.summary(true),comments.summary(true)",
+      limit: "25",
+      access_token: pageToken,
+    })}`);
+    for (const post of posts.data || []) {
+      const comments = post.comments?.summary?.total_count || 0;
+      rows.push(await upsertSocialPromotion(userId, {
+        provider: "facebook",
+        externalPostId: post.id,
+        postUrl: post.permalink_url || "",
+        sku: skuFromSocialText(post.message),
+        caption: post.message || "",
+        postDate: socialPostDate(post.created_time),
+        likes: post.likes?.summary?.total_count || 0,
+        comments,
+        shares: post.shares?.count || 0,
+        buyIntentCount: Math.round(comments * 0.15),
+        rawPayload: { ...post, page: { id: page.id, name: page.name } },
+      }));
+    }
+  }
+  return { imported: rows.filter(Boolean).length, account: (pages.data || []).map(page => page.name).join(", ") || "Facebook Page" };
+}
+
+async function syncTikTokPromotions(userId, accessToken) {
+  const videos = await fetchJson("https://open.tiktokapis.com/v2/video/list/?fields=id,title,create_time,share_url,like_count,comment_count,share_count,view_count", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ max_count: 20 }),
+  });
+  const rows = [];
+  for (const video of videos.data?.videos || []) {
+    rows.push(await upsertSocialPromotion(userId, {
+      provider: "tiktok",
+      externalPostId: video.id,
+      postUrl: video.share_url || "",
+      sku: skuFromSocialText(video.title),
+      caption: video.title || "",
+      postDate: socialPostDate(video.create_time),
+      likes: video.like_count,
+      comments: video.comment_count,
+      shares: video.share_count,
+      buyIntentCount: Math.round(nonNegativeInteger(video.comment_count) * 0.18),
+      rawPayload: video,
+    }));
+  }
+  return { imported: rows.filter(Boolean).length, account: "TikTok account" };
+}
+
+async function syncSocialPromotions(userId, provider, accessToken) {
+  if (provider === "instagram") return syncInstagramPromotions(userId, accessToken);
+  if (provider === "facebook") return syncFacebookPromotions(userId, accessToken);
+  if (provider === "tiktok") return syncTikTokPromotions(userId, accessToken);
+  return { imported: 0, account: titleCase(provider) };
 }
 
 function normalizedSaleRecord(raw) {
@@ -4491,10 +4706,21 @@ app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, re
       const status = await upsertIntegration(req.user.sub, provider, { status: "not_connected", detail });
       return res.status(409).json({ error: detail, code: "SOCIAL_PROVIDER_NOT_CONNECTED", status });
     }
+    let synced;
+    try {
+      synced = await syncSocialPromotions(req.user.sub, provider, decryptSecret(connection.access_token_enc));
+    } catch (err) {
+      const status = await upsertIntegration(req.user.sub, provider, {
+        status: "error",
+        detail: `${integrationProviders[provider].label} sync failed: ${err.message}`,
+        externalAccount: connection.external_account,
+      });
+      return res.status(502).json({ error: status.detail, code: "SOCIAL_SYNC_FAILED", status });
+    }
     const status = await upsertIntegration(req.user.sub, provider, {
       status: "connected",
-      detail: `${integrationProviders[provider].label} token is stored. Automatic post import will be enabled after media/comment endpoint mapping is finished.`,
-      externalAccount: connection.external_account,
+      detail: `Synced ${synced.imported} social promotion signal${synced.imported === 1 ? "" : "s"} from ${synced.account || integrationProviders[provider].label}.`,
+      externalAccount: synced.account || connection.external_account,
       synced: true,
     });
     const promotions = (await pool.query(
@@ -4580,7 +4806,7 @@ async function fetchJson(url, options) {
   const text = await response.text();
   const data = text ? JSON.parse(text) : {};
   if (!response.ok) {
-    const message = data.error_description || data.error || "OAuth provider request failed.";
+    const message = data.error_description || data.error?.message || data.error || data.message || "OAuth provider request failed.";
     throw new Error(message);
   }
   return data;
