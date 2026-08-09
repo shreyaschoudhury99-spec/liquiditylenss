@@ -4940,6 +4940,33 @@ function metaForPath(pathname) {
   return pages[pathname] || pages["/"];
 }
 
+const publicSeoPaths = [
+  "/",
+  "/platform",
+  "/features",
+  "/solutions",
+  "/industries",
+  "/pricing",
+  "/resources",
+  "/blog",
+  "/docs",
+  "/security",
+  "/integrations",
+  "/about",
+  "/contact",
+  "/book-demo",
+];
+
+function xmlEscape(value) {
+  return String(value).replace(/[<>&'"]/g, char => ({
+    "<": "&lt;",
+    ">": "&gt;",
+    "&": "&amp;",
+    "'": "&apos;",
+    '"': "&quot;",
+  }[char]));
+}
+
 function renderShell(req) {
   const [title, description] = metaForPath(req.path);
   const canonical = `${appBaseUrl}${req.path === "/" ? "/" : req.path}`;
@@ -4972,6 +4999,48 @@ function renderShell(req) {
   </body>
 </html>`;
 }
+
+app.get("/robots.txt", (_req, res) => {
+  res.type("text/plain").send([
+    "User-agent: *",
+    "Allow: /",
+    "Disallow: /api/",
+    "Disallow: /dashboard",
+    "Disallow: /connect",
+    "Disallow: /forecasts",
+    "Disallow: /inventory",
+    "Disallow: /analytics",
+    "Disallow: /marketplace",
+    "Disallow: /community",
+    "Disallow: /admin",
+    "Disallow: /reports",
+    "Disallow: /profile",
+    `Sitemap: ${appBaseUrl}/sitemap.xml`,
+    "",
+  ].join("\n"));
+});
+
+app.get("/sitemap.xml", (_req, res) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const urls = publicSeoPaths.map((pathname, index) => {
+    const loc = `${appBaseUrl}${pathname === "/" ? "/" : pathname}`;
+    const priority = pathname === "/" ? "1.0" : index <= 5 ? "0.8" : "0.6";
+    return `  <url>
+    <loc>${xmlEscape(loc)}</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>${priority}</priority>
+  </url>`;
+  }).join("\n");
+  res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls}
+</urlset>`);
+});
+
+app.get("/google3a56a25c5ae125f2.html", (_req, res) => {
+  res.type("text/html").send("google-site-verification: google3a56a25c5ae125f2.html");
+});
 
 app.use((req, res, next) => {
   if (req.method !== "GET" && req.method !== "HEAD") return next();
