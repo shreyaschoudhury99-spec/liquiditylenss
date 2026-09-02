@@ -1302,6 +1302,12 @@ function statBand(stats) {
 }
 
 function pageHero(eyebrow, title, copy, art, mood = "") {
+  const heroSignal = {
+    resources: ["Pilot library", "Risk score guide", "Executive business case"],
+    contact: ["Sales", "Security", "Partners"],
+    about: ["Mission", "Pilot program", "Customer success"],
+    integrations: ["CSV", "Shopify", "Clover"],
+  }[mood];
   return `<section class="marketing-page-hero page-hero-${mood} ${art ? "" : "marketing-page-hero--no-art"}">
     <div>
       <p class="eyebrow">${esc(eyebrow)}</p>
@@ -1311,6 +1317,7 @@ function pageHero(eyebrow, title, copy, art, mood = "") {
         <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
         <a class="btn-ghost" href="/login">Open app</a>
       </div>
+      ${heroSignal ? `<div class="page-hero-signal">${heroSignal.map(item => `<span>${esc(item)}</span>`).join("")}</div>` : ""}
     </div>
     ${art || ""}
   </section>`;
