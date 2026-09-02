@@ -558,19 +558,35 @@ a { color: inherit; text-decoration: none; }
   min-height: 34px;
   font-size: 12px;
 }
-.sidebar-nav { display: grid; gap: var(--space-1); padding: var(--space-3); }
+.sidebar-nav { display: grid; gap: var(--space-2); padding: var(--space-3); }
 .nav-link {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  min-height: 36px;
-  padding: 0 var(--space-3);
+  min-height: 44px;
+  padding: 0 var(--space-4);
   color: var(--text-secondary);
-  border-left: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--border-default));
   border-radius: 999px;
-  font-size: 13px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--glass-highlight) 72%, transparent), transparent 54%),
+    color-mix(in srgb, var(--bg-elevated) 78%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  font-size: 14px;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
-.nav-link.active { color: var(--text-primary); font-weight: 600; background: linear-gradient(90deg, var(--accent-dim), var(--bg-elevated)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent); }
+.nav-link:hover {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border-default));
+  transform: translateX(2px);
+}
+.nav-link.active {
+  color: var(--text-inverse);
+  font-weight: 700;
+  background: linear-gradient(180deg, var(--accent), var(--blue));
+  border-color: transparent;
+  box-shadow: 0 16px 34px rgba(0, 199, 245, 0.22);
+}
 .sidebar-bottom { margin-top: auto; border-top: 1px solid var(--border-default); padding: var(--space-3); display: grid; gap: var(--space-1); }
 .bottom-link {
   display: flex;
@@ -1822,17 +1838,39 @@ a { color: inherit; text-decoration: none; }
 .marketing-nav {
   display: flex;
   justify-content: center;
-  gap: var(--space-5);
+  gap: var(--space-3);
   align-items: center;
 }
-.marketing-nav a,
+.marketing-nav a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 clamp(16px, 1.6vw, 24px);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-default));
+  border-radius: 999px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--glass-highlight) 74%, transparent), transparent 58%),
+    color-mix(in srgb, var(--bg-elevated) 78%, transparent);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 15px;
+  line-height: 1;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
 .marketing-footer a {
   color: var(--text-secondary);
   text-decoration: none;
   font-size: 14px;
 }
 .marketing-nav a.active,
-.marketing-nav a:hover,
+.marketing-nav a:hover {
+  color: var(--text-inverse);
+  border-color: transparent;
+  background: linear-gradient(180deg, var(--accent), var(--blue));
+  transform: translateY(-1px);
+  box-shadow: 0 18px 42px rgba(0, 199, 245, 0.2);
+}
 .marketing-footer a:hover { color: var(--text-primary); }
 .marketing-actions {
   display: flex;
@@ -2213,29 +2251,41 @@ a { color: inherit; text-decoration: none; }
 .model-pill-row {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 .role-tabs span,
 .model-pill-row span,
 .model-pill-row button {
-  padding: 8px 12px;
+  min-height: 40px;
+  padding: 0 18px;
   border-radius: 999px;
-  border: 1px solid var(--border-default);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-default));
   color: var(--text-secondary);
-  background: var(--bg-base);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--glass-highlight) 72%, transparent), transparent 60%),
+    color-mix(in srgb, var(--bg-elevated) 76%, transparent);
   font: inherit;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
 .role-tabs span.active,
 .model-pill-row span.active,
 .model-pill-row button.active {
-  color: var(--text-primary);
-  background: var(--accent);
+  color: var(--text-inverse);
+  border-color: transparent;
+  background: linear-gradient(180deg, var(--accent), var(--blue));
+  box-shadow: 0 16px 34px rgba(0, 199, 245, 0.2);
 }
 .model-pill-row button:hover,
 .model-pill-row button:focus-visible {
-  color: var(--text-primary);
+  color: var(--text-inverse);
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border-default));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 86%, var(--bg-elevated)), var(--blue));
+  transform: translateY(-1px);
   outline: none;
 }
 .role-flow {
@@ -2371,22 +2421,35 @@ a { color: inherit; text-decoration: none; }
   font-size: 12px;
 }
 .hero-toggle {
-  display: grid;
+  display: flex;
+  gap: var(--space-3);
+  padding: 4px;
   grid-template-columns: 1fr 1fr;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border-default));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-base) 82%, transparent);
 }
 .hero-toggle button {
-  padding: var(--space-3);
-  border: 0;
-  background: transparent;
+  flex: 1 1 0;
+  min-height: 42px;
+  padding: 0 var(--space-4);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elevated) 76%, transparent);
   text-align: center;
   color: var(--text-secondary);
+  font: inherit;
+  line-height: 1;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
 .hero-toggle button.active {
   color: var(--text-inverse);
-  background: var(--accent);
+  background: linear-gradient(180deg, var(--accent), var(--blue));
+  box-shadow: 0 14px 30px rgba(0, 199, 245, 0.22);
+}
+.hero-toggle button:hover {
+  color: var(--text-primary);
+  transform: translateY(-1px);
 }
 .hero-forecast svg { max-height: 280px; }
 .hero-command-surface .hero-forecast svg { max-height: none; }
@@ -3678,6 +3741,17 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 
 @media (max-width: 1280px) {
+  .marketing-header {
+    gap: var(--space-3);
+  }
+  .marketing-nav {
+    gap: var(--space-2);
+  }
+  .marketing-nav a {
+    min-height: 40px;
+    padding: 0 14px;
+    font-size: 13px;
+  }
   .marketing-hero,
   .marketing-demo-grid,
   .marketing-page-hero,
