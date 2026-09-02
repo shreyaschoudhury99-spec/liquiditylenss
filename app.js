@@ -185,9 +185,9 @@ const companyLinks = {
 };
 
 const juneJulyMetrics = [
-  { key: "instagramFollowers", value: "250+", label: "Instagram followers", detail: "Followers since the first LiquidityLink Instagram launch posts in July." },
-  { key: "retailers", value: "7", label: "Local retailers connected", detail: "Retailers ready to kick-start the pilot program." },
-  { key: "interns", value: "5", label: "Interns recruited", detail: "Supporting outreach, marketing, website development, and business administration." },
+  { key: "instagramFollowers", value: "350", label: "Instagram followers", detail: "Followers since the first LiquidityLink Instagram launch posts in July." },
+  { key: "retailers", value: "11", label: "Local retailers connected", detail: "Retailers ready to kick-start the pilot program." },
+  { key: "interns", value: "10", label: "Interns recruited", detail: "Supporting outreach, marketing, website development, and business administration." },
   { key: "linkedinImpressions", value: "500+", label: "LinkedIn impressions", detail: "Since the company page was created on 7/22." },
 ];
 

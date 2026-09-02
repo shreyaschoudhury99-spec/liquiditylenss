@@ -26,7 +26,7 @@ const bcryptCost = 12;
 const marketplaceUserAgent = process.env.MARKETPLACE_USER_AGENT || `LiquidityLink/1.0 (${appBaseUrl})`;
 const demoRequestOwnerEmail = String(process.env.DEMO_REQUEST_OWNER_EMAIL || "shreyaschoudhury23@gmail.com").trim().toLowerCase();
 const demoRequestInbox = demoRequestOwnerEmail;
-const instagramFallbackFollowers = process.env.INSTAGRAM_FOLLOWERS_FALLBACK || "250+";
+const instagramFallbackFollowers = process.env.INSTAGRAM_FOLLOWERS_FALLBACK || "350";
 let liveStatsCache = { expiresAt: 0, data: null };
 
 if (process.env.SENDGRID_API_KEY) sgMail.setApiKey(process.env.SENDGRID_API_KEY);
