@@ -4916,7 +4916,6 @@ function metaForPath(pathname) {
     "/platform": ["Platform | LiquidityLink", "Inventory intelligence, forecasting, supplier risk, and executive reporting built for retail operators."],
     "/features": ["Features | LiquidityLink", "Forecast accuracy, replenishment signals, risk scoring, marketplace matching, and reporting for modern retail teams."],
     "/solutions": ["Solutions | LiquidityLink", "Inventory planning workflows for supply chain, operations, finance, and executive teams."],
-    "/industries": ["Industries | LiquidityLink", "Demand forecasting and inventory optimization for apparel, grocery, electronics, home, health, and specialty retail."],
     "/dashboard": ["LiquidityLink Dashboard", "Inventory risk score, revenue exposure, and SKU recommendations for retail operators."],
     "/connect": ["Connect Store | LiquidityLink", "Connect POS, ERP, or CSV inventory data to start forecasting."],
     "/forecasts": ["Forecasts | LiquidityLink", "Demand forecasts with confidence bands and model comparison."],

@@ -7,7 +7,6 @@ const routes = {
   "/platform": "Platform",
   "/features": "Features",
   "/solutions": "Solutions",
-  "/industries": "Industries",
   "/pricing": "Pricing",
   "/resources": "Resources",
   "/blog": "Blog",
@@ -30,7 +29,7 @@ const routes = {
   "/profile": "Profile",
 };
 const authRoutes = new Set(["/login", "/reset-password"]);
-const publicRoutes = new Set(["/", "/platform", "/features", "/solutions", "/industries", "/pricing", "/resources", "/blog", "/docs", "/security", "/integrations", "/about", "/contact", "/book-demo"]);
+const publicRoutes = new Set(["/", "/platform", "/features", "/solutions", "/pricing", "/resources", "/blog", "/docs", "/security", "/integrations", "/about", "/contact", "/book-demo"]);
 
 const navItems = [
   ["/dashboard", "Dashboard", "layout-dashboard"],
@@ -174,7 +173,6 @@ const marketingNav = [
   ["/platform", "Platform"],
   ["/features", "Features"],
   ["/solutions", "Solutions"],
-  ["/industries", "Industries"],
   ["/pricing", "Pricing"],
   ["/resources", "Resources"],
   ["/security", "Security"],
@@ -1104,6 +1102,29 @@ function dashboardPreview() {
   </div>`;
 }
 
+function glassCommandOverlay() {
+  return `<div class="glass-command-overlay" aria-label="Inventory command overlay">
+    <div class="glass-command-copy">
+      <span class="glass-kicker">Predictive command layer</span>
+      <strong>LiquidityLink Control Center</strong>
+      <p>Forecast, risk, and transfer signals summarized for the next replenishment decision.</p>
+    </div>
+    <div class="glass-command-metrics">
+      ${[
+        ["Risk", "63", "medium"],
+        ["Cash at risk", "$39K", "watch"],
+        ["Confidence", "87%", "good"],
+        ["Transfers", "4", "live"],
+      ].map(([label, value, status]) => `<span class="glass-metric glass-metric--${status}"><em>${esc(label)}</em><b>${esc(value)}</b></span>`).join("")}
+    </div>
+    <div class="glass-signal-strip">
+      <span>${icon("chart-line")} Demand rising in footwear</span>
+      <span>${icon("boxes")} 80 units available to transfer</span>
+      <span>${icon("shield")} Finance view ready</span>
+    </div>
+  </div>`;
+}
+
 function syncMirrorVisual() {
   return `<div class="sync-mirror-visual" aria-label="Shopify data replacement preview">
     <div class="mirror-sidebar">
@@ -1419,22 +1440,6 @@ function executiveMockup() {
 }
 
 function homePage() {
-  const outcomes = marketingCards([
-    { title: "Prevent stockouts before they hit revenue", copy: "Forecast SKU-level demand and expose shortages early enough for planners to reorder, transfer, or substitute.", metric: "Fewer lost sales" },
-    { title: "Reduce inventory costs without guessing", copy: "Identify excess stock, quantify carrying cost, and prioritize markdown or marketplace actions.", metric: "Cleaner working capital" },
-    { title: "Give executives one operating truth", copy: "Turn store, product, and supplier data into explainable decisions for CFOs, operators, and supply chain leaders.", metric: "Board-ready visibility" },
-  ]);
-  const questions = `<div class="question-stack">${buyerQuestions.map(item => `<article class="question-card">
-    <p class="eyebrow">${esc(item.question)}</p>
-    <h3>${esc(item.headline)}</h3>
-    <p>${esc(item.copy)}</p>
-    <span>${esc(item.visual)}</span>
-  </article>`).join("")}</div>`;
-  const trust = marketingCards([
-    { kicker: "Security", title: "Enterprise controls from day one", copy: "Role-based access, server-side credentials, auditable sync status, and clear data ownership boundaries." },
-    { kicker: "Pilot", title: "Start narrow, prove impact", copy: "Run a 30-day pilot on one category or region, measure forecast quality, then expand with confidence." },
-    { kicker: "Competition", title: "More action than BI", copy: "LiquidityLink does not stop at reporting. It ranks inventory risk and recommends what to do next." },
-  ]);
   return `<section class="marketing-hero">
     <div class="marketing-hero-copy">
       <p class="eyebrow">Inventory intelligence for enterprise retail</p>
@@ -1452,6 +1457,7 @@ function homePage() {
     </div>
     <div class="hero-command-surface" aria-label="Live action queue preview">
       <div class="surface-label"><span>Live action queue</span><b>Planner preview</b></div>
+      ${glassCommandOverlay()}
       <div class="hero-interactive">${queuePanel()}<div class="hero-forecast">${forecastMockup()}</div></div>
     </div>
   </section>
@@ -1463,9 +1469,6 @@ function homePage() {
   })}
   ${pageInteractive("A planner can move between shortage risk and excess recovery.", "The full-width queue demonstrates the same operating motion inside the app: switch the mode, review the ranked SKUs, then act with context.", "understock")}
   ${signalPlayground()}
-  ${marketingSection("Why it matters", "Inventory risk is now a board-level operating metric.", "Retail teams need earlier signals, not more dashboards. LiquidityLink connects demand, inventory, and cash exposure so every recommendation is tied to measurable business impact.", outcomes)}
-  ${marketingSection("Buyer questions", "Every section answers what an enterprise buyer needs to know.", "The site now follows the decision path a retail executive actually takes before trusting a platform with operational data.", questions)}
-  ${marketingSection("Trust", "Designed for pilots, procurement, and executive review.", "The message is built around measurable outcomes, transparent calculations, and expansion paths that work for large organizations.", trust)}
   ${enterpriseFaq()}
   <section class="marketing-cta">
     <p class="eyebrow">Get started</p>
@@ -1512,20 +1515,6 @@ function solutionsPage() {
   return `${pageHero("Solutions", "Solutions for every inventory decision maker.", "LiquidityLink gives each role the level of detail they need without forcing everyone into the same dashboard.", productFrame("Role-based workspace", roleWorkspaceVisual()), "solutions")}
   ${pageInteractive("Each role can inspect the same signal differently.", "Switch the action queue to see how planners and executives move between shortage and surplus priorities.", "understock")}
   <section class="role-matrix">${cards.map((card, i) => insightCard(card, i === 3 ? "cash" : i === 4 ? "routes" : i === 5 ? "growth" : i % 3 === 0 ? "gauge" : i % 3 === 1 ? "rows" : "bars")).join("")}</section>`;
-}
-
-function industriesPage() {
-  const industryCards = [
-    { title: "Specialty retail", copy: "Manage seasonal categories, long-tail SKUs, and local demand variation.", metric: "76", measure: "Inventory Health Score", caption: "Balanced score using availability, sell-through, and stock productivity." },
-    { title: "Apparel and footwear", copy: "Track size curves, sell-through risk, and excess exposure before markdowns.", points: [["Sizes", 72], ["Sell-through", 84], ["Returns", 61], ["Margin", 78]] },
-    { title: "Outdoor and sporting goods", copy: "Plan for regional demand swings and event-driven seasonality.", metric: "81", measure: "Seasonal Readiness Score", caption: "Readiness improves when forecasts include weather, region, and event timing." },
-    { title: "Electronics and accessories", copy: "Balance high-value inventory with fast-moving demand changes.", points: [["W1", 58], ["W2", 74], ["W3", 69], ["W4", 91]] },
-    { title: "Grocery and perishables", copy: "Reduce waste by linking demand signals to replenishment timing.", metric: "69", measure: "Waste Avoidance Score", caption: "Perishable planning tracks spoilage risk against expected replenishment timing." },
-    { title: "Multi-location operators", copy: "Use transfer recommendations before buying more inventory.", points: [["North", 66], ["West", 88], ["South", 73], ["East", 82]] },
-  ];
-  return `${pageHero("Industries", "Built for retailers with complex demand and capital pressure.", "The model works best where inventory decisions affect cash, margin, availability, and customer trust.", productFrame("Category health", categoryHealthVisual()), "industries")}
-  ${pageInteractive("Tune the queue to each category's risk profile.", "Seasonal industries need both understock protection and overstock cleanup in the same planning rhythm.", "overstock")}
-  <section class="industry-board">${industryCards.map((card, i) => insightCard(card, i % 2 ? "bars" : "gauge")).join("")}</section>`;
 }
 
 function resourcesPage() {
@@ -3154,7 +3143,7 @@ function render() {
     bind();
     return;
   }
-  const publicViews = { "/": homePage, "/platform": platformPage, "/features": featuresPage, "/solutions": solutionsPage, "/industries": industriesPage, "/pricing": marketingPricingPage, "/resources": resourcesPage, "/blog": blogPage, "/docs": documentationPage, "/security": securityPage, "/integrations": integrationsPage, "/about": aboutPage, "/contact": contactPage, "/book-demo": bookDemoPage };
+  const publicViews = { "/": homePage, "/platform": platformPage, "/features": featuresPage, "/solutions": solutionsPage, "/pricing": marketingPricingPage, "/resources": resourcesPage, "/blog": blogPage, "/docs": documentationPage, "/security": securityPage, "/integrations": integrationsPage, "/about": aboutPage, "/contact": contactPage, "/book-demo": bookDemoPage };
   if (publicRoutes.has(state.path)) {
     app.innerHTML = marketingLayout((publicViews[state.path] || homePage)());
     bind();
