@@ -2445,15 +2445,14 @@ a { color: inherit; text-decoration: none; }
 .process-lane span { color: var(--text-secondary); margin-top: var(--space-2); }
 .feature-zigzag {
   display: grid;
-  gap: var(--space-8);
+  gap: var(--space-5);
   margin-top: var(--space-10);
 }
 .feature-zigzag article {
   display: grid;
-  grid-template-columns: minmax(0, 0.34fr) minmax(0, 0.66fr);
+  grid-template-columns: minmax(260px, 0.42fr) minmax(360px, 0.58fr);
   align-items: center;
-  gap: clamp(28px, 4vw, 72px);
-  padding: var(--space-10) 0;
+  gap: clamp(24px, 3.2vw, 52px);
   border: 1px solid var(--glass-border);
   border-radius: 8px;
   background:
@@ -2462,18 +2461,28 @@ a { color: inherit; text-decoration: none; }
   box-shadow: var(--glass-shadow);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
-  padding: var(--space-8);
+  padding: clamp(24px, 3vw, 40px);
 }
-.feature-zigzag article.flip { grid-template-columns: minmax(0, 0.66fr) minmax(0, 0.34fr); }
+.feature-zigzag article.flip { grid-template-columns: minmax(360px, 0.58fr) minmax(260px, 0.42fr); }
 .feature-zigzag article.flip > div:first-child { order: 2; }
-.feature-zigzag .product-frame { min-height: 430px; }
+.feature-zigzag .product-frame {
+  min-height: clamp(250px, 26vw, 340px);
+  max-width: 620px;
+  width: 100%;
+  justify-self: center;
+}
 .feature-zigzag .product-frame-art { height: 100%; display: grid; align-items: center; }
 .feature-zigzag h2 {
   margin: var(--space-2) 0;
   font-family: var(--font-display);
-  font-size: 34px;
+  font-size: clamp(24px, 2vw, 30px);
 }
-.feature-zigzag p { color: var(--text-secondary); font-size: 17px; line-height: 1.7; }
+.feature-zigzag p {
+  max-width: 420px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.6;
+}
 .role-matrix,
 .industry-board,
 .mixed-card-band,
