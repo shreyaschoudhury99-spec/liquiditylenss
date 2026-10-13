@@ -4932,6 +4932,11 @@ function metaForPath(pathname) {
     "/about": ["About | LiquidityLink", "LiquidityLink helps retailers prevent stockouts, reduce excess inventory, and improve working capital."],
     "/contact": ["Contact | LiquidityLink", "Talk to LiquidityLink about inventory intelligence, pilots, and enterprise deployments."],
     "/book-demo": ["Book Demo | LiquidityLink", "Book a LiquidityLink demo for your retail planning, operations, or finance team."],
+    "/inventory-forecasting-software": ["Inventory Forecasting Software for Retailers | LiquidityLink", "Forecast demand by SKU and location, compare confidence bands, and turn retail inventory forecasts into buy, sell, hold, and transfer recommendations."],
+    "/stockout-prevention": ["Stockout Prevention Software for Retailers | LiquidityLink", "Prevent retail stockouts with SKU-level risk scoring, demand forecasting, lost-sales exposure, and transfer or replenishment recommendations."],
+    "/retail-demand-forecasting": ["Retail Demand Forecasting Software | LiquidityLink", "Use retail demand forecasting to plan inventory, understand confidence, and coordinate replenishment decisions across products and locations."],
+    "/inventory-optimization": ["Inventory Optimization Software for Retailers | LiquidityLink", "Optimize retail inventory by reducing stockouts, excess inventory, carrying cost, and working-capital exposure with SKU-level recommendations."],
+    "/retail-inventory-analytics": ["Retail Inventory Analytics Platform | LiquidityLink", "Track inventory risk, demand forecasts, service level, excess cost, and executive inventory reports in one retail analytics platform."],
     "/reports": ["Reports | LiquidityLink", "Executive inventory health reports for finance and operations teams."],
     "/profile": ["Profile | LiquidityLink", "Manage your LiquidityLink account profile, password, and active session."],
     "/login": ["Sign In | LiquidityLink", "Secure access to LiquidityLink inventory intelligence."],
@@ -4954,6 +4959,11 @@ const publicSeoPaths = [
   "/about",
   "/contact",
   "/book-demo",
+  "/inventory-forecasting-software",
+  "/stockout-prevention",
+  "/retail-demand-forecasting",
+  "/inventory-optimization",
+  "/retail-inventory-analytics",
 ];
 
 function xmlEscape(value) {
@@ -4966,38 +4976,135 @@ function xmlEscape(value) {
   }[char]));
 }
 
+function htmlAttr(value) {
+  return String(value).replace(/[<>&'"]/g, char => ({
+    "<": "&lt;",
+    ">": "&gt;",
+    "&": "&amp;",
+    "'": "&#39;",
+    '"': "&quot;",
+  }[char]));
+}
+
+const seoFaqs = {
+  "/inventory-forecasting-software": [
+    ["What makes LiquidityLink different from a spreadsheet forecast?", "LiquidityLink connects sales, inventory, and location signals, then turns forecast output into ranked inventory actions."],
+    ["Can retailers start with a small pilot?", "Yes. A pilot can focus on one category, one data source, and a narrow set of measurable outcomes such as avoided stockouts or reduced excess stock."],
+    ["Does LiquidityLink replace existing dashboards?", "It can sit beside existing BI tools and focus on forward-looking inventory decisions rather than historical reporting alone."],
+  ],
+  "/stockout-prevention": [
+    ["How does LiquidityLink help prevent stockouts?", "It combines observed demand, current inventory, forecast range, and operational context to rank products likely to run short."],
+    ["Can it support multi-location retailers?", "Yes. The product is designed around SKU and location-level planning so teams can compare where stock is needed and where excess may exist."],
+    ["What data is needed to start?", "A pilot can begin with sales history and current inventory from CSV, Shopify, Clover, or another connected system."],
+  ],
+  "/retail-demand-forecasting": [
+    ["Who uses retail demand forecasting?", "Inventory planners, supply chain managers, operations leaders, and finance teams use it to plan buys, transfers, and markdowns."],
+    ["Why does forecast confidence matter?", "Confidence bands show when history is thin or volatile, helping teams avoid overreacting to weak signals."],
+    ["Can LiquidityLink forecast from Shopify data?", "Yes. Shopify orders and product inventory can be used as a starting data source for a focused forecasting pilot."],
+  ],
+  "/inventory-optimization": [
+    ["What is inventory optimization?", "It is the process of matching inventory levels to expected demand while protecting margin, service level, and working capital."],
+    ["How does LiquidityLink reduce excess inventory?", "It identifies slow-moving or over-covered products and recommends markdown, hold, or transfer actions based on operational context."],
+    ["Is this only for enterprise retailers?", "No. The workflow can start with smaller retailers and scale into multi-store or enterprise networks."],
+  ],
+  "/retail-inventory-analytics": [
+    ["What metrics should retail inventory analytics include?", "Useful analytics include demand forecast, current stock, stockout risk, overstock risk, revenue exposure, carrying cost, and service level."],
+    ["How is LiquidityLink different from BI?", "BI often reports what happened. LiquidityLink focuses on what inventory action should happen next."],
+    ["Can analytics support procurement reviews?", "Yes. The product is built to explain inputs, model context, controls, and outcomes for operational and executive review."],
+  ],
+};
+
+function structuredDataForPath(pathname, title, description, canonical) {
+  const graph = [
+    {
+      "@type": "Organization",
+      "@id": `${appBaseUrl}/#organization`,
+      name: "LiquidityLink",
+      url: appBaseUrl,
+      logo: `${appBaseUrl}/assets/liquiditylink-logo.png`,
+      sameAs: [
+        "https://www.linkedin.com/company/liquiditylink",
+        "https://www.instagram.com/liquiditylink/",
+      ],
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${appBaseUrl}/#website`,
+      name: "LiquidityLink",
+      url: appBaseUrl,
+      publisher: { "@id": `${appBaseUrl}/#organization` },
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": `${appBaseUrl}/#software`,
+      name: "LiquidityLink",
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Web",
+      url: appBaseUrl,
+      description: "Retail inventory forecasting, stockout prevention, inventory optimization, and inventory analytics software.",
+      publisher: { "@id": `${appBaseUrl}/#organization` },
+      offers: { "@type": "Offer", price: "79", priceCurrency: "USD", url: `${appBaseUrl}/pricing` },
+    },
+    {
+      "@type": "WebPage",
+      "@id": `${canonical}#webpage`,
+      url: canonical,
+      name: title,
+      description,
+      isPartOf: { "@id": `${appBaseUrl}/#website` },
+      about: { "@id": `${appBaseUrl}/#software` },
+    },
+  ];
+  if (seoFaqs[pathname]) {
+    graph.push({
+      "@type": "FAQPage",
+      "@id": `${canonical}#faq`,
+      mainEntity: seoFaqs[pathname].map(([question, answer]) => ({
+        "@type": "Question",
+        name: question,
+        acceptedAnswer: { "@type": "Answer", text: answer },
+      })),
+    });
+  }
+  return `<script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", "@graph": graph })}</script>`;
+}
+
+
 function renderShell(req) {
   const [title, description] = metaForPath(req.path);
   const canonical = `${appBaseUrl}${req.path === "/" ? "/" : req.path}`;
+  const structuredData = structuredDataForPath(req.path, title, description, canonical);
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${title}</title>
-    <meta name="description" content="${description}" />
-    <meta property="og:title" content="${title}" />
-    <meta property="og:description" content="${description}" />
+    <title>${htmlAttr(title)}</title>
+    <meta name="description" content="${htmlAttr(description)}" />
+    <meta property="og:title" content="${htmlAttr(title)}" />
+    <meta property="og:description" content="${htmlAttr(description)}" />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="${canonical}" />
+    <meta property="og:url" content="${htmlAttr(canonical)}" />
     <meta property="og:image" content="${appBaseUrl}/assets/liquiditylink-logo.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="${appBaseUrl}/assets/liquiditylink-logo.png" />
-    <link rel="canonical" href="${canonical}" />
+    <link rel="canonical" href="${htmlAttr(canonical)}" />
     <link rel="icon" href="/assets/liquiditylink-logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css?v=38" />
+    ${structuredData}
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
-    <div id="app"><main class="ssr-fallback"><h1>${title.split(" | ")[0]}</h1><p>${description}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
+    <div id="app"><main class="ssr-fallback"><h1>${htmlAttr(title.split(" | ")[0])}</h1><p>${htmlAttr(description)}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
     <script src="/app.js?v=38"></script>
   </body>
 </html>`;
 }
+
 
 app.get("/robots.txt", (_req, res) => {
   res.type("text/plain").send([

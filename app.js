@@ -16,6 +16,11 @@ const routes = {
   "/about": "About",
   "/contact": "Contact",
   "/book-demo": "Book Demo",
+  "/inventory-forecasting-software": "Inventory Forecasting Software",
+  "/stockout-prevention": "Stockout Prevention",
+  "/retail-demand-forecasting": "Retail Demand Forecasting",
+  "/inventory-optimization": "Inventory Optimization",
+  "/retail-inventory-analytics": "Retail Inventory Analytics",
   "/dashboard": "Dashboard",
   "/connect": "Connect Store",
   "/forecasts": "Forecasts",
@@ -29,7 +34,8 @@ const routes = {
   "/profile": "Profile",
 };
 const authRoutes = new Set(["/login", "/reset-password"]);
-const publicRoutes = new Set(["/", "/platform", "/features", "/solutions", "/pricing", "/resources", "/blog", "/docs", "/security", "/integrations", "/about", "/contact", "/book-demo"]);
+const seoLandingPaths = ["/inventory-forecasting-software", "/stockout-prevention", "/retail-demand-forecasting", "/inventory-optimization", "/retail-inventory-analytics"];
+const publicRoutes = new Set(["/", "/platform", "/features", "/solutions", "/pricing", "/resources", "/blog", "/docs", "/security", "/integrations", "/about", "/contact", "/book-demo", ...seoLandingPaths]);
 
 const navItems = [
   ["/dashboard", "Dashboard", "layout-dashboard"],
@@ -1015,6 +1021,9 @@ function marketingLayout(content) {
           return `<a href="${path}" data-route="${path}">${label}</a>`;
         }).join("")}
       </div>
+      <div class="marketing-footer-links seo-footer-links">
+        ${seoLandingPaths.map(path => `<a href="${path}" data-route="${path}">${esc(routes[path])}</a>`).join("")}
+      </div>
     </footer>
   </div>`;
 }
@@ -1083,6 +1092,104 @@ function marketingCards(cards) {
     ${card.metric ? `<strong class="marketing-metric">${esc(card.metric)}</strong>` : ""}
   </article>`).join("")}</div>`;
 }
+
+const seoLandingPages = {
+  "/inventory-forecasting-software": {
+    eyebrow: "Inventory forecasting software",
+    title: "Inventory forecasting software for modern retailers.",
+    copy: "LiquidityLink helps retail teams forecast demand, understand confidence, and turn SKU-level signals into replenishment, transfer, and markdown decisions.",
+    signal: ["Demand forecasts", "Confidence bands", "SKU actions"],
+    cards: [
+      { kicker: "Forecasting", title: "Forecast demand by SKU and location", copy: "Model expected demand across the next planning window so buyers know which items need attention before stockouts or overstocks appear." },
+      { kicker: "Confidence", title: "Show when the model is strong enough to trust", copy: "Forecast bands help teams separate high-confidence replenishment signals from cases that need more history or planner review." },
+      { kicker: "Action", title: "Move from forecast to recommendation", copy: "LiquidityLink connects forecast output to buy, sell, hold, and transfer recommendations instead of leaving teams with another static report." },
+    ],
+    faqs: [
+      ["What makes LiquidityLink different from a spreadsheet forecast?", "LiquidityLink connects sales, inventory, and location signals, then turns forecast output into ranked inventory actions."],
+      ["Can retailers start with a small pilot?", "Yes. A pilot can focus on one category, one data source, and a narrow set of measurable outcomes such as avoided stockouts or reduced excess stock."],
+      ["Does LiquidityLink replace existing dashboards?", "It can sit beside existing BI tools and focus on forward-looking inventory decisions rather than historical reporting alone."],
+    ],
+  },
+  "/stockout-prevention": {
+    eyebrow: "Stockout prevention",
+    title: "Prevent retail stockouts before revenue is lost.",
+    copy: "LiquidityLink surfaces items at risk of missing demand, ranks urgency, and gives planners the operating context needed to replenish or transfer inventory in time.",
+    signal: ["Stockout risk", "Lost sales exposure", "Transfer candidates"],
+    cards: [
+      { kicker: "Risk scoring", title: "Detect shortage risk early", copy: "Identify SKUs with high demand, low cover, supplier timing gaps, or location-level shortages before customers feel the miss." },
+      { kicker: "Revenue impact", title: "Prioritize by lost-sales exposure", copy: "Focus planner time on the items where availability failures matter most to revenue, margin, and customer experience." },
+      { kicker: "Resolution", title: "Recommend the next move", copy: "Route planners toward a replenishment buy, store transfer, hold, or exception review with the signal behind the recommendation." },
+    ],
+    faqs: [
+      ["How does LiquidityLink help prevent stockouts?", "It combines observed demand, current inventory, forecast range, and operational context to rank products likely to run short."],
+      ["Can it support multi-location retailers?", "Yes. The product is designed around SKU and location-level planning so teams can compare where stock is needed and where excess may exist."],
+      ["What data is needed to start?", "A pilot can begin with sales history and current inventory from CSV, Shopify, Clover, or another connected system."],
+    ],
+  },
+  "/retail-demand-forecasting": {
+    eyebrow: "Retail demand forecasting",
+    title: "Retail demand forecasting built for operating decisions.",
+    copy: "LiquidityLink gives retail operators demand forecasts that connect directly to replenishment, inventory health, and executive reporting.",
+    signal: ["8-week demand", "Seasonality", "Model comparison"],
+    cards: [
+      { kicker: "Planning", title: "Forecast demand across products and stores", copy: "See expected demand by SKU and planning horizon so teams can act before the next buying or transfer cycle closes." },
+      { kicker: "Model clarity", title: "Compare demand signals without hiding assumptions", copy: "Forecast visuals show trend, confidence, and model context so planners can defend why a recommendation changed." },
+      { kicker: "Operations", title: "Translate demand into inventory action", copy: "Connect demand forecasts to current stock, lead times, carrying costs, and recommended replenishment decisions." },
+    ],
+    faqs: [
+      ["Who uses retail demand forecasting?", "Inventory planners, supply chain managers, operations leaders, and finance teams use it to plan buys, transfers, and markdowns."],
+      ["Why does forecast confidence matter?", "Confidence bands show when history is thin or volatile, helping teams avoid overreacting to weak signals."],
+      ["Can LiquidityLink forecast from Shopify data?", "Yes. Shopify orders and product inventory can be used as a starting data source for a focused forecasting pilot."],
+    ],
+  },
+  "/inventory-optimization": {
+    eyebrow: "Inventory optimization",
+    title: "Inventory optimization that balances availability and cash.",
+    copy: "LiquidityLink helps retailers reduce excess inventory, protect availability, and make working-capital decisions with SKU-level evidence.",
+    signal: ["Excess cost", "Service level", "Working capital"],
+    cards: [
+      { kicker: "Balance", title: "Reduce stockouts and overstocks together", copy: "Optimize inventory by seeing both shortage risk and excess exposure in one operating view." },
+      { kicker: "Cash flow", title: "Make carrying cost visible", copy: "Rank excess inventory by value, markdown urgency, and working-capital impact so finance and operations can agree on priorities." },
+      { kicker: "Execution", title: "Coordinate buys, holds, sells, and transfers", copy: "Move from generic inventory analysis to practical recommendations for the next planning cycle." },
+    ],
+    faqs: [
+      ["What is inventory optimization?", "It is the process of matching inventory levels to expected demand while protecting margin, service level, and working capital."],
+      ["How does LiquidityLink reduce excess inventory?", "It identifies slow-moving or over-covered products and recommends markdown, hold, or transfer actions based on operational context."],
+      ["Is this only for enterprise retailers?", "No. The workflow can start with smaller retailers and scale into multi-store or enterprise networks."],
+    ],
+  },
+  "/retail-inventory-analytics": {
+    eyebrow: "Retail inventory analytics",
+    title: "Retail inventory analytics for planners and executives.",
+    copy: "LiquidityLink brings forecasting, risk scoring, stock health, and executive inventory reporting into one decision layer.",
+    signal: ["Risk score", "Executive reports", "Planning metrics"],
+    cards: [
+      { kicker: "Visibility", title: "Unify inventory health metrics", copy: "Track demand, current inventory, revenue at risk, service level, carrying cost, and recommendation status in one place." },
+      { kicker: "Decision quality", title: "Explain why a SKU needs action", copy: "Give planners and leaders the forecast, inventory, and risk context behind every recommendation." },
+      { kicker: "Reporting", title: "Create executive-ready inventory narratives", copy: "Translate SKU-level movement into business impact for finance, operations, and leadership reviews." },
+    ],
+    faqs: [
+      ["What metrics should retail inventory analytics include?", "Useful analytics include demand forecast, current stock, stockout risk, overstock risk, revenue exposure, carrying cost, and service level."],
+      ["How is LiquidityLink different from BI?", "BI often reports what happened. LiquidityLink focuses on what inventory action should happen next."],
+      ["Can analytics support procurement reviews?", "Yes. The product is built to explain inputs, model context, controls, and outcomes for operational and executive review."],
+    ],
+  },
+};
+
+function seoLandingPage(pathname) {
+  const page = seoLandingPages[pathname] || seoLandingPages["/inventory-forecasting-software"];
+  const related = seoLandingPaths.filter(path => path !== pathname).slice(0, 4);
+  return `${pageHero(page.eyebrow, page.title, page.copy, productFrame("Inventory intelligence preview", cleanForecastVisual(), "Forecasts, risk scores, and actions in one planning surface."), "seo")}
+  <section class="seo-signal-strip" aria-label="Key product signals">${page.signal.map(item => `<span>${esc(item)}</span>`).join("")}</section>
+  ${marketingSection("How it helps", "Turn search intent into an operating workflow.", "These pages explain the specific inventory problems LiquidityLink is built to solve for retail teams.", marketingCards(page.cards), "seo-section")}
+  ${pageInteractive("Preview the action queue behind the message.", "Search traffic should land on more than a claim. This workflow shows how LiquidityLink turns forecast and inventory signals into specific SKU actions.", "understock")}
+  ${marketingSection("Common questions", "Answers buyers search for before a pilot.", "Clear, indexable answers help retail operators understand whether LiquidityLink fits their inventory workflow.", `<div class="marketing-faq">${page.faqs.map(([q, a]) => `<details open><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join("")}</div>`, "seo-section")}
+  <section class="seo-related-links">
+    <p class="eyebrow">Related SEO pages</p>
+    <div>${related.map(path => `<a href="${path}" data-route="${path}">${esc(routes[path])}</a>`).join("")}</div>
+  </section>`;
+}
+
 
 function productFrame(title, art, caption = "", extraClass = "") {
   return `<figure class="product-frame ${extraClass}">
@@ -3151,6 +3258,9 @@ function render() {
     return;
   }
   const publicViews = { "/": homePage, "/platform": platformPage, "/features": featuresPage, "/solutions": solutionsPage, "/pricing": marketingPricingPage, "/resources": resourcesPage, "/blog": blogPage, "/docs": documentationPage, "/security": securityPage, "/integrations": integrationsPage, "/about": aboutPage, "/contact": contactPage, "/book-demo": bookDemoPage };
+  seoLandingPaths.forEach(path => {
+    publicViews[path] = () => seoLandingPage(path);
+  });
   if (publicRoutes.has(state.path)) {
     app.innerHTML = marketingLayout((publicViews[state.path] || homePage)());
     bind();
