@@ -5088,6 +5088,7 @@ function renderShell(req) {
     <meta property="og:image" content="${appBaseUrl}/assets/liquiditylink-logo.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="${appBaseUrl}/assets/liquiditylink-logo.png" />
+    <meta name="google-site-verification" content="hACdu8dNNbQ3uvcgqv4Hux00TU1oxYM8nw8RiBgEoj0" />
     <link rel="canonical" href="${htmlAttr(canonical)}" />
     <link rel="icon" href="/assets/liquiditylink-logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
