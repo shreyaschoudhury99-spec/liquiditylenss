@@ -1,6 +1,6 @@
-# LiquidityLink
+# LiquidityLens
 
-LiquidityLink is a vanilla JavaScript frontend with an Express/Postgres auth backend.
+LiquidityLens is a vanilla JavaScript frontend with an Express/Postgres auth backend.
 
 Do not open `index.html` directly for auth testing. Google, Microsoft, and email/password sign-in require the backend server.
 
@@ -62,3 +62,9 @@ Then add `CLOVER_CLIENT_ID`, `CLOVER_CLIENT_SECRET`, and `CLOVER_ENV` to `.env` 
 For the Clover private REST Clients flow, leave `CLOVER_USE_PKCE` and `CLOVER_USE_V2` unset or set both to `false`. Only set them to `true` for a newer Clover app that explicitly requires v2 OAuth/PKCE.
 
 For sandbox REST Clients, do not override the Clover URLs unless you need to debug a Clover environment issue. The default sandbox authorize and token hosts are `https://apisandbox.dev.clover.com/oauth/authorize` and `https://apisandbox.dev.clover.com/oauth/token`; API calls use `https://apisandbox.dev.clover.com/v3`.
+
+## Edit website text without Codex
+
+Sign in using Google with the website owner email (the `DEMO_REQUEST_OWNER_EMAIL` environment variable, defaulting to `shreyaschoudhury23@gmail.com`). On the public website, click **Edit website** at the bottom. Click an outlined heading, paragraph, FAQ, footer text, or statistic; enter the replacement and click **Save changes**. Saves publish immediately to all visitors. Use **Restore original** to undo a field, and **Done editing** to leave edit mode.
+
+Edits apply to matching text on the current page and are stored in Postgres, so they survive restarts and deployments. Edit other pages by navigating to them. The live Instagram count continues to come from the connected channel. Layout, images, link destinations, and interactive app data remain code-managed. The server requires a verified owner account for every write; workspace admins and other visitors cannot publish edits.
