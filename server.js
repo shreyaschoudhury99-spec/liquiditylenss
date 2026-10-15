@@ -4923,7 +4923,7 @@ function metaForPath(pathname) {
     "/analytics": ["Advanced Analytics | LiquidityLink", "Track GMROI, service levels, reorder points, safety stock, ABC classes, and SKU diagnostics from connected sales and inventory data."],
     "/marketplace": ["Marketplace | LiquidityLink", "Find nearby retailers with matching inventory excess or shortage signals."],
     "/community": ["Community | LiquidityLink", "Coordinate markdowns, delivery routes, and bulk buys with retail peers."],
-    "/pricing": ["Pricing | LiquidityLink", "Tiered LiquidityLink subscription plans for retailers from single-store teams to enterprise networks."],
+    "/pricing": ["Work with us | LiquidityLink", "Explore a focused inventory intelligence pilot for your retail business."],
     "/resources": ["Resources | LiquidityLink", "Guides, frameworks, and operating playbooks for inventory risk teams."],
     "/blog": ["Blog | LiquidityLink", "Inventory intelligence essays, forecasting methods, and retail operations analysis."],
     "/docs": ["Documentation | LiquidityLink", "Implementation guides for connecting retail data and interpreting LiquidityLink analytics."],
@@ -5043,7 +5043,6 @@ function structuredDataForPath(pathname, title, description, canonical) {
       url: appBaseUrl,
       description: "Retail inventory forecasting, stockout prevention, inventory optimization, and inventory analytics software.",
       publisher: { "@id": `${appBaseUrl}/#organization` },
-      offers: { "@type": "Offer", price: "79", priceCurrency: "USD", url: `${appBaseUrl}/pricing` },
     },
     {
       "@type": "WebPage",
