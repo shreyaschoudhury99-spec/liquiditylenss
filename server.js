@@ -23,7 +23,7 @@ const refreshTokenMs = 7 * 24 * 60 * 60 * 1000;
 const resetTokenMs = 60 * 60 * 1000;
 const mfaTokenMs = 10 * 60 * 1000;
 const bcryptCost = 12;
-const marketplaceUserAgent = process.env.MARKETPLACE_USER_AGENT || `LiquidityLens/1.0 (${appBaseUrl})`;
+const marketplaceUserAgent = process.env.MARKETPLACE_USER_AGENT || `LiquidityLink/1.0 (${appBaseUrl})`;
 const demoRequestOwnerEmail = String(process.env.DEMO_REQUEST_OWNER_EMAIL || "shreyaschoudhury23@gmail.com").trim().toLowerCase();
 const demoRequestInbox = demoRequestOwnerEmail;
 const instagramFallbackFollowers = process.env.INSTAGRAM_FOLLOWERS_FALLBACK || "350";
@@ -546,7 +546,7 @@ async function ensurePlanningSchema() {
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS planning_inventory_product_date_unique_idx ON planning_inventory_levels (user_id, product_id, location_id, recorded_at)");
 
   await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES planning_products(id) ON DELETE CASCADE");
-  await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS model_name TEXT NOT NULL DEFAULT 'LiquidityLens Ensemble'");
+  await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS model_name TEXT NOT NULL DEFAULT 'LiquidityLink Ensemble'");
   await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS forecast_units NUMERIC NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS lower_bound_units NUMERIC NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE planning_forecast_results ADD COLUMN IF NOT EXISTS upper_bound_units NUMERIC NOT NULL DEFAULT 0");
@@ -694,12 +694,12 @@ async function sendMfaCode({ method, destination, code }) {
       await sgMail.send({
         to: destination,
         from: process.env.SENDGRID_FROM_EMAIL,
-        subject: "Your LiquidityLens verification code",
-        text: `Your LiquidityLens verification code is ${code}. It expires in 10 minutes.`,
-        html: `<p>Your LiquidityLens verification code is <strong>${code}</strong>.</p><p>This code expires in 10 minutes.</p>`,
+        subject: "Your LiquidityLink verification code",
+        text: `Your LiquidityLink verification code is ${code}. It expires in 10 minutes.`,
+        html: `<p>Your LiquidityLink verification code is <strong>${code}</strong>.</p><p>This code expires in 10 minutes.</p>`,
       });
     } else {
-      console.info(`LiquidityLens email 2FA code for ${destination}: ${code}`);
+      console.info(`LiquidityLink email 2FA code for ${destination}: ${code}`);
     }
     return;
   }
@@ -708,7 +708,7 @@ async function sendMfaCode({ method, destination, code }) {
     const body = new URLSearchParams({
       To: destination,
       From: process.env.TWILIO_FROM_PHONE,
-      Body: `Your LiquidityLens verification code is ${code}. It expires in 10 minutes.`,
+      Body: `Your LiquidityLink verification code is ${code}. It expires in 10 minutes.`,
     });
     const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString("base64");
     const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`, {
@@ -718,7 +718,7 @@ async function sendMfaCode({ method, destination, code }) {
     });
     if (!response.ok) throw new Error("Could not send SMS verification code.");
   } else {
-    console.info(`LiquidityLens phone 2FA code for ${destination}: ${code}`);
+    console.info(`LiquidityLink phone 2FA code for ${destination}: ${code}`);
   }
 }
 
@@ -854,7 +854,7 @@ async function ensureDefaultOrganization(userId) {
   const user = userResult.rows[0];
   if (!user) throw new Error("User not found");
 
-  const baseName = `${user.first_name || "LiquidityLens"} Workspace`;
+  const baseName = `${user.first_name || "LiquidityLink"} Workspace`;
   const baseSlug = slugify(baseName);
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const slug = attempt === 0
@@ -1469,7 +1469,7 @@ function holtForecast(weeklyValues, horizon = 8) {
 }
 
 async function persistPlanningOutputs(userId, analytics) {
-  await pool.query("DELETE FROM planning_forecast_results WHERE user_id = $1 AND model_name = 'LiquidityLens Ensemble'", [userId]);
+  await pool.query("DELETE FROM planning_forecast_results WHERE user_id = $1 AND model_name = 'LiquidityLink Ensemble'", [userId]);
   await pool.query("DELETE FROM planning_transfer_recommendations WHERE user_id = $1 AND status = 'open'", [userId]);
   for (const sku of analytics.skus.slice(0, 250)) {
     const product = (await pool.query("SELECT id FROM planning_products WHERE user_id = $1 AND sku = $2", [userId, sku.sku])).rows[0];
@@ -1480,7 +1480,7 @@ async function persistPlanningOutputs(userId, analytics) {
         `INSERT INTO planning_forecast_results
            (user_id, product_id, sku_id, location_id, forecast_date, horizon_days, point_forecast, forecast_units,
             lower_bound, lower_bound_units, upper_bound, upper_bound_units, confidence_level, confidence, model_name, features)
-         VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $6, $7, $7, $8, $8, $9, $9, 'LiquidityLens Ensemble', $10::jsonb)`,
+         VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6, $6, $7, $7, $8, $8, $9, $9, 'LiquidityLink Ensemble', $10::jsonb)`,
         [
           userId,
           product.id,
@@ -3172,7 +3172,7 @@ app.post("/api/demo-request", demoLimiter, asyncRoute(async (req, res) => {
   if (!goal) return error(res, 400, "Tell us what you want to improve.", "GOAL_REQUIRED");
 
   const lines = [
-    "New LiquidityLens demo request",
+    "New LiquidityLink demo request",
     "",
     `Work email: ${email}`,
     `Company: ${company}`,
@@ -3193,9 +3193,9 @@ app.post("/api/demo-request", demoLimiter, asyncRoute(async (req, res) => {
     to: demoRequestInbox,
     from: process.env.SENDGRID_FROM_EMAIL,
     replyTo: email,
-    subject: `LiquidityLens demo request from ${company}`,
+    subject: `LiquidityLink demo request from ${company}`,
     text: lines.join("\n"),
-    html: `<h2>New LiquidityLens demo request</h2><table>${[
+    html: `<h2>New LiquidityLink demo request</h2><table>${[
       ["Work email", email],
       ["Company", company],
       ["Store count", stores],
@@ -3307,7 +3307,7 @@ app.get("/api/live-statistics", asyncRoute(async (req, res) => {
 
 app.get("/api/demo-requests", authUser, asyncRoute(async (req, res) => {
   if (normalizeEmail(req.user.email) !== demoRequestOwnerEmail) {
-    return error(res, 403, "Demo requests are private to the LiquidityLens owner inbox.", "DEMO_REQUESTS_PRIVATE");
+    return error(res, 403, "Demo requests are private to the LiquidityLink owner inbox.", "DEMO_REQUESTS_PRIVATE");
   }
   const { limit, offset, page } = parsePagination(req, 25, 100);
   const result = await pool.query(
@@ -3476,9 +3476,9 @@ app.post("/api/auth/forgot-password", authLimiter, asyncRoute(async (req, res) =
       await sgMail.send({
         to: user.email,
         from: process.env.SENDGRID_FROM_EMAIL,
-        subject: "Reset your LiquidityLens password",
+        subject: "Reset your LiquidityLink password",
         text: `Hi ${user.first_name}, reset your password here: ${resetUrl}`,
-        html: `<p>Hi ${user.first_name},</p><p><a href="${resetUrl}">Reset your LiquidityLens password</a>. This link expires in 1 hour.</p>`,
+        html: `<p>Hi ${user.first_name},</p><p><a href="${resetUrl}">Reset your LiquidityLink password</a>. This link expires in 1 hour.</p>`,
       });
     } else {
       console.info(`Password reset link for ${user.email}: ${resetUrl}`);
@@ -3839,14 +3839,14 @@ app.post("/api/users", authUser, asyncRoute(async (req, res) => {
         to: email,
         from: process.env.SENDGRID_FROM_EMAIL,
         replyTo: demoRequestInbox,
-        subject: `${req.user.firstName || "A teammate"} invited you to LiquidityLens`,
+        subject: `${req.user.firstName || "A teammate"} invited you to LiquidityLink`,
         text: [
-          `You were invited to join ${org.name} on LiquidityLens as ${roleName}.`,
+          `You were invited to join ${org.name} on LiquidityLink as ${roleName}.`,
           "",
           `Sign in or create an account with ${email}, then open Admin > Workspace invites to accept it.`,
           `${appBaseUrl}/login`,
         ].join("\n"),
-        html: `<p>You were invited to join <strong>${org.name}</strong> on LiquidityLens as <strong>${roleName}</strong>.</p><p>Sign in or create an account with <strong>${email}</strong>, then open Admin &gt; Workspace invites to accept it.</p><p><a href="${appBaseUrl}/login">Open LiquidityLens</a></p>`,
+        html: `<p>You were invited to join <strong>${org.name}</strong> on LiquidityLink as <strong>${roleName}</strong>.</p><p>Sign in or create an account with <strong>${email}</strong>, then open Admin &gt; Workspace invites to accept it.</p><p><a href="${appBaseUrl}/login">Open LiquidityLink</a></p>`,
       });
       inviteDelivery = "sent";
     } catch (err) {
@@ -4209,7 +4209,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
       .sort((a, b) => a.dist - b.dist || a.retailer.localeCompare(b.retailer))
       .slice(0, 24);
     let source = "OpenStreetMap";
-    let note = "These are public nearby business listings. Private inventory and transfer data is available only after a business connects to LiquidityLens.";
+    let note = "These are public nearby business listings. Private inventory and transfer data is available only after a business connects to LiquidityLink.";
 
     const businessNeedle = businessQuery.toLowerCase();
     const hasBusinessMatch = businessNeedle && businesses.some(business => businessMatchesQuery(business, businessNeedle));
@@ -4229,8 +4229,8 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
         effectiveRadiusMiles = radiusMiles;
         source = "OpenStreetMap Search";
         note = businessNeedle
-          ? `Showing public directory search results for ${businessQuery}. Private inventory is available only after a business connects to LiquidityLens.`
-          : "Showing public directory search results because the nearby map index returned no matching shops. Private inventory is available only after a business connects to LiquidityLens.";
+          ? `Showing public directory search results for ${businessQuery}. Private inventory is available only after a business connects to LiquidityLink.`
+          : "Showing public directory search results because the nearby map index returned no matching shops. Private inventory is available only after a business connects to LiquidityLink.";
       }
     }
     if (businessNeedle && !businesses.some(business => businessMatchesQuery(business, businessNeedle))) {
@@ -4238,7 +4238,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
       if (manualLead) {
         businesses = [manualLead, ...businesses].slice(0, 24);
         source = "Manual lead + public directory";
-        note = `${businessQuery} was not returned by the public map directory, so LiquidityLens added it as a manual lead and kept broader nearby directory results underneath. Private inventory is available only after a business connects to LiquidityLens.`;
+        note = `${businessQuery} was not returned by the public map directory, so LiquidityLink added it as a manual lead and kept broader nearby directory results underneath. Private inventory is available only after a business connects to LiquidityLink.`;
       }
     }
 
@@ -4252,7 +4252,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
       businesses,
       source,
       note: limitedBroadSearch && source === "OpenStreetMap"
-        ? `Showing public listings within ${effectiveRadiusMiles} miles for this broad search. Pick a category or enter a more specific city/state to search farther. Private inventory is available only after a business connects to LiquidityLens.`
+        ? `Showing public listings within ${effectiveRadiusMiles} miles for this broad search. Pick a category or enter a more specific city/state to search farther. Private inventory is available only after a business connects to LiquidityLink.`
         : note,
     });
   } catch (err) {
@@ -4276,7 +4276,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
         count: fallbackBusinesses.length,
         businesses: fallbackBusinesses.slice(0, 24),
         source: "OpenStreetMap Search",
-        note: "The live map index was temporarily unavailable, so LiquidityLens used public directory search results. Private inventory is available only after a business connects to LiquidityLens.",
+        note: "The live map index was temporarily unavailable, so LiquidityLink used public directory search results. Private inventory is available only after a business connects to LiquidityLink.",
       });
     }
     const demoBusinesses = syntheticMarketplaceBusinesses({ location, origin, radiusMiles, category: selectedCategory });
@@ -4288,7 +4288,7 @@ app.get("/api/marketplace/nearby", authUser, asyncRoute(async (req, res) => {
       count: demoBusinesses.length,
       businesses: demoBusinesses,
       source: "Demo directory fallback",
-      note: "The live public directory is slow or unavailable, so LiquidityLens is showing demo nearby businesses for planning. Private inventory is available only after a business connects to LiquidityLens.",
+      note: "The live public directory is slow or unavailable, so LiquidityLink is showing demo nearby businesses for planning. Private inventory is available only after a business connects to LiquidityLink.",
     });
   }
 }));
@@ -4955,34 +4955,34 @@ for (const provider of Object.keys(oauthProviders)) {
 
 function metaForPath(pathname) {
   const pages = {
-    "/": ["LiquidityLens | Inventory Intelligence", "Forecast demand, detect stockout risk, and coordinate inventory transfers from a single retail operations workspace."],
-    "/platform": ["Platform | LiquidityLens", "Inventory intelligence, forecasting, supplier risk, and executive reporting built for retail operators."],
-    "/features": ["Features | LiquidityLens", "Forecast accuracy, replenishment signals, risk scoring, marketplace matching, and reporting for modern retail teams."],
-    "/solutions": ["Solutions | LiquidityLens", "Inventory planning workflows for supply chain, operations, finance, and executive teams."],
-    "/dashboard": ["LiquidityLens Dashboard", "Inventory risk score, revenue exposure, and SKU recommendations for retail operators."],
-    "/connect": ["Connect Store | LiquidityLens", "Connect POS, ERP, or CSV inventory data to start forecasting."],
-    "/forecasts": ["Forecasts | LiquidityLens", "Demand forecasts with confidence bands and model comparison."],
-    "/inventory": ["Inventory | LiquidityLens", "SKU-level buy, sell, hold, and transfer recommendations."],
-    "/analytics": ["Advanced Analytics | LiquidityLens", "Track GMROI, service levels, reorder points, safety stock, ABC classes, and SKU diagnostics from connected sales and inventory data."],
-    "/marketplace": ["Marketplace | LiquidityLens", "Find nearby retailers with matching inventory excess or shortage signals."],
-    "/community": ["Community | LiquidityLens", "Coordinate markdowns, delivery routes, and bulk buys with retail peers."],
-    "/pricing": ["Work with us | LiquidityLens", "Explore a focused inventory intelligence pilot for your retail business."],
-    "/resources": ["Resources | LiquidityLens", "Guides, frameworks, and operating playbooks for inventory risk teams."],
-    "/blog": ["Blog | LiquidityLens", "Inventory intelligence essays, forecasting methods, and retail operations analysis."],
-    "/docs": ["Documentation | LiquidityLens", "Implementation guides for connecting retail data and interpreting LiquidityLens analytics."],
-    "/security": ["Security | LiquidityLens", "Enterprise security, privacy, and data governance for retail inventory systems."],
-    "/integrations": ["Integrations | LiquidityLens", "Connect Shopify, Clover, Square, CSV, and retail data systems to LiquidityLens."],
-    "/about": ["About | LiquidityLens", "LiquidityLens helps retailers prevent stockouts, reduce excess inventory, and improve working capital."],
-    "/contact": ["Contact | LiquidityLens", "Talk to LiquidityLens about inventory intelligence, pilots, and enterprise deployments."],
-    "/book-demo": ["Book Demo | LiquidityLens", "Book a LiquidityLens demo for your retail planning, operations, or finance team."],
-    "/inventory-forecasting-software": ["Inventory Forecasting Software for Retailers | LiquidityLens", "Forecast demand by SKU and location, compare confidence bands, and turn retail inventory forecasts into buy, sell, hold, and transfer recommendations."],
-    "/stockout-prevention": ["Stockout Prevention Software for Retailers | LiquidityLens", "Prevent retail stockouts with SKU-level risk scoring, demand forecasting, lost-sales exposure, and transfer or replenishment recommendations."],
-    "/retail-demand-forecasting": ["Retail Demand Forecasting Software | LiquidityLens", "Use retail demand forecasting to plan inventory, understand confidence, and coordinate replenishment decisions across products and locations."],
-    "/inventory-optimization": ["Inventory Optimization Software for Retailers | LiquidityLens", "Optimize retail inventory by reducing stockouts, excess inventory, carrying cost, and working-capital exposure with SKU-level recommendations."],
-    "/retail-inventory-analytics": ["Retail Inventory Analytics Platform | LiquidityLens", "Track inventory risk, demand forecasts, service level, excess cost, and executive inventory reports in one retail analytics platform."],
-    "/reports": ["Reports | LiquidityLens", "Executive inventory health reports for finance and operations teams."],
-    "/profile": ["Profile | LiquidityLens", "Manage your LiquidityLens account profile, password, and active session."],
-    "/login": ["Sign In | LiquidityLens", "Secure access to LiquidityLens inventory intelligence."],
+    "/": ["LiquidityLink | Inventory Intelligence", "Forecast demand, detect stockout risk, and coordinate inventory transfers from a single retail operations workspace."],
+    "/platform": ["Platform | LiquidityLink", "Inventory intelligence, forecasting, supplier risk, and executive reporting built for retail operators."],
+    "/features": ["Features | LiquidityLink", "Forecast accuracy, replenishment signals, risk scoring, marketplace matching, and reporting for modern retail teams."],
+    "/solutions": ["Solutions | LiquidityLink", "Inventory planning workflows for supply chain, operations, finance, and executive teams."],
+    "/dashboard": ["LiquidityLink Dashboard", "Inventory risk score, revenue exposure, and SKU recommendations for retail operators."],
+    "/connect": ["Connect Store | LiquidityLink", "Connect POS, ERP, or CSV inventory data to start forecasting."],
+    "/forecasts": ["Forecasts | LiquidityLink", "Demand forecasts with confidence bands and model comparison."],
+    "/inventory": ["Inventory | LiquidityLink", "SKU-level buy, sell, hold, and transfer recommendations."],
+    "/analytics": ["Advanced Analytics | LiquidityLink", "Track GMROI, service levels, reorder points, safety stock, ABC classes, and SKU diagnostics from connected sales and inventory data."],
+    "/marketplace": ["Marketplace | LiquidityLink", "Find nearby retailers with matching inventory excess or shortage signals."],
+    "/community": ["Community | LiquidityLink", "Coordinate markdowns, delivery routes, and bulk buys with retail peers."],
+    "/pricing": ["Work with us | LiquidityLink", "Explore a focused inventory intelligence pilot for your retail business."],
+    "/resources": ["Resources | LiquidityLink", "Guides, frameworks, and operating playbooks for inventory risk teams."],
+    "/blog": ["Blog | LiquidityLink", "Inventory intelligence essays, forecasting methods, and retail operations analysis."],
+    "/docs": ["Documentation | LiquidityLink", "Implementation guides for connecting retail data and interpreting LiquidityLink analytics."],
+    "/security": ["Security | LiquidityLink", "Enterprise security, privacy, and data governance for retail inventory systems."],
+    "/integrations": ["Integrations | LiquidityLink", "Connect Shopify, Clover, Square, CSV, and retail data systems to LiquidityLink."],
+    "/about": ["About | LiquidityLink", "LiquidityLink helps retailers prevent stockouts, reduce excess inventory, and improve working capital."],
+    "/contact": ["Contact | LiquidityLink", "Talk to LiquidityLink about inventory intelligence, pilots, and enterprise deployments."],
+    "/book-demo": ["Book Demo | LiquidityLink", "Book a LiquidityLink demo for your retail planning, operations, or finance team."],
+    "/inventory-forecasting-software": ["Inventory Forecasting Software for Retailers | LiquidityLink", "Forecast demand by SKU and location, compare confidence bands, and turn retail inventory forecasts into buy, sell, hold, and transfer recommendations."],
+    "/stockout-prevention": ["Stockout Prevention Software for Retailers | LiquidityLink", "Prevent retail stockouts with SKU-level risk scoring, demand forecasting, lost-sales exposure, and transfer or replenishment recommendations."],
+    "/retail-demand-forecasting": ["Retail Demand Forecasting Software | LiquidityLink", "Use retail demand forecasting to plan inventory, understand confidence, and coordinate replenishment decisions across products and locations."],
+    "/inventory-optimization": ["Inventory Optimization Software for Retailers | LiquidityLink", "Optimize retail inventory by reducing stockouts, excess inventory, carrying cost, and working-capital exposure with SKU-level recommendations."],
+    "/retail-inventory-analytics": ["Retail Inventory Analytics Platform | LiquidityLink", "Track inventory risk, demand forecasts, service level, excess cost, and executive inventory reports in one retail analytics platform."],
+    "/reports": ["Reports | LiquidityLink", "Executive inventory health reports for finance and operations teams."],
+    "/profile": ["Profile | LiquidityLink", "Manage your LiquidityLink account profile, password, and active session."],
+    "/login": ["Sign In | LiquidityLink", "Secure access to LiquidityLink inventory intelligence."],
   };
   return pages[pathname] || pages["/"];
 }
@@ -5031,28 +5031,28 @@ function htmlAttr(value) {
 
 const seoFaqs = {
   "/inventory-forecasting-software": [
-    ["What makes LiquidityLens different from a spreadsheet forecast?", "LiquidityLens connects sales, inventory, and location signals, then turns forecast output into ranked inventory actions."],
+    ["What makes LiquidityLink different from a spreadsheet forecast?", "LiquidityLink connects sales, inventory, and location signals, then turns forecast output into ranked inventory actions."],
     ["Can retailers start with a small pilot?", "Yes. A pilot can focus on one category, one data source, and a narrow set of measurable outcomes such as avoided stockouts or reduced excess stock."],
-    ["Does LiquidityLens replace existing dashboards?", "It can sit beside existing BI tools and focus on forward-looking inventory decisions rather than historical reporting alone."],
+    ["Does LiquidityLink replace existing dashboards?", "It can sit beside existing BI tools and focus on forward-looking inventory decisions rather than historical reporting alone."],
   ],
   "/stockout-prevention": [
-    ["How does LiquidityLens help prevent stockouts?", "It combines observed demand, current inventory, forecast range, and operational context to rank products likely to run short."],
+    ["How does LiquidityLink help prevent stockouts?", "It combines observed demand, current inventory, forecast range, and operational context to rank products likely to run short."],
     ["Can it support multi-location retailers?", "Yes. The product is designed around SKU and location-level planning so teams can compare where stock is needed and where excess may exist."],
     ["What data is needed to start?", "A pilot can begin with sales history and current inventory from CSV, Shopify, Clover, or another connected system."],
   ],
   "/retail-demand-forecasting": [
     ["Who uses retail demand forecasting?", "Inventory planners, supply chain managers, operations leaders, and finance teams use it to plan buys, transfers, and markdowns."],
     ["Why does forecast confidence matter?", "Confidence bands show when history is thin or volatile, helping teams avoid overreacting to weak signals."],
-    ["Can LiquidityLens forecast from Shopify data?", "Yes. Shopify orders and product inventory can be used as a starting data source for a focused forecasting pilot."],
+    ["Can LiquidityLink forecast from Shopify data?", "Yes. Shopify orders and product inventory can be used as a starting data source for a focused forecasting pilot."],
   ],
   "/inventory-optimization": [
     ["What is inventory optimization?", "It is the process of matching inventory levels to expected demand while protecting margin, service level, and working capital."],
-    ["How does LiquidityLens reduce excess inventory?", "It identifies slow-moving or over-covered products and recommends markdown, hold, or transfer actions based on operational context."],
+    ["How does LiquidityLink reduce excess inventory?", "It identifies slow-moving or over-covered products and recommends markdown, hold, or transfer actions based on operational context."],
     ["Is this only for enterprise retailers?", "No. The workflow can start with smaller retailers and scale into multi-store or enterprise networks."],
   ],
   "/retail-inventory-analytics": [
     ["What metrics should retail inventory analytics include?", "Useful analytics include demand forecast, current stock, stockout risk, overstock risk, revenue exposure, carrying cost, and service level."],
-    ["How is LiquidityLens different from BI?", "BI often reports what happened. LiquidityLens focuses on what inventory action should happen next."],
+    ["How is LiquidityLink different from BI?", "BI often reports what happened. LiquidityLink focuses on what inventory action should happen next."],
     ["Can analytics support procurement reviews?", "Yes. The product is built to explain inputs, model context, controls, and outcomes for operational and executive review."],
   ],
 };
@@ -5062,7 +5062,7 @@ function structuredDataForPath(pathname, title, description, canonical) {
     {
       "@type": "Organization",
       "@id": `${appBaseUrl}/#organization`,
-      name: "LiquidityLens",
+      name: "LiquidityLink",
       url: appBaseUrl,
       logo: `${appBaseUrl}/assets/liquiditylink-logo.png`,
       sameAs: [
@@ -5073,14 +5073,14 @@ function structuredDataForPath(pathname, title, description, canonical) {
     {
       "@type": "WebSite",
       "@id": `${appBaseUrl}/#website`,
-      name: "LiquidityLens",
+      name: "LiquidityLink",
       url: appBaseUrl,
       publisher: { "@id": `${appBaseUrl}/#organization` },
     },
     {
       "@type": "SoftwareApplication",
       "@id": `${appBaseUrl}/#software`,
-      name: "LiquidityLens",
+      name: "LiquidityLink",
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web",
       url: appBaseUrl,
@@ -5136,14 +5136,14 @@ function renderShell(req) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=39" />
+    <link rel="stylesheet" href="/styles.css?v=40" />
     ${structuredData}
   </head>
   <body>
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${htmlAttr(title.split(" | ")[0])}</h1><p>${htmlAttr(description)}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=39"></script>
+    <script src="/app.js?v=40"></script>
   </body>
 </html>`;
 }
@@ -5223,6 +5223,6 @@ ensureSchema()
   .catch(err => console.error("Database schema setup failed:", err))
   .finally(() => {
     app.listen(port, () => {
-      console.log(`LiquidityLens running at ${appBaseUrl}`);
+      console.log(`LiquidityLink running at ${appBaseUrl}`);
     });
   });

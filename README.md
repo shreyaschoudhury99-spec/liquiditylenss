@@ -1,6 +1,6 @@
-# LiquidityLens
+# LiquidityLink
 
-LiquidityLens is a vanilla JavaScript frontend with an Express/Postgres auth backend.
+LiquidityLink is a vanilla JavaScript frontend with an Express/Postgres auth backend.
 
 Do not open `index.html` directly for auth testing. Google, Microsoft, and email/password sign-in require the backend server.
 

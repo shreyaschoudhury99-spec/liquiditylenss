@@ -112,7 +112,7 @@ const companyLinks = {
 };
 
 const juneJulyMetrics = [
-  { key: "instagramFollowers", value: "350", label: "Instagram followers", detail: "Followers since the first LiquidityLens Instagram launch posts in July." },
+  { key: "instagramFollowers", value: "350", label: "Instagram followers", detail: "Followers since the first LiquidityLink Instagram launch posts in July." },
   { key: "retailers", value: "10", label: "Local retailers connected", detail: "Retailers ready to kick-start the pilot program." },
   { key: "interns", value: "10", label: "Interns recruited", detail: "Supporting outreach, marketing, website development, and business administration." },
   { key: "linkedinImpressions", value: "500+", label: "LinkedIn impressions", detail: "Since the company page was created on 7/22." },
@@ -122,7 +122,7 @@ const buyerQuestions = [
   {
     question: "Why should I care?",
     headline: "Inventory mistakes are cash-flow mistakes.",
-    copy: "LiquidityLens helps retailers prevent stockouts, reduce excess inventory, and make replenishment decisions before margin is lost.",
+    copy: "LiquidityLink helps retailers prevent stockouts, reduce excess inventory, and make replenishment decisions before margin is lost.",
     visual: "A risk board showing forecasted demand, inventory exposure, and recommended actions by SKU.",
   },
   {
@@ -134,7 +134,7 @@ const buyerQuestions = [
   {
     question: "Why is AI better?",
     headline: "Forecasts improve when models see the full operating context.",
-    copy: "Instead of a static reorder point, LiquidityLens blends observed velocity, seasonality, confidence bands, inventory on hand, and price exposure.",
+    copy: "Instead of a static reorder point, LiquidityLink blends observed velocity, seasonality, confidence bands, inventory on hand, and price exposure.",
     visual: "Forecast bands comparing baseline, adjusted, and ensemble demand.",
   },
   {
@@ -147,13 +147,13 @@ const buyerQuestions = [
 
 const enterpriseFaqs = [
   ["How quickly can a retailer start seeing value?", "Most teams can run a pilot from CSV or Shopify data in days. Enterprise rollouts usually start with one region, one category, or one banner before expanding."],
-  ["Do we need perfect historical data?", "No. LiquidityLens flags limited history, widens confidence bands, and separates measured signals from assumptions so planners know where the model is certain."],
+  ["Do we need perfect historical data?", "No. LiquidityLink flags limited history, widens confidence bands, and separates measured signals from assumptions so planners know where the model is certain."],
   ["Does this replace planners?", "No. It gives planners earlier warnings, quantified risk, and clear action queues so they can spend less time hunting through reports."],
   ["Can executives trust the numbers?", "Every forecast is tied back to observed demand, inventory position, model confidence, and the business rule used to produce the recommendation."],
   ["What integrations are supported?", "CSV upload, Shopify, Clover, and Square are the current connection paths. The architecture is ready for ERPs, data warehouses, and private APIs."],
   ["How do pilots work?", "We define a target outcome, connect a limited data set, measure forecast accuracy and working-capital impact, then present an executive readout with expansion options."],
   ["What about data security?", "The product uses server-side secrets, authenticated sessions, access controls, and audit-oriented operational pages. Enterprise SSO, SOC 2 readiness, and custom retention policies can be added for larger deployments."],
-  ["How is LiquidityLens different from a BI dashboard?", "BI tools explain what already happened. LiquidityLens turns inventory data into forward-looking decisions, ranked risks, and replenishment actions."],
+  ["How is LiquidityLink different from a BI dashboard?", "BI tools explain what already happened. LiquidityLink turns inventory data into forward-looking decisions, ranked risks, and replenishment actions."],
 ];
 
 const providerFields = {
@@ -335,7 +335,7 @@ function icon(name) {
 }
 
 function logo() {
-  return `<div class="logo"><img class="logo-mark" src="assets/liquiditylink-logo.png?v=9" alt="" aria-hidden="true" /><span class="logo-title">LiquidityLens</span></div>`;
+  return `<div class="logo"><img class="logo-mark" src="assets/liquiditylink-logo.png?v=9" alt="" aria-hidden="true" /><span class="logo-title">LiquidityLink</span></div>`;
 }
 
 function esc(value) {
@@ -547,7 +547,7 @@ function shopifyOperatingHub(products) {
         <div>
           <p class="eyebrow">Shopify data mirror</p>
           <h2 class="text-lg">${connected ? esc(displayNameFromShopifyAccount(shopify.externalAccount) || "Connected Shopify store") : "Connect Shopify to replace back-and-forth reporting"}</h2>
-          <p class="muted">Products, variants, inventory levels, locations, and order rows sync into LiquidityLens so the app acts as the planning view on top of Shopify.</p>
+          <p class="muted">Products, variants, inventory levels, locations, and order rows sync into LiquidityLink so the app acts as the planning view on top of Shopify.</p>
         </div>
         <span class="badge badge--${connected ? "success" : "info"}">${esc((shopify.status || "not connected").replaceAll("_", " "))}</span>
       </div>
@@ -560,7 +560,7 @@ function shopifyOperatingHub(products) {
     </article>
     <article class="card shopify-hub-table">
       <div class="toolbar-spread">
-        <div><p class="eyebrow">Operating table</p><h2 class="text-lg">Shopify SKUs with LiquidityLens decisions</h2></div>
+        <div><p class="eyebrow">Operating table</p><h2 class="text-lg">Shopify SKUs with LiquidityLink decisions</h2></div>
         <a class="btn-ghost" href="/inventory" data-route="/inventory">View all inventory</a>
       </div>
       <div class="table-wrap">
@@ -950,7 +950,7 @@ function socialLinkStrip() {
   </div>`;
 }
 
-function tractionBand({ eyebrow = "June-July check", title = "Early traction is already turning into pilot momentum.", copy = "In the first operating push, LiquidityLens moved from social launch to retailer conversations, recruiting support, and measurable audience growth.", live = false } = {}) {
+function tractionBand({ eyebrow = "June-July check", title = "Early traction is already turning into pilot momentum.", copy = "In the first operating push, LiquidityLink moved from social launch to retailer conversations, recruiting support, and measurable audience growth.", live = false } = {}) {
   return `<section class="traction-band" aria-label="${attr(eyebrow)}"${live ? " data-live-statistics" : ""}>
     <div>
       <p class="eyebrow">${esc(eyebrow)}</p>
@@ -1011,23 +1011,23 @@ const seoLandingPages = {
   "/inventory-forecasting-software": {
     eyebrow: "Inventory forecasting software",
     title: "Inventory forecasting software for modern retailers.",
-    copy: "LiquidityLens helps retail teams forecast demand, understand confidence, and turn SKU-level signals into replenishment, transfer, and markdown decisions.",
+    copy: "LiquidityLink helps retail teams forecast demand, understand confidence, and turn SKU-level signals into replenishment, transfer, and markdown decisions.",
     signal: ["Demand forecasts", "Confidence bands", "SKU actions"],
     cards: [
       { kicker: "Forecasting", title: "Forecast demand by SKU and location", copy: "Model expected demand across the next planning window so buyers know which items need attention before stockouts or overstocks appear." },
       { kicker: "Confidence", title: "Show when the model is strong enough to trust", copy: "Forecast bands help teams separate high-confidence replenishment signals from cases that need more history or planner review." },
-      { kicker: "Action", title: "Move from forecast to recommendation", copy: "LiquidityLens connects forecast output to buy, sell, hold, and transfer recommendations instead of leaving teams with another static report." },
+      { kicker: "Action", title: "Move from forecast to recommendation", copy: "LiquidityLink connects forecast output to buy, sell, hold, and transfer recommendations instead of leaving teams with another static report." },
     ],
     faqs: [
-      ["What makes LiquidityLens different from a spreadsheet forecast?", "LiquidityLens connects sales, inventory, and location signals, then turns forecast output into ranked inventory actions."],
+      ["What makes LiquidityLink different from a spreadsheet forecast?", "LiquidityLink connects sales, inventory, and location signals, then turns forecast output into ranked inventory actions."],
       ["Can retailers start with a small pilot?", "Yes. A pilot can focus on one category, one data source, and a narrow set of measurable outcomes such as avoided stockouts or reduced excess stock."],
-      ["Does LiquidityLens replace existing dashboards?", "It can sit beside existing BI tools and focus on forward-looking inventory decisions rather than historical reporting alone."],
+      ["Does LiquidityLink replace existing dashboards?", "It can sit beside existing BI tools and focus on forward-looking inventory decisions rather than historical reporting alone."],
     ],
   },
   "/stockout-prevention": {
     eyebrow: "Stockout prevention",
     title: "Prevent retail stockouts before revenue is lost.",
-    copy: "LiquidityLens surfaces items at risk of missing demand, ranks urgency, and gives planners the operating context needed to replenish or transfer inventory in time.",
+    copy: "LiquidityLink surfaces items at risk of missing demand, ranks urgency, and gives planners the operating context needed to replenish or transfer inventory in time.",
     signal: ["Stockout risk", "Lost sales exposure", "Transfer candidates"],
     cards: [
       { kicker: "Risk scoring", title: "Detect shortage risk early", copy: "Identify SKUs with high demand, low cover, supplier timing gaps, or location-level shortages before customers feel the miss." },
@@ -1035,7 +1035,7 @@ const seoLandingPages = {
       { kicker: "Resolution", title: "Recommend the next move", copy: "Route planners toward a replenishment buy, store transfer, hold, or exception review with the signal behind the recommendation." },
     ],
     faqs: [
-      ["How does LiquidityLens help prevent stockouts?", "It combines observed demand, current inventory, forecast range, and operational context to rank products likely to run short."],
+      ["How does LiquidityLink help prevent stockouts?", "It combines observed demand, current inventory, forecast range, and operational context to rank products likely to run short."],
       ["Can it support multi-location retailers?", "Yes. The product is designed around SKU and location-level planning so teams can compare where stock is needed and where excess may exist."],
       ["What data is needed to start?", "A pilot can begin with sales history and current inventory from CSV, Shopify, Clover, or another connected system."],
     ],
@@ -1043,7 +1043,7 @@ const seoLandingPages = {
   "/retail-demand-forecasting": {
     eyebrow: "Retail demand forecasting",
     title: "Retail demand forecasting built for operating decisions.",
-    copy: "LiquidityLens gives retail operators demand forecasts that connect directly to replenishment, inventory health, and executive reporting.",
+    copy: "LiquidityLink gives retail operators demand forecasts that connect directly to replenishment, inventory health, and executive reporting.",
     signal: ["8-week demand", "Seasonality", "Model comparison"],
     cards: [
       { kicker: "Planning", title: "Forecast demand across products and stores", copy: "See expected demand by SKU and planning horizon so teams can act before the next buying or transfer cycle closes." },
@@ -1053,13 +1053,13 @@ const seoLandingPages = {
     faqs: [
       ["Who uses retail demand forecasting?", "Inventory planners, supply chain managers, operations leaders, and finance teams use it to plan buys, transfers, and markdowns."],
       ["Why does forecast confidence matter?", "Confidence bands show when history is thin or volatile, helping teams avoid overreacting to weak signals."],
-      ["Can LiquidityLens forecast from Shopify data?", "Yes. Shopify orders and product inventory can be used as a starting data source for a focused forecasting pilot."],
+      ["Can LiquidityLink forecast from Shopify data?", "Yes. Shopify orders and product inventory can be used as a starting data source for a focused forecasting pilot."],
     ],
   },
   "/inventory-optimization": {
     eyebrow: "Inventory optimization",
     title: "Inventory optimization that balances availability and cash.",
-    copy: "LiquidityLens helps retailers reduce excess inventory, protect availability, and make working-capital decisions with SKU-level evidence.",
+    copy: "LiquidityLink helps retailers reduce excess inventory, protect availability, and make working-capital decisions with SKU-level evidence.",
     signal: ["Excess cost", "Service level", "Working capital"],
     cards: [
       { kicker: "Balance", title: "Reduce stockouts and overstocks together", copy: "Optimize inventory by seeing both shortage risk and excess exposure in one operating view." },
@@ -1068,14 +1068,14 @@ const seoLandingPages = {
     ],
     faqs: [
       ["What is inventory optimization?", "It is the process of matching inventory levels to expected demand while protecting margin, service level, and working capital."],
-      ["How does LiquidityLens reduce excess inventory?", "It identifies slow-moving or over-covered products and recommends markdown, hold, or transfer actions based on operational context."],
+      ["How does LiquidityLink reduce excess inventory?", "It identifies slow-moving or over-covered products and recommends markdown, hold, or transfer actions based on operational context."],
       ["Is this only for enterprise retailers?", "No. The workflow can start with smaller retailers and scale into multi-store or enterprise networks."],
     ],
   },
   "/retail-inventory-analytics": {
     eyebrow: "Retail inventory analytics",
     title: "Retail inventory analytics for planners and executives.",
-    copy: "LiquidityLens brings forecasting, risk scoring, stock health, and executive inventory reporting into one decision layer.",
+    copy: "LiquidityLink brings forecasting, risk scoring, stock health, and executive inventory reporting into one decision layer.",
     signal: ["Risk score", "Executive reports", "Planning metrics"],
     cards: [
       { kicker: "Visibility", title: "Unify inventory health metrics", copy: "Track demand, current inventory, revenue at risk, service level, carrying cost, and recommendation status in one place." },
@@ -1084,7 +1084,7 @@ const seoLandingPages = {
     ],
     faqs: [
       ["What metrics should retail inventory analytics include?", "Useful analytics include demand forecast, current stock, stockout risk, overstock risk, revenue exposure, carrying cost, and service level."],
-      ["How is LiquidityLens different from BI?", "BI often reports what happened. LiquidityLens focuses on what inventory action should happen next."],
+      ["How is LiquidityLink different from BI?", "BI often reports what happened. LiquidityLink focuses on what inventory action should happen next."],
       ["Can analytics support procurement reviews?", "Yes. The product is built to explain inputs, model context, controls, and outcomes for operational and executive review."],
     ],
   },
@@ -1095,9 +1095,9 @@ function seoLandingPage(pathname) {
   const related = seoLandingPaths.filter(path => path !== pathname).slice(0, 4);
   return `${pageHero(page.eyebrow, page.title, page.copy, productFrame("Inventory intelligence preview", cleanForecastVisual(), "Forecasts, risk scores, and actions in one planning surface."), "seo")}
   <section class="seo-signal-strip" aria-label="Key product signals">${page.signal.map(item => `<span>${esc(item)}</span>`).join("")}</section>
-  ${marketingSection("How it helps", "Turn search intent into an operating workflow.", "These pages explain the specific inventory problems LiquidityLens is built to solve for retail teams.", marketingCards(page.cards), "seo-section")}
-  ${pageInteractive("Preview the action queue behind the message.", "Search traffic should land on more than a claim. This workflow shows how LiquidityLens turns forecast and inventory signals into specific SKU actions.", "understock")}
-  ${marketingSection("Common questions", "Answers buyers search for before a pilot.", "Clear, indexable answers help retail operators understand whether LiquidityLens fits their inventory workflow.", `<div class="marketing-faq">${page.faqs.map(([q, a]) => `<details open><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join("")}</div>`, "seo-section")}
+  ${marketingSection("How it helps", "Turn search intent into an operating workflow.", "These pages explain the specific inventory problems LiquidityLink is built to solve for retail teams.", marketingCards(page.cards), "seo-section")}
+  ${pageInteractive("Preview the action queue behind the message.", "Search traffic should land on more than a claim. This workflow shows how LiquidityLink turns forecast and inventory signals into specific SKU actions.", "understock")}
+  ${marketingSection("Common questions", "Answers buyers search for before a pilot.", "Clear, indexable answers help retail operators understand whether LiquidityLink fits their inventory workflow.", `<div class="marketing-faq">${page.faqs.map(([q, a]) => `<details open><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join("")}</div>`, "seo-section")}
   <section class="seo-related-links">
     <p class="eyebrow">Related SEO pages</p>
     <div>${related.map(path => `<a href="${path}" data-route="${path}">${esc(routes[path])}</a>`).join("")}</div>
@@ -1127,7 +1127,7 @@ function glassCommandOverlay() {
   return `<div class="glass-command-overlay" aria-label="Inventory command overlay">
     <div class="glass-command-copy">
       <span class="glass-kicker">Predictive command layer</span>
-      <strong>LiquidityLens Control Center</strong>
+      <strong>LiquidityLink Control Center</strong>
       <p>Forecast, risk, and transfer signals summarized for the next replenishment decision.</p>
     </div>
     <div class="glass-command-metrics">
@@ -1344,7 +1344,7 @@ function pageHero(eyebrow, title, copy, art, mood = "") {
   </section>`;
 }
 
-function marketingPage(title, copy, cards, eyebrow = "LiquidityLens") {
+function marketingPage(title, copy, cards, eyebrow = "LiquidityLink") {
   return `${pageHero(eyebrow, title, copy, "", eyebrow.toLowerCase().replace(/\s+/g, "-"))}
   <section class="mixed-card-band">${cards.map((card, index) => insightCard(card, index % 3 === 0 ? "bars" : index % 3 === 1 ? "gauge" : "rows")).join("")}</section>`;
 }
@@ -1427,7 +1427,7 @@ function homePage() {
     <div class="marketing-hero-copy">
       <p class="eyebrow">Inventory intelligence for enterprise retail</p>
       <h1>Prevent stockouts, overstocks, and cash-flow surprises before they happen.</h1>
-      <p>LiquidityLens gives retail leaders a predictive operating layer for demand, inventory risk, replenishment, supplier exposure, and marketplace coordination.</p>
+      <p>LiquidityLink gives retail leaders a predictive operating layer for demand, inventory risk, replenishment, supplier exposure, and marketplace coordination.</p>
       <div class="hero-actions">
         <a class="btn-primary" href="/book-demo" data-route="/book-demo">Book demo</a>
         <a class="btn-ghost" href="/platform" data-route="/platform">See platform</a>
@@ -1471,7 +1471,7 @@ function enterpriseFaq() {
 function platformPage() {
   return `${pageHero("Platform", "A predictive operating layer for retail inventory.", "Unify sales, inventory, and supplier signals so every team can work from the same forward-looking plan.", productFrame("Shopify mirror", syncMirrorVisual(), "Product, variant, inventory, order, and location data in one planning surface."), "platform")}
   ${pageInteractive("Switch from shortage response to overstock recovery.", "The same operating layer can move from urgent replenishment to cash-release planning without changing tools.", "overstock")}
-  ${marketingSection("Operating model", "From source data to decision queue.", "LiquidityLens normalizes commerce and POS data, models forward demand, then ranks the actions most likely to protect revenue and cash.", `<div class="process-lane">${["Connect", "Normalize", "Forecast", "Prioritize", "Report"].map((step, i) => `<div><b>${String(i + 1).padStart(2, "0")}</b><strong>${step}</strong><span>${["Shopify, Clover, Square, CSV", "SKU, location, cost, price", "Demand bands and confidence", "Buy, sell, hold, transfer", "Executive-ready summaries"][i]}</span></div>`).join("")}</div>`)}
+  ${marketingSection("Operating model", "From source data to decision queue.", "LiquidityLink normalizes commerce and POS data, models forward demand, then ranks the actions most likely to protect revenue and cash.", `<div class="process-lane">${["Connect", "Normalize", "Forecast", "Prioritize", "Report"].map((step, i) => `<div><b>${String(i + 1).padStart(2, "0")}</b><strong>${step}</strong><span>${["Shopify, Clover, Square, CSV", "SKU, location, cost, price", "Demand bands and confidence", "Buy, sell, hold, transfer", "Executive-ready summaries"][i]}</span></div>`).join("")}</div>`)}
   ${statBand([["8-week", "forecast horizon"], ["SKU + location", "planning grain"], ["Buy/sell/transfer", "action model"]])}`;
 }
 
@@ -1496,7 +1496,7 @@ function solutionsPage() {
     { title: "Chief Supply Chain Officers", copy: "Standardize planning intelligence across banners, categories, and geographies.", kicker: "Executive" },
     { title: "CEOs", copy: "Understand inventory health as a growth, margin, and customer experience driver.", kicker: "Executive" },
   ];
-  return `${pageHero("Solutions", "Solutions for every inventory decision maker.", "LiquidityLens gives each role the level of detail they need without forcing everyone into the same dashboard.", productFrame("Role-based workspace", roleWorkspaceVisual()), "solutions")}
+  return `${pageHero("Solutions", "Solutions for every inventory decision maker.", "LiquidityLink gives each role the level of detail they need without forcing everyone into the same dashboard.", productFrame("Role-based workspace", roleWorkspaceVisual()), "solutions")}
   ${pageInteractive("Each role can inspect the same signal differently.", "Switch the action queue to see how planners and executives move between shortage and surplus priorities.", "understock")}
   <section class="role-matrix">${cards.map((card, i) => insightCard(card, i === 3 ? "cash" : i === 4 ? "routes" : i === 5 ? "growth" : i % 3 === 0 ? "gauge" : i % 3 === 1 ? "rows" : "bars")).join("")}</section>`;
 }
@@ -1533,16 +1533,16 @@ function securityPage() {
     { title: "Access control", copy: "Authenticated sessions, role-based workspaces, protected app routes, and admin-only team management.", status: "Active" },
     { title: "Credential handling", copy: "Provider secrets, API keys, OAuth tokens, and email credentials stay server-side in environment variables.", status: "Active" },
     { title: "Audit readiness", copy: "Connection status, sync errors, imports, invitations, and admin activity are organized for operational review.", status: "Active" },
-    { title: "Data minimization", copy: "LiquidityLens uses SKU, order, location, and inventory signals needed for planning instead of broad customer profiles.", status: "Active" },
+    { title: "Data minimization", copy: "LiquidityLink uses SKU, order, location, and inventory signals needed for planning instead of broad customer profiles.", status: "Active" },
     { title: "Enterprise roadmap", copy: "SSO, SOC 2 readiness, custom retention, private deployments, and procurement workflows can be prioritized for larger accounts.", status: "Planned" },
     { title: "Transparent models", copy: "Forecast pages show inputs, assumptions, confidence ranges, comparison models, and recommended actions.", status: "Active" },
   ];
-  return `${pageHero("Security", "Security built for enterprise evaluation.", "LiquidityLens is structured so procurement, IT, and operations can understand how data is handled before a pilot expands.", productFrame("Security control center", securityControlsVisual()), "security")}
+  return `${pageHero("Security", "Security built for enterprise evaluation.", "LiquidityLink is structured so procurement, IT, and operations can understand how data is handled before a pilot expands.", productFrame("Security control center", securityControlsVisual()), "security")}
   <section class="security-assurance">
     <div class="assurance-summary">
       <p class="eyebrow">Security posture</p>
       <h2>Controls are shown as operating evidence, not decorative badges.</h2>
-      <p>Use this page to explain how LiquidityLens protects connected retail data during a pilot: who can access it, where credentials live, and what activity is reviewable.</p>
+      <p>Use this page to explain how LiquidityLink protects connected retail data during a pilot: who can access it, where credentials live, and what activity is reviewable.</p>
       <div class="assurance-metrics">
         <span><strong>0</strong><em>secrets exposed in browser</em></span>
         <span><strong>3</strong><em>workspace roles</em></span>
@@ -1571,16 +1571,16 @@ function integrationsPage() {
 }
 
 function aboutPage() {
-  return marketingPage("Built for retailers that cannot afford reactive inventory planning.", "LiquidityLens exists to make inventory decisions earlier, clearer, and easier to defend.", [
+  return marketingPage("Built for retailers that cannot afford reactive inventory planning.", "LiquidityLink exists to make inventory decisions earlier, clearer, and easier to defend.", [
     { title: "Mission", copy: "Help retailers convert operational uncertainty into measurable inventory action." },
     { title: "Advisor program", copy: "A structured path for operators, supply chain leaders, and finance executives to shape the product." },
     { title: "Customer success", copy: "Pilots focus on one category, one measurable target, and one executive readout." },
-    { title: "Competition wins", copy: "Where BI reports stop at visibility, LiquidityLens prioritizes decisions and action." },
+    { title: "Competition wins", copy: "Where BI reports stop at visibility, LiquidityLink prioritizes decisions and action." },
   ], "About");
 }
 
 function contactPage() {
-  return `${pageHero("Contact", "Talk to the LiquidityLens team.", "Use this page for enterprise evaluations, security reviews, partner integrations, or pilot scoping.", "", "contact")}
+  return `${pageHero("Contact", "Talk to the LiquidityLink team.", "Use this page for enterprise evaluations, security reviews, partner integrations, or pilot scoping.", "", "contact")}
   <section class="contact-band">
     <div>
       <p class="eyebrow">Direct contact</p>
@@ -1620,7 +1620,7 @@ function bookDemoPage() {
     <article class="marketing-card pilot-structure-card">
       <div class="pilot-card-logo">
         <img src="assets/liquiditylink-logo.png?v=9" alt="" aria-hidden="true" />
-        <span>LiquidityLens</span>
+        <span>LiquidityLink</span>
       </div>
       <p class="eyebrow">Pilot structure</p>
       <h3>One data source. One category. One executive readout.</h3>
@@ -1637,7 +1637,7 @@ function bookDemoPage() {
 function loginPage() {
   const mode = state.authMode;
   const isReset = mode === "reset";
-  const title = ({ signin: "Sign in to LiquidityLens", signup: "Create your LiquidityLens account", forgot: "Reset your password", reset: "Choose a new password", mfa: "Enter your verification code" })[mode];
+  const title = ({ signin: "Sign in to LiquidityLink", signup: "Create your LiquidityLink account", forgot: "Reset your password", reset: "Choose a new password", mfa: "Enter your verification code" })[mode];
   const copy = ({ signin: "Use your work account or continue with a connected identity provider.", signup: "Start with a secure workspace account for your retail team.", forgot: "Enter your email and we will send a reset link if an account exists.", reset: "Your new password must meet the production password policy.", mfa: `We sent a 6-digit code to ${state.mfaDestination || "your saved verification method"}.` })[mode];
   return `<section class="auth-page">
     <aside class="auth-left">
@@ -1652,10 +1652,10 @@ function loginPage() {
         </div>
       </div>
       <div class="auth-preview" aria-label="Interactive product preview">
-        ${queuePanel("understock", "Switch the tabs or click a SKU to see how LiquidityLens explains the next action before you sign in.")}
+        ${queuePanel("understock", "Switch the tabs or click a SKU to see how LiquidityLink explains the next action before you sign in.")}
         <div class="hero-forecast">${forecastMockup()}</div>
       </div>
-      <p class="mono text-sm">LiquidityLens demo workspace</p>
+      <p class="mono text-sm">LiquidityLink demo workspace</p>
     </aside>
     <main class="auth-right">
       <button class="btn-icon auth-theme" data-theme type="button" aria-label="Switch to ${currentTheme() === "light" ? "dark" : "light"} theme">${icon(currentTheme() === "light" ? "moon" : "sun")}</button>
@@ -1961,20 +1961,20 @@ function integrationPanel() {
         <summary>${icon("help")}<span>How do I connect Shopify?</span></summary>
         <ol class="instruction-list">
           <li><strong>Find your Shopify store domain.</strong> In Shopify Admin, look at the browser address or store settings and copy the domain that ends in <code>.myshopify.com</code>, such as <code>your-store.myshopify.com</code>. Do not paste <code>admin.shopify.com/store/...</code> or a customer-facing domain like <code>yourstore.com</code>.</li>
-          <li><strong>Click Connect Shopify.</strong> LiquidityLens opens Shopify's approval screen. The word “app” here means the Shopify integration connection that lets LiquidityLens read store data after the store owner approves it.</li>
-          <li><strong>Approve the requested read-only permissions.</strong> The integration needs <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>, and <code>read_locations</code>. These let LiquidityLens read order history, product and variant SKUs, inventory quantities, and store locations.</li>
-          <li><strong>Return to LiquidityLens.</strong> Shopify redirects back to this site after approval. LiquidityLens stores the access token server-side, not in the browser.</li>
+          <li><strong>Click Connect Shopify.</strong> LiquidityLink opens Shopify's approval screen. The word “app” here means the Shopify integration connection that lets LiquidityLink read store data after the store owner approves it.</li>
+          <li><strong>Approve the requested read-only permissions.</strong> The integration needs <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>, and <code>read_locations</code>. These let LiquidityLink read order history, product and variant SKUs, inventory quantities, and store locations.</li>
+          <li><strong>Return to LiquidityLink.</strong> Shopify redirects back to this site after approval. LiquidityLink stores the access token server-side, not in the browser.</li>
           <li><strong>Press Sync now.</strong> Sync imports Shopify products, variants, inventory levels, locations, and recent orders into the dashboard, forecasts, inventory table, and advanced analytics.</li>
           <li><strong>If forecasts still look empty, check order history.</strong> Inventory can sync without enough sales history. Add or sync completed Shopify orders for the SKUs you want forecasted, then press <strong>Sync now</strong> again.</li>
         </ol>
       </details>
       <div class="card connection-help">
         <p class="eyebrow">Required Shopify scopes</p>
-        <p>In the Shopify developer dashboard for the LiquidityLens integration, enable <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>, and <code>read_locations</code>. The callback URL must be <code>/api/integrations/shopify/callback</code> on this site.</p>
+        <p>In the Shopify developer dashboard for the LiquidityLink integration, enable <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>, and <code>read_locations</code>. The callback URL must be <code>/api/integrations/shopify/callback</code> on this site.</p>
       </div>
       <div class="card connection-help">
         <p class="eyebrow">Pilot fallback</p>
-        <p>If Shopify app distribution is still pending, ask the store owner to create a Shopify custom app with the same read-only Admin API scopes, then paste the Admin API access token here. LiquidityLens stores it server-side and uses the same Sync now flow.</p>
+        <p>If Shopify app distribution is still pending, ask the store owner to create a Shopify custom app with the same read-only Admin API scopes, then paste the Admin API access token here. LiquidityLink stores it server-side and uses the same Sync now flow.</p>
         <div class="field">
           <label for="shopifyAccessToken">Admin API access token</label>
           <input id="shopifyAccessToken" class="input" name="accessToken" type="password" placeholder="shpat_..." autocomplete="off" />
@@ -2007,7 +2007,7 @@ function integrationPanel() {
       </details>
       <div class="card connection-help">
         <p class="eyebrow">Clover data imported</p>
-        <p>LiquidityLens imports Clover items as inventory and Clover order line items as sales history.</p>
+        <p>LiquidityLink imports Clover items as inventory and Clover order line items as sales history.</p>
       </div>
       <div class="toolbar">
         <button class="btn-primary" type="submit" ${state.connectionsBusy === "clover" ? "disabled" : ""}>${state.connectionsBusy === "clover" ? spinner("Opening Clover...") : status.status === "needs_reauth" ? "Reconnect Clover" : "Connect Clover"}</button>
@@ -2040,7 +2040,7 @@ function socialSignalsPage() {
       <article class="card card--accent">
         <p class="eyebrow">Promotion-aware forecasting</p>
         <h2 class="text-lg">Turn posts, comments, and engagement into demand signals.</h2>
-        <p>LiquidityLens will use authorized social data to compare promotion response against Shopify or CSV sales. Until API keys are added, use the manual promotion form to start collecting the same model inputs.</p>
+        <p>LiquidityLink will use authorized social data to compare promotion response against Shopify or CSV sales. Until API keys are added, use the manual promotion form to start collecting the same model inputs.</p>
       </article>
       <article class="card social-signal-kpis">
         <span><strong>${fmt(promotions.length)}</strong><em>tracked promotions</em></span>
@@ -2215,7 +2215,7 @@ function marketplaceMessage() {
   const retailer = state.selectedRetailer;
   if (!retailer) return "";
   if (isDirectoryListing(retailer)) {
-    return `Public listing note for ${retailer.retailer}: this business is nearby, but private inventory and transfer requests require them to join LiquidityLens or connect their store. Use the website/phone if available for manual outreach.`;
+    return `Public listing note for ${retailer.retailer}: this business is nearby, but private inventory and transfer requests require them to join LiquidityLink or connect their store. Use the website/phone if available for manual outreach.`;
   }
   return `Hi ${retailer.retailer}, we're interested in discussing a transfer of ${retailer.product}. Can you confirm availability and pricing for ${retailer.qty} units?`;
 }
@@ -2348,7 +2348,7 @@ function listingCard(l, rankedListings = [l], index = 0) {
     <div class="listing-top"><strong>${esc(l.retailer)}</strong><span class="badge badge--info">${l.dist ?? "?"} mi</span></div>
     ${signalMarkup}
     <div><p class="text-md">${esc(l.product)}</p>${listingDetails(l, isDirectory)}</div>
-    <div class="listing-meta"><span class="badge badge--${l.urgency}">${isDirectory ? "directory" : l.urgency}</span><span class="source-pill">${esc(l.source || "LiquidityLens")}</span><span class="source-pill">match ${Math.round(listingRecommendationScore(l))}</span></div>
+    <div class="listing-meta"><span class="badge badge--${l.urgency}">${isDirectory ? "directory" : l.urgency}</span><span class="source-pill">${esc(l.source || "LiquidityLink")}</span><span class="source-pill">match ${Math.round(listingRecommendationScore(l))}</span></div>
     ${listingActions(l, isDirectory)}
   </article>`;
 }
@@ -2954,7 +2954,7 @@ function adminPage() {
       <article class="card">
         <p class="eyebrow">Team and roles</p>
         <h2 class="text-lg">Access control</h2>
-        <p class="muted admin-card-note">Who can view or manage LiquidityLens data for this workspace.</p>
+        <p class="muted admin-card-note">Who can view or manage LiquidityLink data for this workspace.</p>
         <div class="table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Email</th><th>Last login</th><th>Actions</th></tr></thead><tbody>${userRows}</tbody></table></div>
       </article>
       <article class="card">
@@ -3015,7 +3015,7 @@ function profilePage() {
         <div class="profile-avatar">${esc(initials)}</div>
         <div>
           <p class="eyebrow">Signed in as</p>
-          <h2 class="text-lg">${esc(`${user.firstName || ""} ${user.lastName || ""}`.trim() || "LiquidityLens user")}</h2>
+          <h2 class="text-lg">${esc(`${user.firstName || ""} ${user.lastName || ""}`.trim() || "LiquidityLink user")}</h2>
           <p class="muted">${esc(user.email || "")}</p>
         </div>
         <div class="account-facts">
@@ -3265,7 +3265,7 @@ async function loadLiveStatistics() {
     if (followerDetail) {
       followerDetail.textContent = stats.instagramFollowersSource === "instagram_graph_api"
         ? `Current follower count from ${companyLinks.instagram}. Updated ${new Date(stats.updatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`
-        : "Followers since the first LiquidityLens Instagram launch posts in July.";
+        : "Followers since the first LiquidityLink Instagram launch posts in July.";
     }
     if (status) {
       status.textContent = stats.instagramFollowersSource === "instagram_graph_api"
@@ -3357,7 +3357,7 @@ async function authStatus() {
   try {
     response = await fetch("/api/auth/status", { credentials: "same-origin" });
   } catch {
-    throw new Error("The authentication server is not reachable. Start the LiquidityLens backend and open http://localhost:4174.");
+    throw new Error("The authentication server is not reachable. Start the LiquidityLink backend and open http://localhost:4174.");
   }
   const contentType = response.headers.get("content-type") || "";
   const data = contentType.includes("application/json") ? await response.json().catch(() => ({})) : {};
@@ -3762,7 +3762,7 @@ async function handleAuthSubmit(e) {
   } catch (err) {
     state.authBusy = false;
     if (mode === "signup" && err.code === "EMAIL_EXISTS") {
-      goToAuth("signin", "That email already has a LiquidityLens account. Sign in instead, or use Forgot password if you need a reset link.");
+      goToAuth("signin", "That email already has a LiquidityLink account. Sign in instead, or use Forgot password if you need a reset link.");
       showToast("Account already exists. Use sign in.", "info");
       return;
     }
@@ -3925,7 +3925,7 @@ function parseSalesCsv(text) {
   if (indexes.sku < 0 && indexes.productName < 0) missing.push("sku or product name");
   if (missing.length) {
     const guidance = looksLikeShopifyProductExport
-      ? " This looks like a Shopify Products/Inventory CSV. For forecasts, upload Shopify Admin > Orders > Export CSV because LiquidityLens needs order dates and line item quantities."
+      ? " This looks like a Shopify Products/Inventory CSV. For forecasts, upload Shopify Admin > Orders > Export CSV because LiquidityLink needs order dates and line item quantities."
       : " Upload a Shopify Orders CSV or a sales CSV with SKU/product name, date, and quantity sold columns.";
     return {
       rows,
@@ -4394,7 +4394,7 @@ function sendMessage(e) {
     state.marketplaceBusy = false;
     const isDirectory = isDirectoryListing(state.selectedRetailer);
     state.messageSent = isDirectory
-      ? `Saved outreach note for ${retailer}. Use their listed website or phone for manual contact until they join LiquidityLens.`
+      ? `Saved outreach note for ${retailer}. Use their listed website or phone for manual contact until they join LiquidityLink.`
       : `Request sent to ${retailer}. They typically respond within 24 hours.`;
     render();
     showToast(isDirectory ? `Outreach note saved for ${retailer}.` : `Transaction request sent to ${retailer}.`, "success");
@@ -4555,7 +4555,7 @@ async function disableMfa() {
 }
 
 function openHow() {
-  modalRoot.innerHTML = `<div class="modal-overlay" data-modal-close><article class="modal-card" role="dialog" aria-modal="true"><button class="btn-icon modal-close" data-modal-x aria-label="Close">${icon("x")}</button><h2 class="text-xl">How LiquidityLens works</h2><ol class="steps"><li><div><strong>Connect your store</strong><p>Link your POS or ERP system in under 2 minutes using OAuth or API keys.</p></div></li><li><div><strong>Import your data</strong><p>LiquidityLens pulls your sales history, current inventory levels, and product catalog.</p></div></li><li><div><strong>Get your forecast</strong><p>ARIMA and XGBoost models generate an 8-week demand forecast blended into one ensemble output.</p></div></li><li><div><strong>Act on recommendations</strong><p>Each SKU gets a clear action: buy, sell, hold, or transfer, with quantities and urgency.</p></div></li><li><div><strong>Track your savings</strong><p>See recovered revenue, avoided stockouts, and reduced markdowns in the executive report.</p></div></li></ol></article></div>`;
+  modalRoot.innerHTML = `<div class="modal-overlay" data-modal-close><article class="modal-card" role="dialog" aria-modal="true"><button class="btn-icon modal-close" data-modal-x aria-label="Close">${icon("x")}</button><h2 class="text-xl">How LiquidityLink works</h2><ol class="steps"><li><div><strong>Connect your store</strong><p>Link your POS or ERP system in under 2 minutes using OAuth or API keys.</p></div></li><li><div><strong>Import your data</strong><p>LiquidityLink pulls your sales history, current inventory levels, and product catalog.</p></div></li><li><div><strong>Get your forecast</strong><p>ARIMA and XGBoost models generate an 8-week demand forecast blended into one ensemble output.</p></div></li><li><div><strong>Act on recommendations</strong><p>Each SKU gets a clear action: buy, sell, hold, or transfer, with quantities and urgency.</p></div></li><li><div><strong>Track your savings</strong><p>See recovered revenue, avoided stockouts, and reduced markdowns in the executive report.</p></div></li></ol></article></div>`;
   modalRoot.querySelector("[data-modal-close]").addEventListener("click", e => { if (e.target.dataset.modalClose !== undefined || e.target.closest("[data-modal-x]")) modalRoot.innerHTML = ""; });
 }
 
@@ -4570,7 +4570,7 @@ function downloadReport() {
       return counts;
     }, {});
     const csv = [
-      ["LiquidityLens Executive Report", new Date().toLocaleDateString("en-US", { day: "2-digit", month: "long", year: "numeric" })],
+      ["LiquidityLink Executive Report", new Date().toLocaleDateString("en-US", { day: "2-digit", month: "long", year: "numeric" })],
       [],
       ["Inventory Health Summary"],
       ...summaryRows,
@@ -4578,11 +4578,11 @@ function downloadReport() {
       ["Data Source", state.salesRecords.length ? `${state.salesRecords.length} synced sales rows` : "Starter sample data"],
       ["Inventory Source", state.inventoryItems.length ? `${state.inventoryItems.length} synced inventory items` : "Estimated from sample data"],
       ["SKU Action Summary", `Buy: ${actionCounts.buy || 0} SKUs`, `Sell: ${actionCounts.sell || 0} SKUs`, `Transfer: ${actionCounts.transfer || 0} SKUs`, `Hold: ${actionCounts.hold || 0} SKUs`],
-      ["Generated by LiquidityLens", "Confidential"],
+      ["Generated by LiquidityLink", "Confidential"],
     ].map(r => r.map(c => `"${String(c).replaceAll('"', '""')}"`).join(",")).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    a.download = `LiquidityLens-Report-${iso}.csv`;
+    a.download = `LiquidityLink-Report-${iso}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
     state.reportBusy = false;
