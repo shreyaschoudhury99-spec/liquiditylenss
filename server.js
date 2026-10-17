@@ -16,6 +16,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const isProduction = process.env.NODE_ENV === "production";
 const port = Number(process.env.PORT || 4174);
 const appBaseUrl = process.env.APP_BASE_URL || `http://localhost:${port}`;
+const publicSiteBaseUrl = new URL(process.env.PUBLIC_SITE_URL || "https://liquiditylink-public.onrender.com").origin;
 const jwtSecret = process.env.JWT_SECRET || "dev-only-change-me";
 const cookieSecret = process.env.COOKIE_SECRET || "dev-only-cookie-secret";
 const accessTokenTtl = "24h";
@@ -5058,13 +5059,14 @@ const seoFaqs = {
 };
 
 function structuredDataForPath(pathname, title, description, canonical) {
+  const siteBaseUrl = publicSeoPaths.includes(pathname) ? publicSiteBaseUrl : appBaseUrl;
   const graph = [
     {
       "@type": "Organization",
-      "@id": `${appBaseUrl}/#organization`,
+      "@id": `${siteBaseUrl}/#organization`,
       name: "LiquidityLink",
-      url: appBaseUrl,
-      logo: `${appBaseUrl}/assets/liquiditylink-logo.png`,
+      url: siteBaseUrl,
+      logo: `${siteBaseUrl}/assets/liquiditylink-logo.png`,
       sameAs: [
         "https://www.linkedin.com/company/liquiditylink",
         "https://www.instagram.com/liquiditylink/",
@@ -5072,20 +5074,20 @@ function structuredDataForPath(pathname, title, description, canonical) {
     },
     {
       "@type": "WebSite",
-      "@id": `${appBaseUrl}/#website`,
+      "@id": `${siteBaseUrl}/#website`,
       name: "LiquidityLink",
-      url: appBaseUrl,
-      publisher: { "@id": `${appBaseUrl}/#organization` },
+      url: siteBaseUrl,
+      publisher: { "@id": `${siteBaseUrl}/#organization` },
     },
     {
       "@type": "SoftwareApplication",
-      "@id": `${appBaseUrl}/#software`,
+      "@id": `${siteBaseUrl}/#software`,
       name: "LiquidityLink",
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web",
-      url: appBaseUrl,
+      url: siteBaseUrl,
       description: "Retail inventory forecasting, stockout prevention, inventory optimization, and inventory analytics software.",
-      publisher: { "@id": `${appBaseUrl}/#organization` },
+      publisher: { "@id": `${siteBaseUrl}/#organization` },
     },
     {
       "@type": "WebPage",
@@ -5093,8 +5095,8 @@ function structuredDataForPath(pathname, title, description, canonical) {
       url: canonical,
       name: title,
       description,
-      isPartOf: { "@id": `${appBaseUrl}/#website` },
-      about: { "@id": `${appBaseUrl}/#software` },
+      isPartOf: { "@id": `${siteBaseUrl}/#website` },
+      about: { "@id": `${siteBaseUrl}/#software` },
     },
   ];
   if (seoFaqs[pathname]) {
@@ -5113,8 +5115,9 @@ function structuredDataForPath(pathname, title, description, canonical) {
 
 
 function renderShell(req) {
+  const pageBaseUrl = publicSeoPaths.includes(req.path) ? publicSiteBaseUrl : appBaseUrl;
   const [title, description] = metaForPath(req.path);
-  const canonical = `${appBaseUrl}${req.path === "/" ? "/" : req.path}`;
+  const canonical = `${pageBaseUrl}${req.path === "/" ? "/" : req.path}`;
   const structuredData = structuredDataForPath(req.path, title, description, canonical);
   return `<!doctype html>
 <html lang="en">
@@ -5127,9 +5130,9 @@ function renderShell(req) {
     <meta property="og:description" content="${htmlAttr(description)}" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="${htmlAttr(canonical)}" />
-    <meta property="og:image" content="${appBaseUrl}/assets/liquiditylink-logo.png" />
+    <meta property="og:image" content="${pageBaseUrl}/assets/liquiditylink-logo.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="${appBaseUrl}/assets/liquiditylink-logo.png" />
+    <meta name="twitter:image" content="${pageBaseUrl}/assets/liquiditylink-logo.png" />
     <meta name="google-site-verification" content="hACdu8dNNbQ3uvcgqv4Hux00TU1oxYM8nw8RiBgEoj0" />
     <link rel="canonical" href="${htmlAttr(canonical)}" />
     <link rel="icon" href="/assets/liquiditylink-logo.png" />
@@ -5170,21 +5173,7 @@ app.get("/robots.txt", (_req, res) => {
 });
 
 app.get("/sitemap.xml", (_req, res) => {
-  const today = new Date().toISOString().slice(0, 10);
-  const urls = publicSeoPaths.map((pathname, index) => {
-    const loc = `${appBaseUrl}${pathname === "/" ? "/" : pathname}`;
-    const priority = pathname === "/" ? "1.0" : index <= 5 ? "0.8" : "0.6";
-    return `  <url>
-    <loc>${xmlEscape(loc)}</loc>
-    <lastmod>${today}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>${priority}</priority>
-  </url>`;
-  }).join("\n");
-  res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls}
-</urlset>`);
+  res.redirect(301, `${publicSiteBaseUrl}/sitemap.xml`);
 });
 
 app.get("/google3a56a25c5ae125f2.html", (_req, res) => {
@@ -5206,7 +5195,14 @@ app.use(express.static(__dirname, {
   dotfiles: "ignore",
   extensions: false,
 }));
-app.get("*", (req, res) => res.send(renderShell(req)));
+app.get("*", (req, res) => {
+  if (publicSeoPaths.includes(req.path) && req.query.edit !== "1") {
+    const destination = new URL(req.originalUrl, publicSiteBaseUrl);
+    if (destination.pathname === "/industries") destination.pathname = "/solutions";
+    return res.redirect(301, destination.href);
+  }
+  return res.send(renderShell(req));
+});
 
 app.use((err, _req, res, _next) => {
   console.error(err);

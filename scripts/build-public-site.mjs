@@ -21,7 +21,7 @@ const context = vm.createContext({
   location: new URL(publicOrigin),
   localStorage: { getItem() { return null; } }, sessionStorage: { getItem() { return null; } },
   console, URL, URLSearchParams, Intl, setTimeout() {}, clearTimeout() {},
-  appBaseUrl: publicOrigin,
+  appBaseUrl: publicOrigin, publicSiteBaseUrl: publicOrigin,
 });
 const appSource = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 const end = appSource.lastIndexOf('\nrender();\nbootAuth();');
