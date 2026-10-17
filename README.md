@@ -68,3 +68,11 @@ For sandbox REST Clients, do not override the Clover URLs unless you need to deb
 Sign in using Google with the website owner email (the `DEMO_REQUEST_OWNER_EMAIL` environment variable, defaulting to `shreyaschoudhury23@gmail.com`). On the public website, click **Edit website** at the bottom. Click an outlined heading, paragraph, FAQ, footer text, or statistic; enter the replacement and click **Save changes**. Saves publish immediately to all visitors. Use **Restore original** to undo a field, and **Done editing** to leave edit mode.
 
 Edits apply to matching text on the current page and are stored in Postgres, so they survive restarts and deployments. Edit other pages by navigating to them. The live Instagram count continues to come from the connected channel. Layout, images, link destinations, and interactive app data remain code-managed. The server requires a verified owner account for every write; workspace admins and other visitors cannot publish edits.
+
+## Free public website hosting
+
+The public marketing pages can deploy separately as a Render Static Site using `node scripts/build-public-site.mjs` and publish directory `dist-public`. Set `SKIP_INSTALL_DEPS=true`; the exporter uses only Node built-ins. Render's `RENDER_EXTERNAL_URL` supplies the canonical origin; `PUBLIC_SITE_URL` overrides it for a custom domain. `APP_ORIGIN` defaults to the existing Render app.
+
+Add a Render **Rewrite** rule from `/api/*` to `https://liquiditylens-f536.onrender.com/api/*`. This keeps public contact forms, live channel data, and saved website text connected to the original backend. Authentication and app links open the existing app directly. The footer's **Website editor** link opens the owner editor on that app; saved copy appears on the public host when reloaded. Public HTML, styles, images, robots.txt, and sitemap remain available even while the backend sleeps. Forms and content refreshes can take longer when the backend must wake up.
+
+Public routes export full HTML, so search engines can read the marketing content without JavaScript or the app database. Adding a new public route requires adding it to the shared app route/view map. The generator stops with an error if the app/template structure no longer supports a complete export.

@@ -5143,7 +5143,7 @@ function renderShell(req) {
     <div id="toastRoot" class="toast-container" aria-live="polite"></div>
     <div id="modalRoot"></div>
     <div id="app"><main class="ssr-fallback"><h1>${htmlAttr(title.split(" | ")[0])}</h1><p>${htmlAttr(description)}</p><ul><li>SKU-level demand forecasts</li><li>Stockout and overstock risk signals</li><li>Transfer marketplace and executive reports</li></ul></main></div>
-    <script src="/app.js?v=40"></script>
+    <script src="/app.js?v=41"></script>
   </body>
 </html>`;
 }

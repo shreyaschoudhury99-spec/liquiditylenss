@@ -1,3 +1,4 @@
+const publicWebsite = window.LIQUIDITY_PUBLIC_SITE || null;
 let websiteCopy = {};
 let websiteCopyAvailable = false;
 let websiteCanEdit = false;
@@ -786,6 +787,10 @@ function toggleTheme() {
 }
 
 function navigate(path) {
+  if (publicWebsite) {
+    location.assign(publicRoutes.has(path) ? path : new URL(path, publicWebsite.appOrigin).href);
+    return;
+  }
   if (!(path in routes)) path = "/";
   if (state.path === path && location.pathname === path) return;
   pushPath(path);
@@ -937,6 +942,7 @@ function marketingLayout(content) {
       </div>
       <div class="marketing-footer-links seo-footer-links">
         ${seoLandingPaths.map(path => `<a href="${path}" data-route="${path}">${esc(routes[path])}</a>`).join("")}
+        <a href="${publicWebsite ? attr(publicWebsite.appOrigin) : ""}/?edit=1">Website editor</a>
       </div>
     </footer>
   </div>`;
@@ -3114,6 +3120,15 @@ function render() {
 }
 
 function bind() {
+  if (publicWebsite) {
+    document.querySelectorAll('a[href]').forEach(link => {
+      const url = new URL(link.getAttribute('href'), location.href);
+      if (url.origin === location.origin && !publicRoutes.has(url.pathname) && (authRoutes.has(url.pathname) || url.pathname in routes)) {
+        link.href = new URL(url.pathname + url.search, publicWebsite.appOrigin).href;
+        link.removeAttribute('data-route');
+      }
+    });
+  }
   document.querySelectorAll("[data-route]").forEach(el => el.addEventListener("click", e => { e.preventDefault(); navigate(el.getAttribute("data-route")); }));
   document.querySelectorAll("button[data-theme]").forEach(el => el.addEventListener("click", toggleTheme));
   document.querySelectorAll("[data-auth-mode]").forEach(el => el.addEventListener("click", () => {
@@ -4840,6 +4855,18 @@ function openWebsiteTextEditor(key, original, current) {
 }
 
 async function bootAuth() {
+  if (publicWebsite) {
+    if (!publicRoutes.has(location.pathname)) {
+      location.replace(new URL(location.pathname + location.search, publicWebsite.appOrigin).href);
+      return;
+    }
+    state.authReady = true;
+    state.loading = false;
+    render();
+    // Public content renders immediately, even while the separate app is asleep.
+    loadWebsiteCopy().then(() => render());
+    return;
+  }
   await loadWebsiteCopy();
   const params = new URLSearchParams(location.search);
   const oauthError = params.get("error");
