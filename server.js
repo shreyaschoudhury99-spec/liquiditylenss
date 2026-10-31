@@ -4956,8 +4956,8 @@ for (const provider of Object.keys(oauthProviders)) {
 
 function metaForPath(pathname) {
   const pages = {
-    "/": ["LiquidityLink | Inventory Intelligence", "Forecast demand, detect stockout risk, and coordinate inventory transfers from a single retail operations workspace."],
-    "/platform": ["Platform | LiquidityLink", "Inventory intelligence, forecasting, supplier risk, and executive reporting built for retail operators."],
+    "/": ["LiquidityLink | Retail Inventory Forecasting Software", "LiquidityLink helps retailers forecast demand, identify stockout and excess inventory risk, and plan replenishment and store transfers. Explore a focused pilot."],
+    "/platform": ["Retail Inventory Intelligence Platform | LiquidityLink", "Explore LiquidityLink inventory forecasting, stockout risk signals, replenishment decisions, and reporting for retail operations teams."],
     "/features": ["Features | LiquidityLink", "Forecast accuracy, replenishment signals, risk scoring, marketplace matching, and reporting for modern retail teams."],
     "/solutions": ["Solutions | LiquidityLink", "Inventory planning workflows for supply chain, operations, finance, and executive teams."],
     "/dashboard": ["LiquidityLink Dashboard", "Inventory risk score, revenue exposure, and SKU recommendations for retail operators."],

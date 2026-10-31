@@ -115,7 +115,7 @@ const companyLinks = {
 const juneJulyMetrics = [
   { key: "instagramFollowers", value: "350", label: "Instagram followers", detail: "Followers since the first LiquidityLink Instagram launch posts in July." },
   { key: "retailers", value: "10", label: "Local retailers connected", detail: "Retailers ready to kick-start the pilot program." },
-  { key: "interns", value: "10", label: "Interns recruited", detail: "Supporting outreach, marketing, website development, and business administration." },
+  { key: "interns", value: "12", label: "Interns recruited", detail: "Supporting outreach, marketing, website development, and business administration." },
   { key: "linkedinImpressions", value: "500+", label: "LinkedIn impressions", detail: "Since the company page was created on 7/22." },
 ];
 
@@ -336,7 +336,7 @@ function icon(name) {
 }
 
 function logo() {
-  return `<div class="logo"><img class="logo-mark" src="assets/liquiditylink-logo.png?v=9" alt="" aria-hidden="true" /><span class="logo-title">LiquidityLink</span></div>`;
+  return `<div class="logo"><img class="logo-mark" src="/assets/liquiditylink-logo.png?v=9" alt="" aria-hidden="true" /><span class="logo-title">LiquidityLink</span></div>`;
 }
 
 function esc(value) {
@@ -1096,16 +1096,82 @@ const seoLandingPages = {
   },
 };
 
+const inventoryPlanningGuides = {
+  "/inventory-forecasting-software": {
+    title: "How to turn an inventory forecast into a buying decision",
+    intro: "An inventory forecast estimates future demand. A replenishment decision also needs available stock, incoming orders, supplier lead time, and a buffer for uncertainty. Review those inputs together before placing an order.",
+    cards: [
+      { kicker: "Inputs", title: "Start with consistent SKU and store data", copy: "Bring dated sales quantities, current stock, and product identifiers for the same location and time period. Mark returns, promotions, missing records, and periods when an item was unavailable: zero sales during a stockout does not necessarily mean zero demand." },
+      { kicker: "Worked example", title: "Compare stock with demand during lead time", copy: "Illustrative calculation: at 5 units per day and a 10-day supplier lead time, expected lead-time demand is 50 units. Adding an assumed 15-unit safety buffer gives a reorder point of 65 units. With 40 units on hand and no incoming orders or reservations, inventory is 25 units below that threshold. This flags a replenishment review; order size also depends on the review period, minimum order, and delivery timing." },
+      { kicker: "Review", title: "Measure the forecast against a simple baseline", copy: "Compare forecasts with actual demand over several completed planning windows. Review errors by SKU and store, along with stockouts and excess stock. A forecast that looks accurate in aggregate can still miss the products that matter most. The calculation above is an educational example, not a customer result or a guarantee." },
+    ],
+    link: "/stockout-prevention", linkText: "See how to prioritize stockout prevention",
+  },
+  "/stockout-prevention": {
+    title: "Check whether stock will last until the next delivery",
+    intro: "Stockout prevention starts with the gap between inventory cover and the time needed to receive more stock. A risk signal helps a planner decide what to investigate; it cannot guarantee that a supplier or transfer will arrive on time.",
+    cards: [
+      { kicker: "Worked example", title: "Calculate the shortage window", copy: "Illustrative example: 40 units on hand at an assumed demand of 5 units per day gives 8 days of cover. If the next delivery takes 12 days, the store faces a 4-day gap, equivalent to 20 units of demand at that rate. Demand may vary, so review a range rather than treating this estimate as certain lost sales." },
+      { kicker: "Options", title: "Compare a transfer with a new purchase", copy: "Check whether another store has surplus stock after protecting its own demand. Compare transfer time and cost with the supplier delivery date, then confirm availability before committing. An urgent purchase may help one location while leaving excess stock elsewhere." },
+      { kicker: "Follow-through", title: "Review the outcome after delivery", copy: "Record what was ordered or transferred, when it arrived, and whether the item remained available. Revisit demand assumptions after promotions, unusual sales spikes, and supplier delays. Use observed outcomes to refine the next planning cycle." },
+    ],
+    link: "/inventory-forecasting-software", linkText: "Explore inventory forecasting inputs and decisions",
+  },
+  "/retail-demand-forecasting": {
+    title: "Separate expected demand from recorded sales",
+    intro: "Retail demand forecasting is most useful when teams understand what the sales history leaves out. Missing stock, changing assortments, and promotions can all change how a past sales pattern should inform the next buying cycle.",
+    cards: [
+      { kicker: "History", title: "Mark availability and unusual events", copy: "Review stockout periods, returns, promotions, and store closures alongside sales. A product cannot record normal sales when it is unavailable. Keep those periods visible so a low sales total is not automatically treated as a lasting drop in demand." },
+      { kicker: "Planning window", title: "Match the horizon to the decision", copy: "A weekly transfer decision and a seasonal purchase need different planning horizons. Compare expected demand over the period the decision must cover, and review uncertainty before committing to an order that cannot easily be changed." },
+      { kicker: "Evaluation", title: "Check performance on completed periods", copy: "Evaluate a forecast on periods that were not used to fit it. Compare with a simple baseline, such as recent average sales, and investigate errors by product and location. New products and limited history need additional planner judgment." },
+    ],
+    link: "/inventory-forecasting-software", linkText: "Turn retail demand forecasts into inventory decisions",
+  },
+  "/inventory-optimization": {
+    title: "Balance product availability with inventory cost",
+    intro: "Inventory optimization requires a tradeoff: holding more stock can protect availability but ties up cash and increases exposure to markdowns. Review the tradeoff by product and location instead of applying one target to every SKU.",
+    cards: [
+      { kicker: "Segment", title: "Set priorities by product behavior", copy: "Separate steady sellers, seasonal items, new products, and slow movers. Consider supplier reliability, margin, and the effect of a shortage before choosing which items need a larger buffer or a closer review." },
+      { kicker: "Compare", title: "Evaluate the cost of each action", copy: "For excess inventory, compare holding, transferring, and marking down the stock. Include transport cost, storage cost, and likely future demand. A transfer only helps when the receiving store can use the stock without creating another surplus." },
+      { kicker: "Measure", title: "Track availability and cash together", copy: "Review stockout frequency, inventory value, sell-through, and markdowns over the same period. Reducing inventory value alone can hide a service problem; improving availability alone can hide excessive purchases." },
+    ],
+    link: "/retail-inventory-analytics", linkText: "Choose inventory metrics for an operating review",
+  },
+  "/retail-inventory-analytics": {
+    title: "Build an inventory review around decisions",
+    intro: "Retail inventory analytics should help a team identify what needs attention, understand the evidence, and follow up on an action. Use consistent definitions and time periods so buyers, operators, and finance teams can compare the same picture.",
+    cards: [
+      { kicker: "Availability", title: "Read inventory cover alongside lead time", copy: "Days of cover estimates how long stock will last at an assumed demand rate. Compare it with delivery timing and demand uncertainty. Check whether incoming stock is confirmed and whether reservations reduce the quantity available to sell." },
+      { kicker: "Capital", title: "Separate stock value from carrying cost", copy: "Inventory value measures cash invested in goods. Carrying cost estimates the expense of holding them over time. Keep assumptions for storage, financing, and obsolescence visible rather than treating the two figures as interchangeable." },
+      { kicker: "Accountability", title: "Connect each exception to an owner", copy: "For each product flagged for review, record the proposed action, responsible person, and expected completion date. Compare the outcome with the original assumption so the next review can distinguish a model error from an execution delay." },
+    ],
+    link: "/inventory-optimization", linkText: "Compare availability and cash in inventory optimization",
+  },
+};
+
+function inventoryPlanningGuide(pathname) {
+  const guide = inventoryPlanningGuides[pathname];
+  return marketingSection("Planning guide", guide.title, guide.intro,
+    `${marketingCards(guide.cards)}<p><a href="${guide.link}" data-route="${guide.link}">${esc(guide.linkText)}</a></p>`, "seo-section");
+}
+
+function inventoryTopicLinks() {
+  return marketingSection("Inventory planning", "Explore the inventory decisions that matter to your stores.",
+    "Start with the problem you are trying to solve, from forecasting demand to deciding where stock should move.",
+    `<div class="marketing-card-grid">${seoLandingPaths.map(path => `<article class="marketing-card"><h3><a href="${path}" data-route="${path}">${esc(routes[path])}</a></h3><p>${esc(seoLandingPages[path].copy)}</p></article>`).join("")}</div>`, "seo-section");
+}
+
 function seoLandingPage(pathname) {
   const page = seoLandingPages[pathname] || seoLandingPages["/inventory-forecasting-software"];
   const related = seoLandingPaths.filter(path => path !== pathname).slice(0, 4);
   return `${pageHero(page.eyebrow, page.title, page.copy, productFrame("Inventory intelligence preview", cleanForecastVisual(), "Forecasts, risk scores, and actions in one planning surface."), "seo")}
   <section class="seo-signal-strip" aria-label="Key product signals">${page.signal.map(item => `<span>${esc(item)}</span>`).join("")}</section>
-  ${marketingSection("How it helps", "Turn search intent into an operating workflow.", "These pages explain the specific inventory problems LiquidityLink is built to solve for retail teams.", marketingCards(page.cards), "seo-section")}
-  ${pageInteractive("Preview the action queue behind the message.", "Search traffic should land on more than a claim. This workflow shows how LiquidityLink turns forecast and inventory signals into specific SKU actions.", "understock")}
-  ${marketingSection("Common questions", "Answers buyers search for before a pilot.", "Clear, indexable answers help retail operators understand whether LiquidityLink fits their inventory workflow.", `<div class="marketing-faq">${page.faqs.map(([q, a]) => `<details open><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join("")}</div>`, "seo-section")}
+  ${marketingSection("How it helps", "Connect inventory signals to your next decision.", "Review demand, availability, and the next action in one retail planning workflow.", marketingCards(page.cards), "seo-section")}
+  ${inventoryPlanningGuide(pathname)}
+  ${pageInteractive("Preview a retail inventory action queue.", "Explore an illustrative workflow for reviewing forecast and inventory signals before taking action.", "understock")}
+  ${marketingSection("Common questions", "Questions to ask before an inventory pilot.", "Understand the inputs, scope, and decisions involved before connecting your store data.", `<div class="marketing-faq">${page.faqs.map(([q, a]) => `<details open><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join("")}</div>`, "seo-section")}
   <section class="seo-related-links">
-    <p class="eyebrow">Related SEO pages</p>
+    <p class="eyebrow">Related inventory planning topics</p>
     <div>${related.map(path => `<a href="${path}" data-route="${path}">${esc(routes[path])}</a>`).join("")}</div>
   </section>`;
 }
@@ -1451,6 +1517,7 @@ function homePage() {
     </div>
   </section>
   ${businessCollaboration()}
+  ${inventoryTopicLinks()}
   ${tractionBand({
     eyebrow: "Live statistics",
     title: "July momentum, refreshed from live channels where possible.",
@@ -1625,7 +1692,7 @@ function bookDemoPage() {
     </form>
     <article class="marketing-card pilot-structure-card">
       <div class="pilot-card-logo">
-        <img src="assets/liquiditylink-logo.png?v=9" alt="" aria-hidden="true" />
+        <img src="/assets/liquiditylink-logo.png?v=9" alt="" aria-hidden="true" />
         <span>LiquidityLink</span>
       </div>
       <p class="eyebrow">Pilot structure</p>
@@ -4856,10 +4923,12 @@ function openWebsiteTextEditor(key, original, current) {
 
 async function bootAuth() {
   if (publicWebsite) {
-    if (!publicRoutes.has(location.pathname)) {
+    const publicPath = location.pathname.replace(/\/+$/, "") || "/";
+    if (!publicRoutes.has(publicPath)) {
       location.replace(new URL(location.pathname + location.search, publicWebsite.appOrigin).href);
       return;
     }
+    state.path = publicPath;
     state.authReady = true;
     state.loading = false;
     render();
