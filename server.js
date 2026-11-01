@@ -4968,7 +4968,7 @@ function metaForPath(pathname) {
     "/marketplace": ["Marketplace | LiquidityLink", "Find nearby retailers with matching inventory excess or shortage signals."],
     "/community": ["Community | LiquidityLink", "Coordinate markdowns, delivery routes, and bulk buys with retail peers."],
     "/pricing": ["Work with us | LiquidityLink", "Explore a focused inventory intelligence pilot for your retail business."],
-    "/resources": ["Resources | LiquidityLink", "Guides, frameworks, and operating playbooks for inventory risk teams."],
+    "/resources": ["Retail Inventory Planning Guides & Pilot Checklist | LiquidityLink", "Explore retail inventory forecasting and stockout guides, a practical 30-day pilot playbook, and a sales and stock data preparation checklist."],
     "/blog": ["Blog | LiquidityLink", "Inventory intelligence essays, forecasting methods, and retail operations analysis."],
     "/docs": ["Documentation | LiquidityLink", "Implementation guides for connecting retail data and interpreting LiquidityLink analytics."],
     "/security": ["Security | LiquidityLink", "Enterprise security, privacy, and data governance for retail inventory systems."],

@@ -114,7 +114,7 @@ const companyLinks = {
 
 const juneJulyMetrics = [
   { key: "instagramFollowers", value: "350", label: "Instagram followers", detail: "Followers since the first LiquidityLink Instagram launch posts in July." },
-  { key: "retailers", value: "10", label: "Local retailers connected", detail: "Retailers ready to kick-start the pilot program." },
+  { key: "retailers", value: "5", label: "Local retailers connected", detail: "Retailers ready to kick-start the pilot program." },
   { key: "interns", value: "12", label: "Interns recruited", detail: "Supporting outreach, marketing, website development, and business administration." },
   { key: "linkedinImpressions", value: "500+", label: "LinkedIn impressions", detail: "Since the company page was created on 7/22." },
 ];
@@ -1396,7 +1396,7 @@ function statBand(stats) {
 
 function pageHero(eyebrow, title, copy, art, mood = "") {
   const heroSignal = {
-    resources: ["Pilot library", "Risk score guide", "Executive business case"],
+    resources: ["Planning guides", "Pilot playbook", "Data checklist"],
     contact: ["Sales", "Security", "Partners"],
     about: ["Mission", "Pilot program", "Customer success"],
     integrations: ["CSV", "Shopify", "Clover"],
@@ -1575,13 +1575,35 @@ function solutionsPage() {
 }
 
 function resourcesPage() {
-  return `${pageHero("Resources", "Resources for evaluating inventory intelligence.", "Buyer guides, pilot templates, and executive narratives that help teams decide where to start.", "", "resources")}
-  <section class="editorial-grid">${[
-    { title: "Pilot playbook", copy: "How to define scope, connect data, and measure impact in the first 30 days." },
-    { title: "Inventory risk score guide", copy: "The components behind demand gaps, stock position, and revenue exposure." },
-    { title: "Executive business case", copy: "A template for connecting forecast accuracy to cash flow and margin." },
-    { title: "Integration checklist", copy: "What to prepare before connecting POS, commerce, and warehouse data." },
-  ].map((card, i) => `<article><div class="resource-thumb">${i % 2 ? inventoryMockup() : forecastMockup()}</div><p class="eyebrow">${i === 0 ? "Playbook" : i === 1 ? "Guide" : i === 2 ? "Template" : "Checklist"}</p><h2>${esc(card.title)}</h2><p>${esc(card.copy)}</p></article>`).join("")}</section>`;
+  const guides = [
+    ["/inventory-forecasting-software", "Inventory forecasting guide", "Understand the data inputs, lead-time demand, and reorder-point example behind a buying decision."],
+    ["/stockout-prevention", "Stockout prevention guide", "Compare days of cover with the next delivery and evaluate transfer or replenishment options."],
+    ["/retail-demand-forecasting", "Retail demand forecasting guide", "Account for missing stock, promotions, and uncertainty when reviewing sales history."],
+    ["/inventory-optimization", "Inventory optimization guide", "Balance availability, markdown exposure, and cash invested in stock."],
+    ["/retail-inventory-analytics", "Inventory analytics guide", "Choose consistent measures for availability, inventory value, and action follow-through."],
+  ];
+  return `${pageHero("Retail inventory resources", "Practical guides for your first inventory planning pilot.", "Prepare your data, choose a manageable scope, and decide how to evaluate inventory recommendations before expanding a pilot.", "", "resources")}
+  ${marketingSection("Start with a question", "Choose a guide for the decision you need to make.", "Each guide includes practical checks for a retail planning review. Worked examples use illustrative assumptions, not customer results.",
+    `<div class="marketing-card-grid">${guides.map(([path, title, copy]) => `<article class="marketing-card"><h3><a href="${path}" data-route="${path}">${esc(title)}</a></h3><p>${esc(copy)}</p></article>`).join("")}</div>`, "resources-guides")}
+  <section class="marketing-section" id="pilot-playbook" aria-labelledby="pilot-playbook-title">
+    <div class="marketing-section-head"><p class="eyebrow">Pilot playbook</p><h2 id="pilot-playbook-title">Plan a focused 30-day inventory pilot.</h2><p>This is a suggested evaluation schedule. Data access, supplier cycles, and your team's capacity may require a longer window; 30 days is not a promised implementation time or a guarantee of measurable savings.</p></div>
+    ${marketingCards([
+      { kicker: "Days 1–7", title: "Agree on scope and a baseline", copy: "Choose one store or category and one decision, such as reviewing products likely to run out before replenishment. Name a planner who can check recommendations. Record the current planning method and the metrics you will compare; do not change the definition halfway through the pilot." },
+      { kicker: "Days 8–14", title: "Check records before comparing forecasts", copy: "Confirm that product identifiers match across sales and stock records. Check units, dates, location names, duplicate rows, and missing periods. Identify promotions, returns, and stockout days. Keep a copy of the original data so corrections can be reviewed." },
+      { kicker: "Days 15–21", title: "Review recommendations with a planner", copy: "Compare proposed actions with available stock, confirmed inbound orders, supplier timing, and store constraints. Record which suggestions were accepted, changed, or rejected and why. Keep purchase and transfer approval with the person responsible for those decisions." },
+      { kicker: "Days 22–30", title: "Review evidence and decide what comes next", copy: "Compare completed periods with the baseline using the same scope and definitions. Separate forecast errors from late deliveries or actions that were never executed. If sales volume or lead times make the sample too small, extend the evaluation before drawing a conclusion." },
+    ])}
+    <p>For measurement definitions, use the <a href="/retail-inventory-analytics" data-route="/retail-inventory-analytics">retail inventory analytics guide</a>. To discuss an evaluation for your store, <a href="/book-demo" data-route="/book-demo">scope an inventory pilot with LiquidityLink</a>.</p>
+  </section>
+  <section class="marketing-section" id="data-checklist" aria-labelledby="data-checklist-title">
+    <div class="marketing-section-head"><p class="eyebrow">Data preparation checklist</p><h2 id="data-checklist-title">Prepare sales and stock records that can be compared.</h2><p>This checklist describes planning inputs. Exact import fields and connection requirements should be confirmed for your selected data source before uploading.</p></div>
+    ${marketingCards([
+      { kicker: "Sales history", title: "Use consistent product, date, and location records", copy: "Prepare SKU identifiers, sale dates, quantities, and locations. State whether returns are negative quantities or separate records, and whether dates use local time. Preserve periods with no sales so missing data can be distinguished from an actual zero." },
+      { kicker: "Stock position", title: "Date the inventory snapshot", copy: "Record current stock by SKU and location with a snapshot date. Identify reserved, damaged, or otherwise unavailable units. Keep confirmed incoming orders separate from stock already available to sell, with expected receipt dates where known." },
+      { kicker: "Operating context", title: "Make constraints and exceptions visible", copy: "Note supplier lead times, order minimums, pack sizes, promotions, and assortment changes. Flag limited history and periods when stock was unavailable. Share only information needed for the evaluation; customer payment details are not needed for these planning checks." },
+    ])}
+    <p>Review the <a href="/integrations" data-route="/integrations">available data connections</a> and <a href="/docs" data-route="/docs">implementation notes</a> before choosing an import route.</p>
+  </section>`;
 }
 
 function blogPage() {
