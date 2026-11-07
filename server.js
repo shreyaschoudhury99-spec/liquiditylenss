@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import sgMail from "@sendgrid/mail";
+import { createShopifyTokenManager, shopifyTokenFields, isShopifyLegacyTokenError } from "./integrations/shopify-tokens.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -2655,6 +2656,8 @@ function verifyShopifyHmac(query, secret) {
   }
 }
 
+const getShopifyToken = createShopifyTokenManager({ pool, encrypt: encryptSecret, decrypt: decryptSecret });
+
 async function shopifyApi(shop, accessToken, resource, params = {}) {
   const apiVersion = process.env.SHOPIFY_API_VERSION || "2026-04";
   const url = new URL(`https://${shop}/admin/api/${apiVersion}/${resource}.json`);
@@ -2672,6 +2675,11 @@ async function shopifyApi(shop, accessToken, resource, params = {}) {
     : Array.isArray(data.errors)
       ? data.errors.join(" ")
       : data.error || data.message || "Shopify request failed.";
+  if (isShopifyLegacyTokenError(response.status, shopifyMessage)) {
+    const err = new Error("Shopify requires expiring access tokens. Reconnect Shopify to renew access.");
+    err.code = "SHOPIFY_LEGACY_TOKEN";
+    throw err;
+  }
   if (response.status === 401) {
     const err = new Error("Shopify needs to be reconnected. Please reconnect this store.");
     err.code = "SHOPIFY_REAUTH_REQUIRED";
@@ -2696,7 +2704,7 @@ async function shopifyApi(shop, accessToken, resource, params = {}) {
 }
 
 async function syncShopifyOrders(userId, shop, accessToken) {
-  const locations = await shopifyApi(shop, accessToken, "locations", { limit: "250" }).catch(() => ({ locations: [] }));
+  const locations = await shopifyApi(shop, accessToken, "locations", { limit: "250" });
   const locationById = new Map((locations.locations || []).map(location => [String(location.id), location.name || shop]));
   const productsData = await shopifyApi(shop, accessToken, "products", {
     limit: "250",
@@ -2726,7 +2734,7 @@ async function syncShopifyOrders(userId, shop, accessToken) {
   const costByInventoryItemId = new Map();
   for (let index = 0; index < inventoryItemIds.length; index += 50) {
     const chunk = inventoryItemIds.slice(index, index + 50);
-    const costData = await shopifyApi(shop, accessToken, "inventory_items", { ids: chunk.join(","), limit: "250" }).catch(() => ({ inventory_items: [] }));
+    const costData = await shopifyApi(shop, accessToken, "inventory_items", { ids: chunk.join(","), limit: "250" });
     for (const item of costData.inventory_items || []) {
       const cost = Number(item.cost);
       if (Number.isFinite(cost) && cost > 0) costByInventoryItemId.set(String(item.id), cost);
@@ -2738,9 +2746,6 @@ async function syncShopifyOrders(userId, shop, accessToken) {
     const levelsData = await shopifyApi(shop, accessToken, "inventory_levels", {
       limit: "250",
       inventory_item_ids: chunk.join(","),
-    }).catch(err => {
-      if (err.code === "SHOPIFY_PERMISSION_DENIED") throw err;
-      return { inventory_levels: [] };
     });
     for (const level of levelsData.inventory_levels || []) {
       const variant = variantByInventoryItemId.get(String(level.inventory_item_id || ""));
@@ -2763,11 +2768,12 @@ async function syncShopifyOrders(userId, shop, accessToken) {
   });
   const orders = ordersData.orders || [];
   const totals = new Map();
-  await pool.query("BEGIN");
+  const syncClient = await pool.connect();
   try {
-    await pool.query("DELETE FROM inventory_items WHERE user_id = $1 AND source = 'shopify'", [userId]);
+    await syncClient.query("BEGIN");
+    await syncClient.query("DELETE FROM inventory_items WHERE user_id = $1 AND source = 'shopify'", [userId]);
     for (const item of inventoryRows) {
-      await pool.query(
+      await syncClient.query(
         `INSERT INTO inventory_items (user_id, sku, product, current_quantity, unit_price, unit_cost, source, external_id, location)
          VALUES ($1, $2, $3, $4, $5, $6, 'shopify', $7, $8)
          ON CONFLICT (user_id, source, sku, location) DO UPDATE
@@ -2793,7 +2799,7 @@ async function syncShopifyOrders(userId, shop, accessToken) {
     }
     for (const [key, quantity] of totals) {
       const [sku, saleDate, location] = key.split("\u0000");
-      await pool.query(
+      await syncClient.query(
         `INSERT INTO sales_records (user_id, sku, sale_date, quantity, location, source)
          VALUES ($1, $2, $3, $4, $5, 'shopify')
          ON CONFLICT (user_id, source, sku, sale_date, location) DO UPDATE
@@ -2802,10 +2808,12 @@ async function syncShopifyOrders(userId, shop, accessToken) {
         [userId, sku, saleDate, quantity, location]
       );
     }
-    await pool.query("COMMIT");
+    await syncClient.query("COMMIT");
   } catch (err) {
-    await pool.query("ROLLBACK");
+    await syncClient.query("ROLLBACK");
     throw err;
+  } finally {
+    syncClient.release();
   }
   await migrateFlatDataToPlanning(userId);
   return { orders: orders.length, rows: totals.size, inventoryItems: inventoryRows.length };
@@ -4520,11 +4528,12 @@ app.get("/api/integrations/shopify/callback", oauthLimiter, asyncRoute(async (re
       client_id: process.env.SHOPIFY_CLIENT_ID,
       client_secret: process.env.SHOPIFY_CLIENT_SECRET,
       code: String(req.query.code || ""),
+      expiring: 1,
     }),
   });
   const scopes = tokenSet.scope || process.env.SHOPIFY_SCOPES || "";
   await saveIntegrationToken(stored.userId, "shopify", {
-    accessToken: tokenSet.access_token,
+    ...shopifyTokenFields(tokenSet),
     scopes,
     externalAccount: shop,
     detail: `Connected to ${shop}. Press Sync now to import Shopify orders.`,
@@ -4676,7 +4685,15 @@ app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, re
       return res.status(409).json({ error: status.detail, code: "SHOPIFY_NOT_CONNECTED", status });
     }
     try {
-      const synced = await syncShopifyOrders(req.user.sub, connection.external_account, decryptSecret(connection.access_token_enc));
+      let token = await getShopifyToken(req.user.sub);
+      let synced;
+      try {
+        synced = await syncShopifyOrders(req.user.sub, token.shop, token.accessToken);
+      } catch (err) {
+        if (!["SHOPIFY_LEGACY_TOKEN", "SHOPIFY_REAUTH_REQUIRED"].includes(err.code)) throw err;
+        token = await getShopifyToken(req.user.sub, { rejectedToken: token.accessToken, migrateLegacy: err.code === "SHOPIFY_LEGACY_TOKEN" });
+        synced = await syncShopifyOrders(req.user.sub, token.shop, token.accessToken);
+      }
       const analytics = await buildPlanningAnalytics(req.user.sub, { persist: true });
       const status = await upsertIntegration(req.user.sub, "shopify", {
         status: "connected",
@@ -4687,7 +4704,7 @@ app.post("/api/integrations/:provider/sync", authUser, asyncRoute(async (req, re
       return res.json({ ok: true, status, synced, analytics });
     } catch (err) {
       const status = await upsertIntegration(req.user.sub, "shopify", {
-        status: err.code === "SHOPIFY_REAUTH_REQUIRED" ? "needs_reauth" : "error",
+        status: ["SHOPIFY_REAUTH_REQUIRED", "SHOPIFY_LEGACY_TOKEN"].includes(err.code) ? "needs_reauth" : "error",
         detail: err.message,
         externalAccount: connection.external_account,
       });
@@ -4972,7 +4989,7 @@ function metaForPath(pathname) {
     "/blog": ["Blog | LiquidityLink", "Inventory intelligence essays, forecasting methods, and retail operations analysis."],
     "/docs": ["Documentation | LiquidityLink", "Implementation guides for connecting retail data and interpreting LiquidityLink analytics."],
     "/security": ["Security | LiquidityLink", "Enterprise security, privacy, and data governance for retail inventory systems."],
-    "/integrations": ["Integrations | LiquidityLink", "Connect Shopify, Clover, Square, CSV, and retail data systems to LiquidityLink."],
+    "/integrations": ["Shopify & POS Inventory Data Integrations | LiquidityLink", "Connect Shopify orders, products and location inventory to LiquidityLink. Review read-only access, manual sync, data limits, and a checklist for your first forecast."],
     "/about": ["About | LiquidityLink", "LiquidityLink helps retailers prevent stockouts, reduce excess inventory, and improve working capital."],
     "/contact": ["Contact | LiquidityLink", "Talk to LiquidityLink about inventory intelligence, pilots, and enterprise deployments."],
     "/book-demo": ["Book Demo | LiquidityLink", "Book a LiquidityLink demo for your retail planning, operations, or finance team."],

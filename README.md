@@ -80,3 +80,13 @@ Public routes export full HTML, so search engines can read the marketing content
 Live public site: https://liquiditylink-public.onrender.com/
 
 The backend redirects public marketing requests to this host and preserves `?edit=1` for its owner editing view. Its old sitemap redirects to the static sitemap. Set `PUBLIC_SITE_URL` on the app if moving the public host later. `/industries` now redirects to `/solutions`.
+
+## Shopify verification and token renewal
+
+Shopify sync uses the configured `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET` to request expiring offline tokens, save the access and refresh tokens encrypted, and renew access before expiry. If Shopify rejects an existing non-expiring token, the next sync attempts Shopify's documented offline-token exchange once, persists the new pair, and retries the import. Renewal is serialized with a database row lock. Revoked or expired refresh access requires **Connect Shopify** again. No additional Shopify scopes are requested by this migration.
+
+A connection badge is not proof of a current import. Open **Connect Store**, choose Shopify, click **Sync now**, and confirm a new successful timestamp and order/sales/inventory counts. Then inspect **Inventory**, **Forecasts**, and **Advanced Analytics** against the source store. The sync reads Shopify only; it does not write stock, products, or orders to Shopify. Imported inventory writes use one database transaction, and failed required API reads do not silently become a successful empty import.
+
+Current limits: manual sync; at most the first 250 products and 250 orders, without cursor pagination; standard Shopify order access normally covers the latest 60 days. Existing stored sales history is retained when a later sync sees a smaller recent-order window. Larger catalogs/history and new public app distribution need a separate GraphQL/pagination implementation and validation. A successful sync to the owner's store does not establish App Store approval or compatibility with every retailer.
+
+Run token migration, refresh, failure, and credential handling tests with `npm run test:shopify`. No real store credentials are used in these tests.

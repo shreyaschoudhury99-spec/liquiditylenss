@@ -6,9 +6,10 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "check": "node --check server.js && node --check app.js",
+    "check": "node --check server.js && node --check app.js && node --check integrations/shopify-tokens.mjs",
     "check:auth": "node scripts/check-auth-setup.mjs",
-    "build:public": "node scripts/build-public-site.mjs"
+    "build:public": "node scripts/build-public-site.mjs",
+    "test:shopify": "node --test test/shopify-tokens.test.mjs"
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.5",

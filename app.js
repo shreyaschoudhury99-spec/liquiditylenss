@@ -1655,14 +1655,25 @@ function securityPage() {
 }
 
 function integrationsPage() {
-  return marketingPage("Connect the systems that already run your stores.", "Start with CSV, Shopify, Clover, or Square, then expand into ERPs, data warehouses, and private APIs.", [
-    { title: "CSV upload", copy: "Fastest path to a pilot when historical sales data is already available." },
-    { title: "Shopify", copy: "Pull products, orders, inventory levels, and store metadata through OAuth." },
-    { title: "Clover", copy: "Connect POS merchant data for item, order, and inventory signals." },
-    { title: "Square", copy: "Planned POS connection for sellers using Square locations and catalog data." },
-    { title: "Enterprise APIs", copy: "Private integration path for ERPs, OMS, WMS, and data lake environments." },
-    { title: "Marketplace data", copy: "Public business listings can support outreach, while private inventory requires store participation." },
-  ], "Integrations");
+  return `${marketingPage("Connect Shopify and retail inventory data to better planning.", "Bring sales history and current stock into LiquidityLink, then review forecasts and inventory risks by product and location. Start with Shopify, Clover, or a sales CSV; Square is planned.", [
+    { title: "CSV upload", copy: "Start a pilot with exported sales history and current inventory. Check dates, units, SKU identifiers, and location names before importing." },
+    { title: "Shopify", copy: "Connect a store through Shopify authorization to import product variants, recent orders, location stock, and available unit costs. Run Sync now to refresh the data." },
+    { title: "Clover", copy: "Connect POS merchant data for item, order, and inventory signals. Availability depends on the merchant account and granted permissions." },
+    { title: "Square — planned", copy: "Square is a planned connection. Use CSV exports for a pilot while a direct connection is being developed." },
+    { title: "Enterprise APIs", copy: "Discuss a private integration for ERPs, OMS, WMS, or data warehouses. Scope and availability must be agreed before a pilot." },
+    { title: "Marketplace data", copy: "Public business listings support outreach. Private store inventory requires a participating retailer's authorization." },
+  ], "Integrations")}
+  <section class="marketing-section" id="shopify-inventory-integration" aria-labelledby="shopify-integration-title">
+    <div class="marketing-section-head"><p class="eyebrow">Shopify inventory planning</p><h2 id="shopify-integration-title">What happens when you connect your Shopify store?</h2><p>The Shopify connector reads store data for analysis. It does not create orders, change product prices, or adjust stock in Shopify.</p></div>
+    <div class="marketing-card-grid">
+      <article class="marketing-card"><h3>1. Authorize read-only access</h3><p>Sign in to LiquidityLink, open Connect Store, and enter your store's .myshopify.com domain. Shopify authorization uses read_products, read_orders, read_inventory, and read_locations. Access tokens are stored on the server; expiring tokens are renewed there.</p></article>
+      <article class="marketing-card"><h3>2. Import and check the result</h3><p>Click Sync now. Confirm the successful sync time and imported order, sales-row, and inventory-item counts. A saved connection alone does not prove that a fresh import succeeded. Resolve any authorization or permission error before trusting the analysis.</p></article>
+      <article class="marketing-card"><h3>3. Review a focused forecast</h3><p>Compare imported SKUs, quantities, and locations with Shopify. Start with one category, check unusual results, and review recommendations with a planner before making purchasing or transfer decisions.</p></article>
+    </div>
+    <h3>Know the data limits before your pilot</h3>
+    <p>Sync is manual, rather than a real-time stock feed. The current connector reads up to 250 orders and 250 products per sync; it does not yet paginate larger catalogs or order histories. Shopify's standard read_orders access covers the most recent 60 days. Thin history, incomplete costs, missing SKUs, or duplicate SKU values can limit the usefulness of a forecast. Use a curated CSV or discuss a larger import before evaluating a full catalog.</p>
+    <p>Prepare your files with the <a href="/resources#data-checklist">retail data checklist</a>, learn how to interpret <a href="/retail-inventory-analytics" data-route="/retail-inventory-analytics">inventory analytics</a>, or <a href="/book-demo" data-route="/book-demo">plan a Shopify inventory pilot</a>.</p>
+  </section>`;
 }
 
 function aboutPage() {
