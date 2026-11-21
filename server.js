@@ -4993,7 +4993,7 @@ function metaForPath(pathname) {
     "/about": ["About | LiquidityLink", "LiquidityLink helps retailers prevent stockouts, reduce excess inventory, and improve working capital."],
     "/contact": ["Contact | LiquidityLink", "Talk to LiquidityLink about inventory intelligence, pilots, and enterprise deployments."],
     "/book-demo": ["Book Demo | LiquidityLink", "Book a LiquidityLink demo for your retail planning, operations, or finance team."],
-    "/inventory-forecasting-software": ["Inventory Forecasting Software for Retailers | LiquidityLink", "Forecast demand by SKU and location, compare confidence bands, and turn retail inventory forecasts into buy, sell, hold, and transfer recommendations."],
+    "/inventory-forecasting-software": ["Inventory Forecasting Software for Retailers | LiquidityLink", "Review retail inventory forecasting by SKU and location. Explore required data, an eight-week planning workflow, a reorder-point example, and pilot limitations."],
     "/stockout-prevention": ["Stockout Prevention Software for Retailers | LiquidityLink", "Prevent retail stockouts with SKU-level risk scoring, demand forecasting, lost-sales exposure, and transfer or replenishment recommendations."],
     "/retail-demand-forecasting": ["Retail Demand Forecasting Software | LiquidityLink", "Use retail demand forecasting to plan inventory, understand confidence, and coordinate replenishment decisions across products and locations."],
     "/inventory-optimization": ["Inventory Optimization Software for Retailers | LiquidityLink", "Optimize retail inventory by reducing stockouts, excess inventory, carrying cost, and working-capital exposure with SKU-level recommendations."],
@@ -5049,9 +5049,11 @@ function htmlAttr(value) {
 
 const seoFaqs = {
   "/inventory-forecasting-software": [
-    ["What makes LiquidityLink different from a spreadsheet forecast?", "LiquidityLink connects sales, inventory, and location signals, then turns forecast output into ranked inventory actions."],
-    ["Can retailers start with a small pilot?", "Yes. A pilot can focus on one category, one data source, and a narrow set of measurable outcomes such as avoided stockouts or reduced excess stock."],
-    ["Does LiquidityLink replace existing dashboards?", "It can sit beside existing BI tools and focus on forward-looking inventory decisions rather than historical reporting alone."],
+    ["What data does inventory forecasting software need?", "Start with dated sales quantities, consistent SKU and location identifiers, and current available inventory. Unit costs and realistic lead times improve the context for margin and replenishment decisions. Inventory without sales history is not enough to establish demand."],
+    ["Can I use Shopify data or a CSV for a pilot?", "Yes. Review the integrations guide for Shopify's read-only access and manual sync limits, or begin with prepared CSV records. Verify both inventory and sales imports before interpreting the forecast."],
+    ["Does LiquidityLink automatically place purchase orders?", "No. Recommendations support an operator's review; they are not automatically executed purchases or confirmed transfers. Check supplier timing and stock availability before acting."],
+    ["How should I evaluate forecast accuracy?", "Save predictions before the period occurs, then compare them with actual results and a simple recent-sales baseline over matching periods. Review errors by SKU and location, and account for stockouts and limited history. No accuracy percentage or savings outcome is guaranteed."],
+    ["How is this different from an inventory spreadsheet?", "A spreadsheet can be a useful baseline. LiquidityLink brings imported sales, current inventory, forecast indicators, and ranked inventory actions into one review workflow so teams can investigate exceptions together."],
   ],
   "/stockout-prevention": [
     ["How does LiquidityLink help prevent stockouts?", "It combines observed demand, current inventory, forecast range, and operational context to rank products likely to run short."],

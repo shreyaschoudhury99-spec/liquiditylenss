@@ -1017,7 +1017,7 @@ const seoLandingPages = {
   "/inventory-forecasting-software": {
     eyebrow: "Inventory forecasting software",
     title: "Inventory forecasting software for modern retailers.",
-    copy: "LiquidityLink helps retail teams forecast demand, understand confidence, and turn SKU-level signals into replenishment, transfer, and markdown decisions.",
+    copy: "LiquidityLink is retail inventory forecasting software for reviewing demand by SKU and location, spotting shortage or excess-stock risk, and deciding what to buy, hold, sell, or transfer.",
     signal: ["Demand forecasts", "Confidence bands", "SKU actions"],
     cards: [
       { kicker: "Forecasting", title: "Forecast demand by SKU and location", copy: "Model expected demand across the next planning window so buyers know which items need attention before stockouts or overstocks appear." },
@@ -1025,9 +1025,11 @@ const seoLandingPages = {
       { kicker: "Action", title: "Move from forecast to recommendation", copy: "LiquidityLink connects forecast output to buy, sell, hold, and transfer recommendations instead of leaving teams with another static report." },
     ],
     faqs: [
-      ["What makes LiquidityLink different from a spreadsheet forecast?", "LiquidityLink connects sales, inventory, and location signals, then turns forecast output into ranked inventory actions."],
-      ["Can retailers start with a small pilot?", "Yes. A pilot can focus on one category, one data source, and a narrow set of measurable outcomes such as avoided stockouts or reduced excess stock."],
-      ["Does LiquidityLink replace existing dashboards?", "It can sit beside existing BI tools and focus on forward-looking inventory decisions rather than historical reporting alone."],
+      ["What data does inventory forecasting software need?", "Start with dated sales quantities, consistent SKU and location identifiers, and current available inventory. Unit costs and realistic lead times improve the context for margin and replenishment decisions. Inventory without sales history is not enough to establish demand."],
+      ["Can I use Shopify data or a CSV for a pilot?", "Yes. Review the integrations guide for Shopify's read-only access and manual sync limits, or begin with prepared CSV records. Verify both inventory and sales imports before interpreting the forecast."],
+      ["Does LiquidityLink automatically place purchase orders?", "No. Recommendations support an operator's review; they are not automatically executed purchases or confirmed transfers. Check supplier timing and stock availability before acting."],
+      ["How should I evaluate forecast accuracy?", "Save predictions before the period occurs, then compare them with actual results and a simple recent-sales baseline over matching periods. Review errors by SKU and location, and account for stockouts and limited history. No accuracy percentage or savings outcome is guaranteed."],
+      ["How is this different from an inventory spreadsheet?", "A spreadsheet can be a useful baseline. LiquidityLink brings imported sales, current inventory, forecast indicators, and ranked inventory actions into one review workflow so teams can investigate exceptions together."],
     ],
   },
   "/stockout-prevention": {
@@ -1161,6 +1163,20 @@ function inventoryTopicLinks() {
     `<div class="marketing-card-grid">${seoLandingPaths.map(path => `<article class="marketing-card"><h3><a href="${path}" data-route="${path}">${esc(routes[path])}</a></h3><p>${esc(seoLandingPages[path].copy)}</p></article>`).join("")}</div>`, "seo-section");
 }
 
+function forecastingPilotWorkflow() {
+  return `${marketingSection("Forecasting workflow", "From store data to a weekly inventory review.", "Start with a small group of products and compare recommendations with the decisions your team makes today.", marketingCards([
+    { kicker: "1. Prepare", title: "Match sales history to the stock you can sell", copy: "Keep SKU identifiers and location names consistent across dated sales quantities and current inventory. Add unit costs where available so margin metrics have a reliable input. Review missing dates and unusual promotions before interpreting a trend." },
+    { kicker: "2. Review", title: "Read demand and stock together", copy: "LiquidityLink presents an eight-week outlook alongside inventory risk and suggested buy, sell, or hold actions. Review the selected store, recent sales history, available units, and lead-time assumptions before accepting a recommendation. The public preview uses illustrative data; your signed-in workspace uses imported records." },
+    { kicker: "3. Follow up", title: "Compare the next decision with what happened", copy: "Record the forecast, the action you chose, and the actual units sold over the same period. Compare against a simple recent-sales baseline. Review forecast errors alongside availability: a product that sold out cannot reveal all the demand you missed." },
+  ]), "seo-section")}
+  ${marketingSection("Before you rely on a forecast", "Know what the inputs can and cannot tell you.", "Forecasts support planner judgment. They do not guarantee sales, availability, or savings.", marketingCards([
+    { kicker: "Limited history", title: "Inventory alone is not a demand history", copy: "A successful inventory import does not prove that usable sales history is present. Check imported sales rows and the low-history warnings before making a buying decision. New products, sparse sales, and changes in assortment need additional review." },
+    { kicker: "Assumptions", title: "Treat ranges and value estimates as estimates", copy: "Forecast ranges and confidence indicators depend on the available history and model assumptions; they are not a promise of a particular accuracy rate. Missing unit costs limit margin analysis, and missing lead-time information can leave a default assumption that needs checking." },
+    { kicker: "Execution", title: "Recommendations still need an operator", copy: "A suggested purchase or transfer is a planning signal, not a confirmed supplier order or shipment. Check incoming deliveries, reservations, minimum order quantities, supplier reliability, and another store's needs before acting." },
+  ]), "seo-section")}
+  <section class="seo-related-links" aria-label="Forecasting pilot next steps"><p class="eyebrow">Prepare your first planning review</p><div><a href="/integrations" data-route="/integrations">Check Shopify import access and sync limits</a><a href="/resources" data-route="/resources">Use the pilot and data preparation checklist</a><a href="/retail-inventory-analytics" data-route="/retail-inventory-analytics">Review inventory metrics and their assumptions</a></div></section>`;
+}
+
 function seoLandingPage(pathname) {
   const page = seoLandingPages[pathname] || seoLandingPages["/inventory-forecasting-software"];
   const related = seoLandingPaths.filter(path => path !== pathname).slice(0, 4);
@@ -1168,6 +1184,7 @@ function seoLandingPage(pathname) {
   <section class="seo-signal-strip" aria-label="Key product signals">${page.signal.map(item => `<span>${esc(item)}</span>`).join("")}</section>
   ${marketingSection("How it helps", "Connect inventory signals to your next decision.", "Review demand, availability, and the next action in one retail planning workflow.", marketingCards(page.cards), "seo-section")}
   ${inventoryPlanningGuide(pathname)}
+  ${pathname === "/inventory-forecasting-software" ? forecastingPilotWorkflow() : ""}
   ${pageInteractive("Preview a retail inventory action queue.", "Explore an illustrative workflow for reviewing forecast and inventory signals before taking action.", "understock")}
   ${marketingSection("Common questions", "Questions to ask before an inventory pilot.", "Understand the inputs, scope, and decisions involved before connecting your store data.", `<div class="marketing-faq">${page.faqs.map(([q, a]) => `<details open><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join("")}</div>`, "seo-section")}
   <section class="seo-related-links">
